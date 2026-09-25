@@ -1,0 +1,217 @@
+<?php
+
+namespace Database\Seeders;
+
+use App\Enums\AvailabilityStatus;
+use App\Enums\TeamType;
+use App\Models\Department;
+use App\Models\Fdt;
+use App\Models\Olt;
+use App\Models\Outage;
+use App\Models\OutageType;
+use App\Models\Port;
+use App\Models\Service;
+use App\Models\ShiftAssignment;
+use App\Models\Slot;
+use App\Models\Team;
+use App\Models\User;
+use App\Models\UserSkill;
+use App\Models\Vertical;
+use App\Services\Outages\OutageWorkflow;
+use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Auth;
+
+/**
+ * Local / staging demo data. Drives sample outages through the real workflow + FIFO engine,
+ * so seeding doubles as an end-to-end smoke test of the lifecycle.
+ */
+class DemoDataSeeder extends Seeder
+{
+    public const PASSWORD = 'Password123!';
+
+    public function run(OutageWorkflow $workflow): void
+    {
+        $dept = Department::query()->pluck('id', 'code');
+
+        // ---------------------------------------------------------------- teams
+        $noc = $this->team('NOC Operations', $dept['NOC'], TeamType::InHouse);
+        $nocShiftA = $this->team('NOC Shift A', $dept['NOC'], TeamType::InHouse, $noc);
+        $cx = $this->team('Customer Experience', $dept['CX'], TeamType::InHouse);
+        $dispatch = $this->team('Field Dispatch', $dept['DISPATCH'], TeamType::InHouse);
+        $infra = $this->team('Infrastructure Field Ops', $dept['INFRA'], TeamType::InHouse);
+        $north = $this->team('North Crew', $dept['INFRA'], TeamType::InHouse, $infra);
+        $south = $this->team('South Crew', $dept['INFRA'], TeamType::InHouse, $infra);
+        $vendor = $this->team('FibreTech Contractors', $dept['INFRA'], TeamType::Outsource);
+        $vendorCrew = $this->team('FibreTech Crew 1', $dept['INFRA'], TeamType::Outsource, $vendor);
+
+        // ---------------------------------------------------------------- users
+        $this->user('System Administrator', 'admin', 'MGMT', 'Super Admin', []);
+        $this->user('Executive Viewer', 'exec', 'MGMT', 'Executive', []);
+
+        $nocManager = $this->user('Nora NOC Manager', 'noc.manager', 'NOC', 'NOC Manager', [$noc]);
+        $nocLead = $this->user('Liam NOC Lead', 'noc.lead', 'NOC', 'NOC Team Leader', [$noc, $nocShiftA]);
+        $this->user('Tariq NOC Tier I', 'noc.tier1', 'NOC', 'NOC Tier I', [$nocShiftA]);
+        $this->user('Grace NOC Tier II', 'noc.tier2', 'NOC', 'NOC Tier II', [$nocShiftA]);
+
+        $cxAgent = $this->user('Chris CX Agent', 'cx.agent', 'CX', 'CX Agent', [$cx]);
+        $this->user('Clara CX Lead', 'cx.lead', 'CX', 'CX Team Leader', [$cx]);
+        $this->user('Dan Dispatcher', 'dispatch', 'DISPATCH', 'Dispatcher', [$dispatch]);
+
+        $infraManager = $this->user('Ian Infra Manager', 'infra.manager', 'INFRA', 'Infrastructure Manager', [$infra]);
+        $infraLead = $this->user('Ivy Infra Lead', 'infra.lead', 'INFRA', 'Infrastructure Team Leader', [$infra]);
+        $this->user('Owen Infra Dispatcher', 'infra.dispatch1', 'INFRA', 'Infrastructure Dispatcher', [$infra]);
+        $this->user('Olivia Infra Dispatcher', 'infra.dispatch2', 'INFRA', 'Infrastructure Dispatcher', [$infra]);
+
+        $techs = [
+            $this->user('Tom Technician', 'tech.north1', 'INFRA', 'Outage Technician', [$north]),
+            $this->user('Tina Technician', 'tech.north2', 'INFRA', 'Outage Technician', [$north]),
+            $this->user('Sam Technician', 'tech.south1', 'INFRA', 'Outage Technician', [$south]),
+            $this->user('Sara Technician', 'tech.south2', 'INFRA', 'Outage Technician', [$south]),
+            $this->user('Victor Vendor Tech', 'vendor.tech1', 'INFRA', 'Outage Technician', [$vendorCrew]),
+        ];
+
+        $noc->forceFill(['leader_id' => $nocLead->id, 'manager_id' => $nocManager->id])->save();
+        $infra->forceFill(['leader_id' => $infraLead->id, 'manager_id' => $infraManager->id])->save();
+        $north->forceFill(['leader_id' => $infraLead->id])->save();
+        $south->forceFill(['leader_id' => $infraLead->id])->save();
+
+        // ---------------------------------------------------------------- topology
+        $ftth = Vertical::query()->where('code', Vertical::FTTH)->value('id');
+        $olts = [];
+        foreach (['Salaama' => 'North', 'Kanengo' => 'North', 'Area 47' => 'South', 'Njewa' => 'South'] as $name => $region) {
+            $olt = Olt::query()->firstOrCreate(['name' => $name], ['location' => "{$name} ({$region})", 'vertical_id' => $ftth, 'is_active' => true]);
+            $olts[$name] = $olt;
+
+            foreach (range(1, 4) as $f) {
+                $fdt = Fdt::query()->firstOrCreate(['olt_id' => $olt->id, 'name' => "FDT {$f}"], ['is_active' => true]);
+                foreach (range(1, 2) as $s) {
+                    $slot = Slot::query()->firstOrCreate(['fdt_id' => $fdt->id, 'name' => "{$s}/".(10 + $f)], ['is_active' => true]);
+                    foreach (range(1, 4) as $p) {
+                        Port::query()->firstOrCreate(['slot_id' => $slot->id, 'name' => (string) $p], ['is_active' => true]);
+                    }
+                }
+            }
+        }
+
+        $north->olts()->syncWithoutDetaching([$olts['Salaama']->id, $olts['Kanengo']->id]);
+        $south->olts()->syncWithoutDetaching([$olts['Area 47']->id, $olts['Njewa']->id]);
+
+        // Skills (used when skill-based FIFO is enabled)
+        $internet = Service::query()->where('name', 'Internet')->value('id');
+        foreach ($techs as $tech) {
+            UserSkill::query()->firstOrCreate(['user_id' => $tech->id, 'vertical_id' => $ftth, 'service_id' => null], ['skill' => 'FTTH splicing', 'is_active' => true]);
+            UserSkill::query()->firstOrCreate(['user_id' => $tech->id, 'service_id' => $internet], ['skill' => 'Internet service restoration', 'is_active' => true]);
+        }
+
+        // Shifts: everyone on shift for the next 7 days so FIFO assigns immediately in the demo.
+        foreach (User::query()->where('username', '!=', 'admin')->get() as $user) {
+            foreach (range(0, 7) as $day) {
+                $date = now()->startOfDay()->addDays($day);
+                ShiftAssignment::query()->firstOrCreate(
+                    ['user_id' => $user->id, 'work_date' => $date->toDateString()],
+                    ['shift_start' => $date, 'shift_end' => $date->copy()->endOfDay(), 'status' => 'scheduled']
+                );
+            }
+        }
+
+        // ---------------------------------------------------------------- sample outages
+        if (Outage::query()->exists()) {
+            return;
+        }
+
+        $type = OutageType::query()->pluck('id', 'code');
+        $mobility = Vertical::query()->where('code', Vertical::MOBILITY_4G)->value('id');
+        $salaamaFdt = $olts['Salaama']->fdts()->where('name', 'FDT 3')->first();
+
+        $samples = [
+            ['Salaama FDT 3 fibre cut', 'regular', $ftth, 11, 'Salaama', [$olts['Salaama']->id], [$salaamaFdt->id], 'resolve'],
+            ['Kanengo OLT power failure', 'emergency', $ftth, 240, 'Kanengo', [$olts['Kanengo']->id], [], 'dispatch'],
+            ['Area 47 splitter degradation', 'regular', $ftth, 35, 'Area 47', [$olts['Area 47']->id], [], 'confirm'],
+            ['Njewa scheduled OLT firmware upgrade', 'planned', $ftth, 60, 'Njewa', [$olts['Njewa']->id], [], 'none'],
+            ['Lilongwe CBD 4G cluster down', 'regular', $mobility, 420, 'Lilongwe CBD', [], [], 'confirm', ['sites_down' => 1, 'cells_down' => 9, 'power_faults' => 1]],
+            ['SEACOM international transit degradation', 'core', $ftth, 1500, 'Core network', [], [], 'confirm'],
+            ['Dialer platform unavailable', 'system', $ftth, 0, 'Contact centre', [], [], 'none'],
+        ];
+
+        foreach ($samples as $i => $sample) {
+            [$title, $typeCode, $vertical, $customers, $location, $oltIds, $fdtIds, $progress] = $sample;
+            $extra = $sample[8] ?? [];
+
+            $outage = $this->as($cxAgent, fn () => $workflow->create(array_merge([
+                'title' => $title,
+                'outage_type_id' => $type[$typeCode],
+                'vertical_id' => $vertical,
+                'customers_affected' => $customers,
+                'location' => $location,
+                'description' => "Demo outage: {$title}.",
+                'start_time' => now()->subMinutes(30 + $i * 25),
+                'olt_ids' => $oltIds,
+                'fdt_ids' => $fdtIds,
+                'service_ids' => [$internet],
+            ], $extra), $cxAgent));
+
+            if ($progress === 'none') {
+                continue;
+            }
+
+            $outage->refresh();
+            $nocUser = $outage->currentAssignee ?? $nocLead;
+            $this->as($nocUser, fn () => $workflow->confirmByNoc($outage, $nocUser, 'Confirmed via monitoring alarms.'));
+
+            if (in_array($progress, ['dispatch', 'resolve'], true) && $outage->refresh()->currentAssignee) {
+                $dispatcher = $outage->currentAssignee;
+                $crew = in_array($location, ['Salaama', 'Kanengo'], true) ? $north : $south;
+                $this->as($dispatcher, fn () => $workflow->dispatch($outage, [
+                    'team_type' => TeamType::InHouse->value, 'team_id' => $infra->id, 'sub_team_id' => $crew->id, 'note' => 'Crew engaged.',
+                ], $dispatcher));
+            }
+
+            if ($progress === 'resolve' && ($tech = $outage->refresh()->currentAssignee)) {
+                $this->as($tech, fn () => $workflow->addUpdate($outage, $tech, 'On site, splicing damaged cable.'));
+                $this->as($tech, fn () => $workflow->reportRestored($outage, $tech, 'Cable spliced and service restored.'));
+
+                $outage->refresh();
+                $restoreNoc = $outage->currentAssignee ?? $nocLead;
+                $this->as($restoreNoc, fn () => $workflow->confirmRestoration($outage, $restoreNoc, 'Customers back online.'));
+                $this->as($nocLead, fn () => $workflow->resolve($outage, $nocLead, 'Fibre cut by road works; cable spliced.'));
+                $this->as($cxAgent, fn () => $workflow->setFlag($outage, 'sms_sent', true, $cxAgent));
+            }
+        }
+
+        Auth::logout();
+    }
+
+    private function team(string $name, int $departmentId, TeamType $type, ?Team $parent = null): Team
+    {
+        return Team::query()->firstOrCreate(
+            ['name' => $name, 'department_id' => $departmentId, 'parent_id' => $parent?->id],
+            ['team_type' => $type, 'is_active' => true],
+        );
+    }
+
+    private function user(string $name, string $username, string $departmentCode, string $role, array $teams): User
+    {
+        $user = User::query()->firstOrCreate(['username' => $username], [
+            'name' => $name,
+            'email' => "{$username}@oms.test",
+            'password' => self::PASSWORD,
+            'department_id' => Department::query()->where('code', $departmentCode)->value('id'),
+            'is_active' => true,
+            'availability_status' => AvailabilityStatus::Available,
+            'availability_changed_at' => now(),
+            'email_verified_at' => now(),
+        ]);
+
+        $user->syncRoles([$role]);
+        $user->teams()->syncWithoutDetaching(collect($teams)->pluck('id')->all());
+
+        return $user;
+    }
+
+    private function as(User $user, callable $callback): mixed
+    {
+        Auth::setUser($user);
+
+        return $callback();
+    }
+}

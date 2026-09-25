@@ -1,0 +1,43 @@
+/* OMS custom view styles (registered through FilamentAsset; no build step required). */
+
+.oms-grid { display: grid; gap: 1rem; grid-template-columns: repeat(1, minmax(0, 1fr)); }
+@media (min-width: 1024px) { .oms-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.oms-grid-4 { display: grid; gap: .75rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 768px) { .oms-grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+.oms-table { width: 100%; border-collapse: collapse; font-size: .875rem; }
+.oms-table th { text-align: left; font-weight: 600; padding: .4rem .5rem; color: rgb(107 114 128); border-bottom: 1px solid rgb(229 231 235); }
+.oms-table td { padding: .4rem .5rem; border-bottom: 1px solid rgb(243 244 246); vertical-align: top; }
+.dark .oms-table th { color: rgb(156 163 175); border-color: rgb(255 255 255 / .1); }
+.dark .oms-table td { border-color: rgb(255 255 255 / .05); }
+.oms-table tr.oms-highlight td { font-weight: 600; color: rgb(217 119 6); }
+
+.oms-muted { color: rgb(107 114 128); }
+.oms-warn { color: rgb(234 88 12); font-weight: 600; }
+.oms-bad { color: rgb(220 38 38); font-weight: 600; }
+.oms-ok { color: rgb(22 163 74); font-weight: 600; }
+
+.oms-stack > * + * { margin-top: 1rem; }
+.oms-label { font-size: .75rem; color: rgb(107 114 128); }
+.oms-value { font-weight: 600; }
+.oms-box { border-radius: .5rem; padding: .75rem; background: rgb(249 250 251); }
+.dark .oms-box { background: rgb(255 255 255 / .05); }
+.oms-box-danger { border: 1px solid rgb(252 165 165); background: rgb(254 242 242); color: rgb(185 28 28); }
+.dark .oms-box-danger { background: rgb(220 38 38 / .1); color: rgb(252 165 165); }
+.oms-chips { display: flex; flex-wrap: wrap; gap: .5rem; }
+.oms-chip { border-radius: .375rem; padding: .15rem .5rem; background: rgb(243 244 246); font-size: .8rem; }
+.dark .oms-chip { background: rgb(255 255 255 / .1); }
+.oms-list { list-style: disc; padding-inline-start: 1.25rem; }
+.oms-pre { overflow: auto; border-radius: .375rem; padding: .5rem; font-size: .75rem; background: rgb(249 250 251); }
+.dark .oms-pre { background: rgb(255 255 255 / .05); }
+
+.oms-email { border: 1px solid rgb(229 231 235); border-radius: .5rem; background: #fff; color: #111827; padding: 1rem; max-height: 70vh; overflow: auto; font-size: .875rem; }
+
+.oms-stats { display: grid; gap: .75rem; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 1rem; }
+@media (min-width: 1024px) { .oms-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.oms-stat { border-radius: .75rem; padding: .75rem 1rem; background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / .05); border: 1px solid rgb(229 231 235); }
+.dark .oms-stat { background: rgb(24 24 27); border-color: rgb(255 255 255 / .1); }
+.oms-stat-value { font-size: 1.5rem; font-weight: 700; }
+
+.oms-check-pass { color: rgb(22 163 74); }
+.oms-check-fail { color: rgb(220 38 38); }

@@ -1,0 +1,110 @@
+<?php
+
+namespace App\Providers\Filament;
+
+use App\Filament\Pages\Dashboard;
+use App\Filament\Widgets\CommandCentreOverview;
+use App\Filament\Widgets\CoreOutagesTable;
+use App\Filament\Widgets\ManagementInsights;
+use App\Filament\Widgets\NetworkOutagesTable;
+use App\Filament\Widgets\OutageKpiOverview;
+use App\Filament\Widgets\OutagesByPriorityChart;
+use App\Filament\Widgets\OutagesByStatusChart;
+use App\Filament\Widgets\RecentOutagesTable;
+use App\Filament\Widgets\SevenDayTrendChart;
+use App\Filament\Widgets\SlaCustomerOverview;
+use App\Filament\Widgets\SystemOutagesTable;
+use App\Http\Middleware\EnsureUserIsActive;
+use Filament\Auth\MultiFactor\App\AppAuthentication;
+use Filament\Http\Middleware\Authenticate;
+use Filament\Http\Middleware\AuthenticateSession;
+use Filament\Http\Middleware\DisableBladeIconComponents;
+use Filament\Http\Middleware\DispatchServingFilamentEvent;
+use Filament\Navigation\NavigationGroup;
+use Filament\Panel;
+use Filament\PanelProvider;
+use Filament\Support\Colors\Color;
+use Filament\Support\Enums\Width;
+use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
+use Illuminate\Cookie\Middleware\EncryptCookies;
+use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
+use Illuminate\Routing\Middleware\SubstituteBindings;
+use Illuminate\Session\Middleware\StartSession;
+use Illuminate\View\Middleware\ShareErrorsFromSession;
+
+class AdminPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->default()
+            ->id('admin')
+            ->path('admin')
+            ->login()
+            ->profile(isSimple: false)
+            ->passwordReset()
+            // Authenticator-app MFA with recovery codes; set OMS_REQUIRE_MFA=true to enforce for everyone.
+            ->multiFactorAuthentication(
+                [AppAuthentication::make()->recoverable()],
+                isRequired: fn () => (bool) config('oms.security.require_mfa'),
+            )
+            ->brandName('Outage Management System')
+            ->colors([
+                'primary' => Color::Amber,
+                'danger' => Color::Red,
+                'warning' => Color::Orange,
+                'success' => Color::Green,
+                'info' => Color::Blue,
+                'gray' => Color::Zinc,
+            ])
+            ->spa()
+            ->unsavedChangesAlerts()
+            ->sidebarCollapsibleOnDesktop()
+            ->maxContentWidth(Width::Full)
+            ->databaseNotifications()
+            // Notifications arrive over Reverb; polling is only a slow safety net.
+            ->databaseNotificationsPolling('120s')
+            ->globalSearchKeyBindings(['command+k', 'ctrl+k'])
+            ->navigationGroups([
+                NavigationGroup::make('Operations'),
+                NavigationGroup::make('Reporting'),
+                NavigationGroup::make('Topology')->collapsed(),
+                NavigationGroup::make('Configuration')->collapsed(),
+                NavigationGroup::make('People')->collapsed(),
+                NavigationGroup::make('Monitoring')->collapsed(),
+            ])
+            ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
+            ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
+            ->pages([
+                Dashboard::class,
+            ])
+            ->widgets([
+                CommandCentreOverview::class,
+                OutageKpiOverview::class,
+                SlaCustomerOverview::class,
+                SevenDayTrendChart::class,
+                OutagesByStatusChart::class,
+                OutagesByPriorityChart::class,
+                NetworkOutagesTable::class,
+                CoreOutagesTable::class,
+                SystemOutagesTable::class,
+                RecentOutagesTable::class,
+                ManagementInsights::class,
+            ])
+            ->middleware([
+                EncryptCookies::class,
+                AddQueuedCookiesToResponse::class,
+                StartSession::class,
+                AuthenticateSession::class,
+                ShareErrorsFromSession::class,
+                PreventRequestForgery::class,
+                SubstituteBindings::class,
+                DisableBladeIconComponents::class,
+                DispatchServingFilamentEvent::class,
+            ])
+            ->authMiddleware([
+                Authenticate::class,
+                EnsureUserIsActive::class,
+            ]);
+    }
+}

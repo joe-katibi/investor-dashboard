@@ -1,0 +1,228 @@
+<?php
+
+namespace App\Filament\Resources\Outages;
+
+use App\Enums\SlaState;
+use App\Filament\Resources\Outages\Pages\CreateOutage;
+use App\Filament\Resources\Outages\Pages\EditOutage;
+use App\Filament\Resources\Outages\Pages\ListOutages;
+use App\Filament\Resources\Outages\Pages\ViewOutage;
+use App\Filament\Resources\Outages\RelationManagers\AssignmentHistoriesRelationManager;
+use App\Filament\Resources\Outages\RelationManagers\AssignmentsRelationManager;
+use App\Filament\Resources\Outages\RelationManagers\AuditLogsRelationManager;
+use App\Filament\Resources\Outages\RelationManagers\FlagEventsRelationManager;
+use App\Filament\Resources\Outages\RelationManagers\NotificationLogsRelationManager;
+use App\Filament\Resources\Outages\RelationManagers\SlaEventsRelationManager;
+use App\Filament\Resources\Outages\RelationManagers\StatusHistoriesRelationManager;
+use App\Filament\Resources\Outages\RelationManagers\UpdatesRelationManager;
+use App\Models\Outage;
+use BackedEnum;
+use Filament\Actions\ActionGroup;
+use Filament\Actions\ViewAction;
+use Filament\Forms\Components\DatePicker;
+use Filament\Infolists\Components\IconEntry;
+use Filament\Infolists\Components\TextEntry;
+use Filament\Resources\Resource;
+use Filament\Schemas\Components\Grid;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Schema;
+use Filament\Support\Icons\Heroicon;
+use Filament\Tables\Columns\IconColumn;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
+use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
+use UnitEnum;
+
+class OutageResource extends Resource
+{
+    protected static ?string $model = Outage::class;
+
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBolt;
+
+    protected static string|UnitEnum|null $navigationGroup = 'Operations';
+
+    protected static ?int $navigationSort = 2;
+
+    protected static ?string $recordTitleAttribute = 'ticket_number';
+
+    public static function getGloballySearchableAttributes(): array
+    {
+        return ['ticket_number', 'title', 'location'];
+    }
+
+    public static function getNavigationBadge(): ?string
+    {
+        // Short cache keeps the sidebar cheap on every page load across all nodes.
+        $count = Cache::remember('oms.nav.active-outages', 30, fn () => Outage::query()->active()->count());
+
+        return $count > 0 ? (string) $count : null;
+    }
+
+    public static function getNavigationBadgeColor(): ?string
+    {
+        return 'danger';
+    }
+
+    public static function form(Schema $schema): Schema
+    {
+        return OutageForm::configure($schema);
+    }
+
+    public static function table(Table $table): Table
+    {
+        return $table
+            ->modifyQueryUsing(fn (Builder $query) => $query->with([
+                'majorOutageType:id,name,code', 'outageType:id,name', 'vertical:id,name', 'priority:id,name,color',
+                'status:id,name,color', 'currentAssignee:id,name', 'olts:id,name', 'activeAssignments',
+            ]))
+            ->defaultSort('start_time', 'desc')
+            ->poll('60s')
+            ->columns([
+                TextColumn::make('ticket_number')->label('Ticket')->searchable()->sortable()->copyable()->weight('bold'),
+                TextColumn::make('title')->searchable()->limit(40)->tooltip(fn (Outage $record) => $record->title)
+                    ->description(fn (Outage $record) => $record->olts->pluck('name')->implode(', ') ?: $record->location),
+                TextColumn::make('majorOutageType.name')->label('Major')->badge()->color('gray')->toggleable(),
+                TextColumn::make('outageType.name')->label('Type')->toggleable(),
+                TextColumn::make('vertical.name')->label('Vertical')->toggleable(),
+                TextColumn::make('priority.name')->label('Priority')->badge()->color(fn (Outage $record) => $record->priority?->color ?? 'gray')->sortable(),
+                TextColumn::make('customers_affected')->label('Customers')->numeric()->sortable(),
+                TextColumn::make('status.name')->label('Status')->badge()->color(fn (Outage $record) => $record->status?->color ?? 'gray'),
+                TextColumn::make('sla_state')->label('SLA')->badge()
+                    ->description(fn (Outage $record) => ! $record->is_closed && $record->sla_due_at ? 'due '.$record->sla_due_at->diffForHumans(short: true) : null),
+                TextColumn::make('elapsed')->label('Elapsed')->state(fn (Outage $record) => $record->elapsedForHumans()),
+                TextColumn::make('current_queue')->label('Queue')->badge()->placeholder('—')->toggleable(),
+                TextColumn::make('currentAssignee.name')->label('Owner')->placeholder('Unassigned'),
+                IconColumn::make('sms_sent')->label('SMS')->boolean()->toggleable(),
+                IconColumn::make('credit_shared')->label('Credit')->boolean()->toggleable(),
+                TextColumn::make('start_time')->label('Start')->dateTime('d M H:i')->sortable(),
+            ])
+            ->filters([
+                SelectFilter::make('major_outage_type_id')->label('Major type')->relationship('majorOutageType', 'name'),
+                SelectFilter::make('outage_type_id')->label('Outage type')->relationship('outageType', 'name'),
+                SelectFilter::make('vertical_id')->label('Vertical')->relationship('vertical', 'name'),
+                SelectFilter::make('priority_id')->label('Priority')->relationship('priority', 'name')->multiple(),
+                SelectFilter::make('status_id')->label('Status')->relationship('status', 'name')->multiple(),
+                SelectFilter::make('sla_state')->label('SLA state')->options(SlaState::class)->multiple(),
+                SelectFilter::make('team_id')->label('Team')->relationship('team', 'name'),
+                SelectFilter::make('olts')->label('OLT')->relationship('olts', 'name')->multiple()->searchable()->preload(),
+                SelectFilter::make('services')->label('Service')->relationship('services', 'name')->multiple()->preload(),
+                Filter::make('start_time')->schema([DatePicker::make('from'), DatePicker::make('until')])
+                    ->query(fn (Builder $query, array $data) => $query
+                        ->when($data['from'] ?? null, fn ($q, $d) => $q->where('start_time', '>=', $d))
+                        ->when($data['until'] ?? null, fn ($q, $d) => $q->where('start_time', '<=', $d.' 23:59:59')))
+                    ->columns(2),
+            ])
+            ->filtersFormColumns(3)
+            ->recordActions([
+                ViewAction::make()->iconButton(),
+                ActionGroup::make([...OutageActions::primary(), ...OutageActions::secondary()]),
+            ]);
+    }
+
+    public static function infolist(Schema $schema): Schema
+    {
+        return $schema->components([
+            Grid::make(3)->schema([
+                Section::make('Outage')->schema([
+                    TextEntry::make('ticket_number')->label('Ticket')->weight('bold')->copyable(),
+                    TextEntry::make('status.name')->label('Status')->badge()->color(fn (Outage $record) => $record->status?->color ?? 'gray'),
+                    TextEntry::make('priority.name')->label('Priority')->badge()->color(fn (Outage $record) => $record->priority?->color ?? 'gray')
+                        ->helperText(fn (Outage $record) => $record->priority_is_manual ? 'Manually overridden' : 'Calculated from impact rules'),
+                    TextEntry::make('title')->columnSpanFull(),
+                    TextEntry::make('majorOutageType.name')->label('Major type'),
+                    TextEntry::make('outageType.name')->label('Outage type'),
+                    TextEntry::make('vertical.name')->label('Vertical'),
+                    TextEntry::make('customers_affected')->label('Customers affected')->numeric(),
+                    TextEntry::make('location')->placeholder('—'),
+                    TextEntry::make('services.name')->label('Affected services')->badge()->placeholder('—'),
+                    TextEntry::make('topology')->label('OLT › FDT › Slot › Port')->state(fn (Outage $record) => $record->topologyPath() ?: null)->placeholder('—')->columnSpanFull(),
+                    TextEntry::make('mobility')->label('4G impact')->state(fn (Outage $record) => "Sites down {$record->sites_down} · Cells down {$record->cells_down} · Power faults {$record->power_faults}")
+                        ->visible(fn (Outage $record) => $record->is4g())->columnSpanFull(),
+                    TextEntry::make('description')->columnSpanFull()->placeholder('—')->prose(),
+                    TextEntry::make('latest_update')->label('Latest action / update')->columnSpanFull()->placeholder('Awaiting update')->prose(),
+                ])->columns(3)->columnSpan(2),
+
+                Grid::make(1)->schema([
+                    Section::make('SLA')->schema([
+                        TextEntry::make('sla_state')->label('State')->badge(),
+                        TextEntry::make('sla_due_at')->label('Due')->dateTime('d M Y H:i')
+                            ->helperText(fn (Outage $record) => ! $record->is_closed && $record->sla_due_at ? $record->sla_due_at->diffForHumans() : null)->placeholder('—'),
+                        TextEntry::make('slaPolicy.name')->label('Policy')->placeholder('Default'),
+                        TextEntry::make('elapsed')->label('Elapsed')->state(fn (Outage $record) => $record->elapsedForHumans()),
+                        IconEntry::make('sla_paused_at')->label('Paused')->state(fn (Outage $record) => $record->sla_paused_at !== null)->boolean()
+                            ->visible(fn (Outage $record) => $record->sla_paused_at !== null),
+                    ])->columns(2),
+                    Section::make('FIFO ownership')->schema([
+                        TextEntry::make('current_queue')->label('Queue')->badge()->placeholder('Not queued'),
+                        TextEntry::make('currentAssignee.name')->label('Assigned to')->placeholder('Waiting for next eligible user'),
+                        TextEntry::make('currentAssignment.status')->label('Assignment')->badge()->placeholder('—'),
+                        TextEntry::make('currentAssignment.ack_due_at')->label('Acknowledge by')->dateTime('H:i')->placeholder('—'),
+                        TextEntry::make('team.name')->label('Team')->placeholder('—'),
+                        TextEntry::make('subTeam.name')->label('Sub-team')->placeholder('—'),
+                        TextEntry::make('technician.name')->label('Technician')->placeholder('—'),
+                        TextEntry::make('team_type')->label('Team type')->badge()->placeholder('—'),
+                    ])->columns(2),
+                    Section::make('Customer communication')->schema([
+                        IconEntry::make('sms_sent')->label('SMS sent')->boolean(),
+                        TextEntry::make('smsUpdatedBy.name')->label('by')->placeholder('—')
+                            ->helperText(fn (Outage $record) => $record->sms_updated_at?->format('d M H:i')),
+                        IconEntry::make('credit_shared')->label('Credit shared')->boolean(),
+                        TextEntry::make('creditUpdatedBy.name')->label('by')->placeholder('—')
+                            ->helperText(fn (Outage $record) => $record->credit_updated_at?->format('d M H:i')),
+                    ])->columns(2),
+                ])->columnSpan(1),
+            ])->columnSpanFull(),
+
+            Section::make('Lifecycle')->schema([
+                TextEntry::make('start_time')->label('Start')->dateTime('d M Y H:i'),
+                TextEntry::make('created_at')->label('Reported')->dateTime('d M Y H:i')
+                    ->helperText(fn (Outage $record) => 'by '.($record->creator?->name ?? 'system')),
+                TextEntry::make('noc_escalated_at')->label('Escalated to NOC')->dateTime('d M H:i')->placeholder('—'),
+                TextEntry::make('noc_confirmed_at')->label('NOC confirmed')->dateTime('d M H:i')->placeholder('—')
+                    ->helperText(fn (Outage $record) => $record->nocConfirmedBy?->name),
+                TextEntry::make('infra_escalated_at')->label('Escalated to Infrastructure')->dateTime('d M H:i')->placeholder('—'),
+                TextEntry::make('dispatched_at')->label('Dispatched')->dateTime('d M H:i')->placeholder('—'),
+                TextEntry::make('restored_at')->label('Restoration reported')->dateTime('d M H:i')->placeholder('—'),
+                TextEntry::make('restore_confirmed_at')->label('NOC restore confirmed')->dateTime('d M H:i')->placeholder('—'),
+                TextEntry::make('end_time')->label('End time')->dateTime('d M Y H:i')->placeholder('—'),
+                TextEntry::make('resolved_at')->label('Resolved')->dateTime('d M Y H:i')->placeholder('—')
+                    ->helperText(fn (Outage $record) => $record->resolvedBy?->name),
+                TextEntry::make('rejection_reason')->label('NOC rejection reason')->placeholder('—')->visible(fn (Outage $record) => filled($record->rejection_reason))->columnSpanFull(),
+                TextEntry::make('final_reason')->label('Final Reason / RFO')->placeholder('—')->columnSpanFull(),
+            ])->columns(5)->collapsible()->columnSpanFull(),
+        ]);
+    }
+
+    public static function getRelations(): array
+    {
+        return [
+            UpdatesRelationManager::class,
+            StatusHistoriesRelationManager::class,
+            AssignmentsRelationManager::class,
+            AssignmentHistoriesRelationManager::class,
+            FlagEventsRelationManager::class,
+            SlaEventsRelationManager::class,
+            NotificationLogsRelationManager::class,
+            AuditLogsRelationManager::class,
+        ];
+    }
+
+    public static function getPages(): array
+    {
+        return [
+            'index' => ListOutages::route('/'),
+            'create' => CreateOutage::route('/create'),
+            'view' => ViewOutage::route('/{record}'),
+            'edit' => EditOutage::route('/{record}/edit'),
+        ];
+    }
+
+    public static function canViewAny(): bool
+    {
+        return (bool) Auth::user()?->can('viewAny', Outage::class);
+    }
+}
