@@ -13,18 +13,27 @@ class NotificationRuleSeeder extends Seeder
     {
         $critical = Priority::query()->where('code', Priority::CRITICAL)->value('id');
 
+        $inAppAndMail = ['database', 'mail'];
+
+        // Lifecycle alerts go in-app AND by e-mail. Specific extra addresses are managed on
+        // Configuration → Alert E-mails (they receive every selected event).
         // [name, event, priority filter, channels, recipient roles, notify assignee, notify team leaders]
         foreach ([
-            ['NOC escalation alert', 'noc_escalation', null, ['database'], ['NOC Team Leader', 'NOC Tier II', 'NOC Tier I'], false, false],
-            ['Infrastructure escalation alert', 'infrastructure_escalation', null, ['database'], ['Infrastructure Team Leader', 'Infrastructure Dispatcher'], false, false],
-            ['Critical outage created', 'outage_created', $critical, ['database', 'mail'], ['NOC Manager', 'Infrastructure Manager', 'Executive'], false, false],
+            ['Ticket created – NOC', 'outage_created', null, $inAppAndMail, ['NOC Manager', 'NOC Team Leader'], false, false],
+            ['Critical outage created', 'outage_created', $critical, $inAppAndMail, ['NOC Manager', 'Infrastructure Manager', 'Executive'], false, false],
+            ['Assigned to NOC', 'noc_escalation', null, $inAppAndMail, ['NOC Team Leader', 'NOC Tier II', 'NOC Tier I'], false, false],
+            ['NOC rejected – CX follow-up', 'noc_rejected', null, $inAppAndMail, ['CX Team Leader'], false, false],
+            ['Assigned to Infrastructure', 'infrastructure_escalation', null, $inAppAndMail, ['Infrastructure Team Leader', 'Infrastructure Dispatcher'], false, false],
+            ['Dispatched to field team', 'dispatched', null, $inAppAndMail, ['Infrastructure Team Leader'], false, true],
+            ['Progress update posted', 'update_posted', null, $inAppAndMail, [], false, true],
+            ['Closed by outage technician (restoration reported)', 'restore_reported', null, $inAppAndMail, ['NOC Team Leader', 'NOC Manager'], false, true],
+            ['Outage resolved and closed', 'resolved', null, $inAppAndMail, ['NOC Manager', 'CX Team Leader'], false, true],
             ['Assignment rejected – leaders', 'assignment_rejected', null, ['database'], [], false, true],
-            ['Queue escalation – managers', 'queue_escalation', null, ['database', 'mail'], ['NOC Manager', 'Infrastructure Manager'], false, true],
-            ['Restoration awaiting NOC', 'restore_reported', null, ['database'], ['NOC Team Leader'], false, false],
-            ['Outage resolved – CX follow-up', 'resolved', null, ['database'], ['CX Team Leader'], false, false],
-            ['Credit due – CX', 'credit_due', null, ['database', 'mail'], ['CX Manager', 'CX Team Leader'], false, false],
+            ['Queue escalation – managers', 'queue_escalation', null, $inAppAndMail, ['NOC Manager', 'Infrastructure Manager'], false, true],
+            ['Credit due – CX', 'credit_due', null, $inAppAndMail, ['CX Manager', 'CX Team Leader'], false, false],
         ] as [$name, $event, $priorityId, $channels, $roles, $assignee, $leaders]) {
-            NotificationRule::query()->updateOrCreate(['name' => $name], [
+            // firstOrCreate: re-seeding on deploy never overwrites rules an administrator has edited.
+            NotificationRule::query()->firstOrCreate(['name' => $name], [
                 'event' => $event,
                 'priority_id' => $priorityId,
                 'channels' => $channels,

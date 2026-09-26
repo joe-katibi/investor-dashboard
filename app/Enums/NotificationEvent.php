@@ -13,6 +13,7 @@ enum NotificationEvent: string implements HasLabel
     case InfrastructureEscalation = 'infrastructure_escalation';
     case Dispatched = 'dispatched';
     case StatusChanged = 'status_changed';
+    case UpdatePosted = 'update_posted';
     case RestoreReported = 'restore_reported';
     case RestoreConfirmed = 'restore_confirmed';
     case Resolved = 'resolved';
@@ -39,6 +40,7 @@ enum NotificationEvent: string implements HasLabel
             self::InfrastructureEscalation => 'Escalated to Infrastructure',
             self::Dispatched => 'Team Dispatched',
             self::StatusChanged => 'Status Changed',
+            self::UpdatePosted => 'Progress Update Posted',
             self::RestoreReported => 'Restoration Reported',
             self::RestoreConfirmed => 'NOC Restore Confirmed',
             self::Resolved => 'Outage Resolved',

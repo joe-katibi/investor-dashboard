@@ -40,6 +40,14 @@ class Settings
 
         // Notifications
         'notifications.credit_due_on_breach' => true,
+
+        // Alert mailing list (Configuration → Alert E-mails)
+        'alerts.emails' => [],
+        'alerts.events' => [
+            'outage_created', 'noc_escalation', 'noc_confirmed', 'noc_rejected', 'infrastructure_escalation',
+            'dispatched', 'update_posted', 'restore_reported', 'restore_confirmed', 'resolved', 'sla_breach',
+        ],
+        'alerts.email_assignee' => true,   // e-mail the person a ticket is assigned to
     ];
 
     /** @var array<string, mixed>|null */

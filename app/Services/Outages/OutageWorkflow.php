@@ -272,6 +272,7 @@ class OutageWorkflow
 
             $outage->forceFill(['latest_update' => $body])->save();
             event(new OutageUpdated($outage->id, $outage->ticket_number));
+            $this->notifier->dispatch(NotificationEvent::UpdatePosted, $outage, ['reason' => $body, 'by' => $by->name]);
 
             return $update;
         });

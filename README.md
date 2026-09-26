@@ -304,11 +304,41 @@ acting on it implicitly accepts the assignment.
   and status; recipients by role, user, e-mail, phone, current assignee and team leaders / managers.
 * Channels: **in-app** (Filament bell + real-time toast), **e-mail**, **SMS** (`log` or generic `http` driver).
 * Events: outage created, NOC escalation, NOC confirmed / rejected, Infrastructure escalation, dispatched, status
-  changed, restoration reported / confirmed, resolved, priority changed, assigned, assignment rejected,
-  acknowledgement timeout, queue escalation, SLA pre-breach / breach / escalation, credit due, credit shared, SMS
-  sent, scheduled report.
+  changed, progress update posted, restoration reported / confirmed, resolved, priority changed, assigned,
+  assignment rejected, acknowledgement timeout, queue escalation, SLA pre-breach / breach / escalation, credit due,
+  credit shared, SMS sent, scheduled report.
 * Every recipient × channel is logged (recipient, event, time, status, attempts, failure reason) and delivered by a
   queued job with retry and backoff; failed deliveries can be retried from *Monitoring → Notification Log*.
+* A recipient gets one message per channel per event, even when several rules (and the alert list) match them.
+
+### Lifecycle alerts (in-app + e-mail)
+
+| Stage | Event | Who is alerted (seeded defaults) |
+|---|---|---|
+| Ticket created | `outage_created` | NOC Manager, NOC Team Leader (+ managers / executives for Critical) |
+| Assigned to NOC | `noc_escalation` + `assigned` | NOC Team Leader / Tier II / Tier I, and the NOC user FIFO assigned |
+| NOC rejected | `noc_rejected` | CX Team Leader |
+| Assigned to Infrastructure | `infrastructure_escalation` + `assigned` | Infrastructure Team Leader / Dispatchers, and the assigned dispatcher |
+| Dispatched to field team | `dispatched` + `assigned` | Infrastructure Team Leader, team leaders, and the assigned technician |
+| Progress update posted | `update_posted` | Team leaders of the assigned team |
+| Closed by outage technician | `restore_reported` | NOC Team Leader, NOC Manager, team leaders |
+| Resolved and closed | `resolved` | NOC Manager, CX Team Leader, team leaders |
+
+### Alert e-mails (specific addresses)
+
+*Configuration → Alert E-mails* (permission `notifications.manage`):
+
+* **Alert e-mail addresses** — any number of addresses or distribution lists that receive an e-mail for every
+  selected event, independent of roles and rules.
+* **Events** — tick which events are e-mailed to that list (by default: created, assigned to NOC, NOC confirmed /
+  rejected, assigned to Infrastructure, dispatched, updates, closed by technician, restore confirmed, resolved, SLA
+  breach).
+* **E-mail the assignee** — the person FIFO (or a dispatcher / manager) assigns a ticket to also gets an e-mail.
+* **Send test e-mail** — checks the mail configuration; the screen warns when `MAIL_MAILER` is `log` (e-mails are
+  written to the log instead of being sent). Configure SMTP in `.env` for real delivery.
+
+Notification rules are seeded with `firstOrCreate`, so re-running the seeders never overwrites rules an
+administrator has edited.
 
 ## Reports and exports
 
@@ -423,7 +453,7 @@ users and outages are added only outside production. Each seeder can also be run
 | `PrioritySeeder` | Low 0–9, Medium 10–49, High 50–199, Critical 200+ customers; FIFO rank Critical 1 → Low 4 |
 | `SlaPolicySeeder` | Critical 4h, High 8h, Medium 12h, Low 24h (pre-breach, ack timeout, escalation), Planned Maintenance window |
 | `QueueDefinitionSeeder` | NOC Review (NOC, 10 min ack), Infrastructure Dispatch (INFRA, 15), Technician (INFRA, 20), NOC Restore (NOC, 15) |
-| `NotificationRuleSeeder` | NOC / Infrastructure escalation alerts, critical outage created, assignment rejected, queue escalation, restoration awaiting NOC, resolved CX follow-up, credit due |
+| `NotificationRuleSeeder` | In-app + e-mail lifecycle alerts: ticket created, assigned to NOC, NOC rejected, assigned to Infrastructure, dispatched, progress update, closed by technician, resolved; critical outages, queue escalation, credit due |
 | `EmailTemplateSeeder` | Two-Hour Update, Executive Summary, Summary Report |
 | `DemoDataSeeder` | Non-production only: teams, users, topology, shifts, skills, sample outages |
 
@@ -435,7 +465,7 @@ users and outages are added only outside production. Each seeder can also be run
 | Reporting | Reports | |
 | Topology | OLTs, FDTs, Slots, Ports | Hierarchical; OLT team coverage; deactivate instead of delete |
 | Configuration | FIFO & SLA Settings | All spec §27.8 options, SLA fallbacks, pause switch |
-| Configuration | Verticals, Affected Services, Major Outage Types, Outage Types (prefixes), Statuses (final reason / pauses SLA / manual / closed flags), Impact / Priority Rules (thresholds + FIFO rank), SLA Policies, FIFO Queues, Notification Rules, Email Templates & Schedules | Notification rules cannot be deleted — deactivate them |
+| Configuration | Verticals, Affected Services, Major Outage Types, Outage Types (prefixes), Statuses (final reason / pauses SLA / manual / closed flags), Impact / Priority Rules (thresholds + FIFO rank), SLA Policies, FIFO Queues, Notification Rules, Alert E-mails, Email Templates & Schedules | Notification rules cannot be deleted — deactivate them |
 | People | Departments, Teams & Sub-teams (leader, manager, members, OLT coverage), Users (roles, teams, skills, shifts incl. recurring generator, leave, availability history, MFA reset), Roles & Permissions | |
 | Monitoring | Notification Log (retry failed), Audit Trail | |
 

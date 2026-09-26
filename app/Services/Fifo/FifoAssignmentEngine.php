@@ -267,10 +267,15 @@ class FifoAssignmentEngine
 
             event(new OutageAssigned($outage->id, $outage->ticket_number, [$user->id], ['queue' => $entry->queue_type->value]));
 
-            $this->notifier->notifyUsers(NotificationEvent::Assigned, $outage, [$user], [NotificationChannel::InApp->value], [
+            $context = [
+                'assignee_id' => $user->id,
                 'queue' => $entry->queue_type->getLabel(),
-            ]);
-            $this->notifier->dispatch(NotificationEvent::Assigned, $outage, ['assignee_id' => $user->id, 'queue' => $entry->queue_type->getLabel()]);
+                'by' => $by?->name ?? 'FIFO engine (automatic)',
+            ];
+
+            // The assignee always gets it in-app, and by e-mail when "E-mail the assignee" is enabled.
+            $this->notifier->notifyUsers(NotificationEvent::Assigned, $outage, [$user], $this->notifier->assignmentChannels(), $context);
+            $this->notifier->dispatch(NotificationEvent::Assigned, $outage, $context);
 
             return $assignment;
         });

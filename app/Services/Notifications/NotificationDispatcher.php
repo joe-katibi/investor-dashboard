@@ -11,6 +11,7 @@ use App\Models\Outage;
 use App\Models\Team;
 use App\Models\User;
 use App\Support\AuditContext;
+use App\Support\Settings;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 
@@ -35,6 +36,9 @@ class NotificationDispatcher
             fn () => NotificationRule::query()->active()->get()->map->getAttributes()->all(),
         ));
 
+        // One recipient gets one message per channel per event, however many rules match them.
+        $seen = [];
+
         foreach ($rules->where('event', $event->value) as $rule) {
             if (! $rule->matches($outage)) {
                 continue;
@@ -47,8 +51,38 @@ class NotificationDispatcher
                 'phones' => $rule->recipient_phones,
                 'assignee' => $rule->notify_assignee,
                 'team_leaders' => $rule->notify_team_leaders,
-            ], $outage, $context), $context, $rule->id);
+            ], $outage, $context), $context, $rule->id, $seen);
         }
+
+        $this->deliverToAlertList($event, $outage, $context, $seen);
+    }
+
+    /**
+     * The alert mailing list (Configuration → Alert E-mails): specific addresses that receive
+     * every selected event by e-mail, independent of roles and rules.
+     */
+    private function deliverToAlertList(NotificationEvent $event, Outage $outage, array $context, array &$seen): void
+    {
+        $settings = app(Settings::class);
+
+        if (! in_array($event->value, (array) $settings->get('alerts.events'), true)) {
+            return;
+        }
+
+        $recipients = collect((array) $settings->get('alerts.emails'))
+            ->filter(fn ($email) => filter_var($email, FILTER_VALIDATE_EMAIL))
+            ->map(fn (string $email) => ['user' => null, 'email' => strtolower($email), 'phone' => null])
+            ->values();
+
+        $this->deliver($event, $outage, [NotificationChannel::Mail->value], $recipients, $context, null, $seen);
+    }
+
+    /** Channels used when a ticket is assigned to a person (in-app always, e-mail if enabled). */
+    public function assignmentChannels(): array
+    {
+        return app(Settings::class)->bool('alerts.email_assignee')
+            ? [NotificationChannel::InApp->value, NotificationChannel::Mail->value]
+            : [NotificationChannel::InApp->value];
     }
 
     /**
@@ -121,14 +155,14 @@ class NotificationDispatcher
         return $recipients->values();
     }
 
-    private function deliver(NotificationEvent $event, Outage $outage, array $channels, Collection $recipients, array $context, ?int $ruleId = null): void
+    /** @param array<string, bool> $seen channel|address pairs already notified for this event */
+    private function deliver(NotificationEvent $event, Outage $outage, array $channels, Collection $recipients, array $context, ?int $ruleId = null, array &$seen = []): void
     {
         if ($recipients->isEmpty() || $channels === []) {
             return;
         }
 
         $message = $this->messages->make($event, $outage, $context);
-        $seen = [];
 
         foreach ($channels as $channelValue) {
             $channel = NotificationChannel::tryFrom($channelValue);
@@ -139,7 +173,7 @@ class NotificationDispatcher
             foreach ($recipients as $recipient) {
                 $address = match ($channel) {
                     NotificationChannel::InApp => $recipient['user']?->id,
-                    NotificationChannel::Mail => $recipient['email'] ?? $recipient['user']?->email,
+                    NotificationChannel::Mail => strtolower((string) ($recipient['email'] ?? $recipient['user']?->email)) ?: null,
                     NotificationChannel::Sms => $recipient['phone'] ?? $recipient['user']?->phone,
                 };
 
