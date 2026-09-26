@@ -19,13 +19,34 @@ return [
     |--------------------------------------------------------------------------
     | SMS gateway
     |--------------------------------------------------------------------------
-    | driver: "log" (writes to the log) or "http" (generic JSON POST provider).
+    | driver: "log" (writes to the log, nothing is sent), "africastalking",
+    | "twilio" or "http" (generic JSON POST provider).
     */
     'sms' => [
         'driver' => env('SMS_DRIVER', 'log'),
-        'url' => env('SMS_URL', ''),
-        'token' => env('SMS_TOKEN'),
+        // Sender ID / short code / from-number shown to recipients (provider-specific rules apply).
         'sender' => env('SMS_SENDER', 'OMS'),
+        // Local numbers like 0991234567 become +265991234567 using this calling code (no "+").
+        'default_country_code' => env('SMS_DEFAULT_COUNTRY_CODE', '265'),
+        // Hard cap per message; longer texts are trimmed (keeps multi-part SMS costs predictable).
+        'max_length' => (int) env('SMS_MAX_LENGTH', 306),
+
+        'http' => [
+            'url' => env('SMS_URL', ''),
+            'token' => env('SMS_TOKEN'),
+        ],
+
+        'africastalking' => [
+            'username' => env('AFRICASTALKING_USERNAME', 'sandbox'),
+            'api_key' => env('AFRICASTALKING_API_KEY'),
+            'sandbox' => (bool) env('AFRICASTALKING_SANDBOX', true),
+        ],
+
+        'twilio' => [
+            'sid' => env('TWILIO_SID'),
+            'token' => env('TWILIO_TOKEN'),
+            'from' => env('TWILIO_FROM'),
+        ],
     ],
 
     /*

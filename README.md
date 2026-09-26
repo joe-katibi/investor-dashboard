@@ -302,7 +302,7 @@ acting on it implicitly accepts the assignment.
 
 * Event-driven rules (*Configuration → Notification Rules*) filtered by major type, outage type, vertical, priority
   and status; recipients by role, user, e-mail, phone, current assignee and team leaders / managers.
-* Channels: **in-app** (Filament bell + real-time toast), **e-mail**, **SMS** (`log` or generic `http` driver).
+* Channels: **in-app** (Filament bell + real-time toast), **e-mail**, **SMS** (Africa's Talking, Twilio, generic HTTP or `log`).
 * Events: outage created, NOC escalation, NOC confirmed / rejected, Infrastructure escalation, dispatched, status
   changed, progress update posted, restoration reported / confirmed, resolved, priority changed, assigned,
   assignment rejected, acknowledgement timeout, queue escalation, SLA pre-breach / breach / escalation, credit due,
@@ -311,7 +311,9 @@ acting on it implicitly accepts the assignment.
   queued job with retry and backoff; failed deliveries can be retried from *Monitoring → Notification Log*.
 * A recipient gets one message per channel per event, even when several rules (and the alert list) match them.
 
-### Lifecycle alerts (in-app + e-mail)
+### Lifecycle alerts (in-app + e-mail + SMS)
+
+Each stage below is delivered in-app, by e-mail and by SMS (SMS reaches users with a phone number on their profile).
 
 | Stage | Event | Who is alerted (seeded defaults) |
 |---|---|---|
@@ -324,18 +326,35 @@ acting on it implicitly accepts the assignment.
 | Closed by outage technician | `restore_reported` | NOC Team Leader, NOC Manager, team leaders |
 | Resolved and closed | `resolved` | NOC Manager, CX Team Leader, team leaders |
 
-### Alert e-mails (specific addresses)
+### Alert e-mails & SMS (specific addresses and numbers)
 
-*Configuration → Alert E-mails* (permission `notifications.manage`):
+*Configuration → Alert E-mails & SMS* (permission `notifications.manage`), with an **E-mail** and an **SMS** tab:
 
-* **Alert e-mail addresses** — any number of addresses or distribution lists that receive an e-mail for every
-  selected event, independent of roles and rules.
-* **Events** — tick which events are e-mailed to that list (by default: created, assigned to NOC, NOC confirmed /
+* **Alert e-mail addresses / phone numbers** — any number of addresses (or distribution lists) and phone numbers
+  that receive every selected event, independent of roles and rules.
+* **Events** — chosen separately for e-mail and SMS (both default to: created, assigned to NOC, NOC confirmed /
   rejected, assigned to Infrastructure, dispatched, updates, closed by technician, restore confirmed, resolved, SLA
-  breach).
-* **E-mail the assignee** — the person FIFO (or a dispatcher / manager) assigns a ticket to also gets an e-mail.
-* **Send test e-mail** — checks the mail configuration; the screen warns when `MAIL_MAILER` is `log` (e-mails are
-  written to the log instead of being sent). Configure SMTP in `.env` for real delivery.
+  breach). Untick events you only want by e-mail to control SMS cost.
+* **E-mail / SMS the assignee** — the person FIFO (or a dispatcher / manager) assigns a ticket to also gets an e-mail
+  and an SMS (SMS uses the phone number on their user profile).
+* **Send test e-mail / Send test SMS** — check the configuration; the screen warns when mail or SMS is only written
+  to the log.
+
+**Phone numbers** are stored in international (E.164) format; local numbers such as `0991 234 567` become
+`+265991234567` using `SMS_DEFAULT_COUNTRY_CODE`. Invalid numbers are rejected on the form and skipped when sending.
+SMS text is short (ticket, stage, title, impact, status, owner) and capped at `SMS_MAX_LENGTH` characters.
+
+**SMS gateways** (`SMS_DRIVER`):
+
+| Driver | Settings | Notes |
+|---|---|---|
+| `log` | — | Development: messages are written to the log, nothing is sent |
+| `africastalking` | `AFRICASTALKING_USERNAME`, `AFRICASTALKING_API_KEY`, `AFRICASTALKING_SANDBOX`, `SMS_SENDER` | Per-recipient rejections (e.g. insufficient balance) are recorded as failures |
+| `twilio` | `TWILIO_SID`, `TWILIO_TOKEN`, `TWILIO_FROM` | REST API, no SDK |
+| `http` | `SMS_URL`, `SMS_TOKEN`, `SMS_SENDER` | Generic JSON `POST {to, message, sender}` with a bearer token |
+
+Failed SMS (like e-mail) are retried with backoff and visible, with the provider's reason, in *Monitoring →
+Notification Log*.
 
 Notification rules are seeded with `firstOrCreate`, so re-running the seeders never overwrites rules an
 administrator has edited.
@@ -453,7 +472,7 @@ users and outages are added only outside production. Each seeder can also be run
 | `PrioritySeeder` | Low 0–9, Medium 10–49, High 50–199, Critical 200+ customers; FIFO rank Critical 1 → Low 4 |
 | `SlaPolicySeeder` | Critical 4h, High 8h, Medium 12h, Low 24h (pre-breach, ack timeout, escalation), Planned Maintenance window |
 | `QueueDefinitionSeeder` | NOC Review (NOC, 10 min ack), Infrastructure Dispatch (INFRA, 15), Technician (INFRA, 20), NOC Restore (NOC, 15) |
-| `NotificationRuleSeeder` | In-app + e-mail lifecycle alerts: ticket created, assigned to NOC, NOC rejected, assigned to Infrastructure, dispatched, progress update, closed by technician, resolved; critical outages, queue escalation, credit due |
+| `NotificationRuleSeeder` | In-app + e-mail + SMS lifecycle alerts: ticket created, assigned to NOC, NOC rejected, assigned to Infrastructure, dispatched, progress update, closed by technician, resolved; critical outages, queue escalation, credit due |
 | `EmailTemplateSeeder` | Two-Hour Update, Executive Summary, Summary Report |
 | `DemoDataSeeder` | Non-production only: teams, users, topology, shifts, skills, sample outages |
 
@@ -465,7 +484,7 @@ users and outages are added only outside production. Each seeder can also be run
 | Reporting | Reports | |
 | Topology | OLTs, FDTs, Slots, Ports | Hierarchical; OLT team coverage; deactivate instead of delete |
 | Configuration | FIFO & SLA Settings | All spec §27.8 options, SLA fallbacks, pause switch |
-| Configuration | Verticals, Affected Services, Major Outage Types, Outage Types (prefixes), Statuses (final reason / pauses SLA / manual / closed flags), Impact / Priority Rules (thresholds + FIFO rank), SLA Policies, FIFO Queues, Notification Rules, Alert E-mails, Email Templates & Schedules | Notification rules cannot be deleted — deactivate them |
+| Configuration | Verticals, Affected Services, Major Outage Types, Outage Types (prefixes), Statuses (final reason / pauses SLA / manual / closed flags), Impact / Priority Rules (thresholds + FIFO rank), SLA Policies, FIFO Queues, Notification Rules, Alert E-mails & SMS, Email Templates & Schedules | Notification rules cannot be deleted — deactivate them |
 | People | Departments, Teams & Sub-teams (leader, manager, members, OLT coverage), Users (roles, teams, skills, shifts incl. recurring generator, leave, availability history, MFA reset), Roles & Permissions | |
 | Monitoring | Notification Log (retry failed), Audit Trail | |
 
@@ -557,7 +576,11 @@ All scheduled tasks use `onOneServer()` and `withoutOverlapping()`.
 | `OMS_SEED_DEMO` | `true` | Seed demo data (never in production) |
 | `OMS_REPORT_SCREEN_LIMIT` | `500` | Rows rendered on the Reports page |
 | `OMS_NOTIFICATIONS_QUEUE`, `OMS_REPORTS_QUEUE` | `default` | Dedicated queues for scaling workers |
-| `SMS_DRIVER`, `SMS_URL`, `SMS_TOKEN`, `SMS_SENDER` | `log` | SMS gateway (`log` or `http`) |
+| `SMS_DRIVER` | `log` | SMS gateway: `log`, `africastalking`, `twilio` or `http` |
+| `SMS_SENDER`, `SMS_DEFAULT_COUNTRY_CODE`, `SMS_MAX_LENGTH` | `OMS`, `265`, `306` | Sender ID, calling code for local numbers, message length cap |
+| `AFRICASTALKING_USERNAME`, `AFRICASTALKING_API_KEY`, `AFRICASTALKING_SANDBOX` | `sandbox`, —, `true` | Africa's Talking credentials |
+| `TWILIO_SID`, `TWILIO_TOKEN`, `TWILIO_FROM` | — | Twilio credentials |
+| `SMS_URL`, `SMS_TOKEN` | — | Generic HTTP provider |
 | `MAIL_*` | — | Mail transport for notifications and scheduled reports |
 
 ## Testing

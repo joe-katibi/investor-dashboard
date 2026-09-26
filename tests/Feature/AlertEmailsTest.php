@@ -108,6 +108,6 @@ class AlertEmailsTest extends TestCase
     public function test_alert_settings_page_is_permission_protected(): void
     {
         $this->actingAs($this->makeUser('CX Agent', 'CX'))->get(AlertEmails::getUrl())->assertForbidden();
-        $this->actingAs($this->makeUser('NOC Manager', 'NOC'))->get(AlertEmails::getUrl())->assertOk()->assertSee('Alert e-mail addresses');
+        $this->actingAs($this->makeUser('NOC Manager', 'NOC'))->get(AlertEmails::getUrl())->assertOk()->assertSee('Alert e-mail addresses')->assertSee('Alert phone numbers');
     }
 }

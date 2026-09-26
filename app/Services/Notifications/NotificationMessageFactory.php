@@ -61,10 +61,20 @@ class NotificationMessageFactory
             'By: '.($context['by'] ?? Auth::user()?->name ?? 'System'),
         ]);
 
+        // SMS: short, plain text, most important facts first; trimmed to the configured length.
+        $sms = collect([
+            'OMS: '.$title,
+            $outage->title,
+            'Impact '.number_format($outage->customers_affected).' cust, '.($outage->priority?->name ?? 'no priority'),
+            'Status: '.$outage->status?->name,
+            $owner ? 'Owner: '.$owner : null,
+            isset($context['reason']) && $context['reason'] ? str($context['reason'])->squish()->limit(80)->toString() : null,
+        ])->filter()->implode('. ');
+
         return [
             'title' => $title,
             'body' => implode("\n", $lines),
-            'sms' => mb_substr("{$title}. {$outage->title}. Impact {$outage->customers_affected}. Status: {$outage->status?->name}", 0, 300),
+            'sms' => mb_strimwidth($sms, 0, max(70, (int) config('oms.sms.max_length', 306)), '…'),
         ];
     }
 }

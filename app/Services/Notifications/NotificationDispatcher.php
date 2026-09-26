@@ -10,6 +10,7 @@ use App\Models\NotificationRule;
 use App\Models\Outage;
 use App\Models\Team;
 use App\Models\User;
+use App\Services\Notifications\Sms\PhoneNumber;
 use App\Support\AuditContext;
 use App\Support\Settings;
 use Illuminate\Support\Collection;
@@ -65,24 +66,34 @@ class NotificationDispatcher
     {
         $settings = app(Settings::class);
 
-        if (! in_array($event->value, (array) $settings->get('alerts.events'), true)) {
-            return;
+        if (in_array($event->value, (array) $settings->get('alerts.events'), true)) {
+            $emails = collect((array) $settings->get('alerts.emails'))
+                ->filter(fn ($email) => filter_var($email, FILTER_VALIDATE_EMAIL))
+                ->map(fn (string $email) => ['user' => null, 'email' => strtolower($email), 'phone' => null])
+                ->values();
+
+            $this->deliver($event, $outage, [NotificationChannel::Mail->value], $emails, $context, null, $seen);
         }
 
-        $recipients = collect((array) $settings->get('alerts.emails'))
-            ->filter(fn ($email) => filter_var($email, FILTER_VALIDATE_EMAIL))
-            ->map(fn (string $email) => ['user' => null, 'email' => strtolower($email), 'phone' => null])
-            ->values();
+        if (in_array($event->value, (array) $settings->get('alerts.sms_events'), true)) {
+            $phones = collect((array) $settings->get('alerts.phones'))
+                ->map(fn ($phone) => ['user' => null, 'email' => null, 'phone' => (string) $phone])
+                ->values();
 
-        $this->deliver($event, $outage, [NotificationChannel::Mail->value], $recipients, $context, null, $seen);
+            $this->deliver($event, $outage, [NotificationChannel::Sms->value], $phones, $context, null, $seen);
+        }
     }
 
-    /** Channels used when a ticket is assigned to a person (in-app always, e-mail if enabled). */
+    /** Channels used when a ticket is assigned to a person (in-app always; e-mail / SMS if enabled). */
     public function assignmentChannels(): array
     {
-        return app(Settings::class)->bool('alerts.email_assignee')
-            ? [NotificationChannel::InApp->value, NotificationChannel::Mail->value]
-            : [NotificationChannel::InApp->value];
+        $settings = app(Settings::class);
+
+        return array_values(array_filter([
+            NotificationChannel::InApp->value,
+            $settings->bool('alerts.email_assignee') ? NotificationChannel::Mail->value : null,
+            $settings->bool('alerts.sms_assignee') ? NotificationChannel::Sms->value : null,
+        ]));
     }
 
     /**
@@ -174,7 +185,8 @@ class NotificationDispatcher
                 $address = match ($channel) {
                     NotificationChannel::InApp => $recipient['user']?->id,
                     NotificationChannel::Mail => strtolower((string) ($recipient['email'] ?? $recipient['user']?->email)) ?: null,
-                    NotificationChannel::Sms => $recipient['phone'] ?? $recipient['user']?->phone,
+                    // E.164, so "0991 234 567" and "+265991234567" are the same recipient; invalid numbers are skipped.
+                    NotificationChannel::Sms => PhoneNumber::normalise($recipient['phone'] ?? $recipient['user']?->phone),
                 };
 
                 if (! $address || isset($seen[$channel->value.'|'.$address])) {

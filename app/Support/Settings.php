@@ -48,6 +48,14 @@ class Settings
             'dispatched', 'update_posted', 'restore_reported', 'restore_confirmed', 'resolved', 'sla_breach',
         ],
         'alerts.email_assignee' => true,   // e-mail the person a ticket is assigned to
+
+        // SMS alerts (same events by default; phone numbers normalised to E.164)
+        'alerts.phones' => [],
+        'alerts.sms_events' => [
+            'outage_created', 'noc_escalation', 'noc_confirmed', 'noc_rejected', 'infrastructure_escalation',
+            'dispatched', 'update_posted', 'restore_reported', 'restore_confirmed', 'resolved', 'sla_breach',
+        ],
+        'alerts.sms_assignee' => true,     // SMS the person a ticket is assigned to (if they have a phone)
     ];
 
     /** @var array<string, mixed>|null */

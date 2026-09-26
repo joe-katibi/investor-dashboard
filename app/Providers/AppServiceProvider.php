@@ -6,9 +6,11 @@ use App\Events\OmsBroadcastEvent;
 use App\Models\NotificationRule;
 use App\Models\User;
 use App\Services\Notifications\NotificationDispatcher;
+use App\Services\Notifications\Sms\AfricasTalkingSmsGateway;
 use App\Services\Notifications\Sms\HttpSmsGateway;
 use App\Services\Notifications\Sms\LogSmsGateway;
 use App\Services\Notifications\Sms\SmsGateway;
+use App\Services\Notifications\Sms\TwilioSmsGateway;
 use App\Services\Reports\DashboardMetrics;
 use App\Support\Settings;
 use Illuminate\Auth\Events\Login;
@@ -33,7 +35,14 @@ class AppServiceProvider extends ServiceProvider
         $this->app->scoped(Settings::class);
 
         $this->app->bind(SmsGateway::class, fn () => match (config('oms.sms.driver')) {
-            'http' => new HttpSmsGateway((string) config('oms.sms.url'), config('oms.sms.token'), config('oms.sms.sender')),
+            'africastalking' => new AfricasTalkingSmsGateway(
+                (string) config('oms.sms.africastalking.username'),
+                config('oms.sms.africastalking.api_key'),
+                config('oms.sms.sender'),
+                (bool) config('oms.sms.africastalking.sandbox'),
+            ),
+            'twilio' => new TwilioSmsGateway(config('oms.sms.twilio.sid'), config('oms.sms.twilio.token'), config('oms.sms.twilio.from')),
+            'http' => new HttpSmsGateway((string) config('oms.sms.http.url'), config('oms.sms.http.token'), config('oms.sms.sender')),
             default => new LogSmsGateway,
         });
     }

@@ -17,6 +17,11 @@ class HttpSmsGateway implements SmsGateway
         private readonly ?string $sender,
     ) {}
 
+    public function name(): string
+    {
+        return 'HTTP ('.(parse_url($this->url, PHP_URL_HOST) ?: 'not configured').')';
+    }
+
     public function send(string $to, string $message): void
     {
         if ($this->url === '') {
@@ -24,7 +29,6 @@ class HttpSmsGateway implements SmsGateway
         }
 
         $response = Http::timeout(10)
-            ->retry(2, 500, throw: false)
             ->withToken((string) $this->token)
             ->acceptJson()
             ->post($this->url, ['to' => $to, 'message' => $message, 'sender' => $this->sender]);
