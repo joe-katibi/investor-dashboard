@@ -15,6 +15,8 @@ use App\Support\AuditContext;
 use App\Support\Settings;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * Event-driven notifications (spec §12). Every recipient/channel pair gets a delivery log
@@ -207,8 +209,29 @@ class NotificationDispatcher
                     'trigger' => AuditContext::trigger(),
                 ]);
 
-                SendNotificationJob::dispatch($log->id);
+                if ($channel === NotificationChannel::InApp) {
+                    $this->deliverInAppAfterCommit($log->id);
+                } else {
+                    SendNotificationJob::dispatch($log->id);
+                }
             }
         }
+    }
+
+    /**
+     * In-app alerts are a local database write, so they are delivered right after the
+     * surrounding transaction commits instead of waiting for a queue worker; the bell fills
+     * even when no worker is running. Only a failure falls back to the queue for retries.
+     */
+    private function deliverInAppAfterCommit(int $logId): void
+    {
+        DB::afterCommit(function () use ($logId): void {
+            try {
+                SendNotificationJob::dispatchSync($logId);
+            } catch (Throwable $exception) {
+                report($exception);
+                SendNotificationJob::dispatch($logId);
+            }
+        });
     }
 }

@@ -73,8 +73,9 @@ class AdminPanelProvider extends PanelProvider
             ->sidebarCollapsibleOnDesktop()
             ->maxContentWidth(Width::Full)
             ->databaseNotifications()
-            // Notifications arrive over Reverb; polling is only a slow safety net.
-            ->databaseNotificationsPolling('120s')
+            // Reverb pushes new notifications instantly (via the queue worker); polling keeps the
+            // bell current when Reverb or the worker is not running.
+            ->databaseNotificationsPolling('30s')
             ->globalSearchKeyBindings(['command+k', 'ctrl+k'])
             ->navigationGroups([
                 NavigationGroup::make('Operations'),

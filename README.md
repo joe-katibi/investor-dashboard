@@ -307,8 +307,12 @@ acting on it implicitly accepts the assignment.
   changed, progress update posted, restoration reported / confirmed, resolved, priority changed, assigned,
   assignment rejected, acknowledgement timeout, queue escalation, SLA pre-breach / breach / escalation, credit due,
   credit shared, SMS sent, scheduled report.
-* Every recipient × channel is logged (recipient, event, time, status, attempts, failure reason) and delivered by a
-  queued job with retry and backoff; failed deliveries can be retried from *Monitoring → Notification Log*.
+* Every recipient × channel is logged (recipient, event, time, status, attempts, failure reason); failed deliveries
+  can be retried from *Monitoring → Notification Log*.
+* **In-app** alerts are written to the bell immediately after the ticket change commits — they do not wait for a
+  queue worker (a failure falls back to the queue for retries). The bell also polls every 30 s.
+* **E-mail, SMS and the live Reverb push / toast** are delivered by queued jobs with retry and backoff, so a queue
+  worker (and `reverb:start` for live updates) must be running — `composer run dev` starts both.
 * A recipient gets one message per channel per event, even when several rules (and the alert list) match them.
 
 ### Lifecycle alerts (in-app + e-mail + SMS)
@@ -325,6 +329,9 @@ Each stage below is delivered in-app, by e-mail and by SMS (SMS reaches users wi
 | Progress update posted | `update_posted` | Team leaders of the assigned team |
 | Closed by outage technician | `restore_reported` | NOC Team Leader, NOC Manager, team leaders |
 | Resolved and closed | `resolved` | NOC Manager, CX Team Leader, team leaders |
+
+**Super Admin** follows every stage above in the bell through the *Admin feed – …* rules (in-app only, so
+administrators get no extra e-mail / SMS). Deactivate them under *Configuration → Notification Rules* if not wanted.
 
 ### Alert e-mails & SMS (specific addresses and numbers)
 
@@ -472,7 +479,7 @@ users and outages are added only outside production. Each seeder can also be run
 | `PrioritySeeder` | Low 0–9, Medium 10–49, High 50–199, Critical 200+ customers; FIFO rank Critical 1 → Low 4 |
 | `SlaPolicySeeder` | Critical 4h, High 8h, Medium 12h, Low 24h (pre-breach, ack timeout, escalation), Planned Maintenance window |
 | `QueueDefinitionSeeder` | NOC Review (NOC, 10 min ack), Infrastructure Dispatch (INFRA, 15), Technician (INFRA, 20), NOC Restore (NOC, 15) |
-| `NotificationRuleSeeder` | In-app + e-mail + SMS lifecycle alerts: ticket created, assigned to NOC, NOC rejected, assigned to Infrastructure, dispatched, progress update, closed by technician, resolved; critical outages, queue escalation, credit due |
+| `NotificationRuleSeeder` | In-app + e-mail + SMS lifecycle alerts: ticket created, assigned to NOC, NOC rejected, assigned to Infrastructure, dispatched, progress update, closed by technician, resolved; critical outages, queue escalation, credit due; in-app *Admin feed* for Super Admin |
 | `EmailTemplateSeeder` | Two-Hour Update, Executive Summary, Summary Report |
 | `DemoDataSeeder` | Non-production only: teams, users, topology, shifts, skills, sample outages |
 
@@ -664,7 +671,8 @@ Checklist:
 
 | Symptom | Fix |
 |---|---|
-| Live updates / bell notifications don't appear | Make sure `reverb:start` **and** a queue worker are running; broadcasts are queued. Check `REVERB_*` values match on server and client. |
+| Bell is empty | Bell entries only go to users matched by a notification rule (role, user, assignee, team leader). Check *Monitoring → Notification Log* for the event and channel `database`. |
+| Live updates / toasts / e-mails / SMS don't arrive | Make sure `reverb:start` **and** a queue worker are running; these are queued. Check `REVERB_*` values match on server and client. |
 | `Pusher error: No matching application for ID` in failed jobs | Another project's Reverb is using the same port. Give this project its own `REVERB_PORT` / `REVERB_SERVER_PORT` (default 8090). |
 | Tickets stay unassigned in FIFO Queues | Use *Why?* on the ticket — typical causes: no user *Available*, no active shift, on leave, workload limit, missing queue permission or department. |
 | Scheduled e-mails not sent | Template must be active with recipients; scheduler and queue worker must run; check *Notification Log*. |

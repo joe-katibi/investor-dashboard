@@ -33,6 +33,15 @@ class NotificationRuleSeeder extends Seeder
             ['Assignment rejected – leaders', 'assignment_rejected', null, ['database'], [], false, true],
             ['Queue escalation – managers', 'queue_escalation', null, $inAppAndMail, ['NOC Manager', 'Infrastructure Manager'], false, true],
             ['Credit due – CX', 'credit_due', null, $inAppAndMail, ['CX Manager', 'CX Team Leader'], false, false],
+            // Administrators follow every ticket update in the bell (in-app only, no e-mail/SMS noise).
+            ['Admin feed – ticket created', 'outage_created', null, ['database'], ['Super Admin'], false, false],
+            ['Admin feed – assigned to NOC', 'noc_escalation', null, ['database'], ['Super Admin'], false, false],
+            ['Admin feed – NOC rejected', 'noc_rejected', null, ['database'], ['Super Admin'], false, false],
+            ['Admin feed – assigned to Infrastructure', 'infrastructure_escalation', null, ['database'], ['Super Admin'], false, false],
+            ['Admin feed – dispatched', 'dispatched', null, ['database'], ['Super Admin'], false, false],
+            ['Admin feed – progress update', 'update_posted', null, ['database'], ['Super Admin'], false, false],
+            ['Admin feed – closed by outage technician', 'restore_reported', null, ['database'], ['Super Admin'], false, false],
+            ['Admin feed – resolved', 'resolved', null, ['database'], ['Super Admin'], false, false],
         ] as [$name, $event, $priorityId, $channels, $roles, $assignee, $leaders]) {
             // firstOrCreate: re-seeding on deploy never overwrites rules an administrator has edited.
             NotificationRule::query()->firstOrCreate(['name' => $name], [

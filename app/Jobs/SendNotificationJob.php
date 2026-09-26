@@ -7,6 +7,7 @@ use App\Mail\OutageNotificationMail;
 use App\Models\NotificationLog;
 use App\Services\Notifications\Sms\SmsGateway;
 use Filament\Actions\Action;
+use Filament\Notifications\Events\DatabaseNotificationsSent;
 use Filament\Notifications\Notification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -96,8 +97,10 @@ class SendNotificationJob implements ShouldQueue
             ]);
         }
 
-        // Persist to the bell (real-time refresh) and pop a live toast over Reverb.
-        $notification->sendToDatabase($user, isEventDispatched: true);
+        // Store for the bell now: Filament's sendToDatabase() queues a second job, so without
+        // a worker the bell would stay empty. The live refresh + toast over Reverb stay queued.
+        $user->notifyNow($notification->toDatabase());
+        DatabaseNotificationsSent::dispatch($user);
         $notification->broadcast($user);
     }
 }

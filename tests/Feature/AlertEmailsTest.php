@@ -10,6 +10,7 @@ use App\Services\Outages\OutageWorkflow;
 use App\Support\Settings;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Tests\Concerns\BuildsOmsFixtures;
 use Tests\TestCase;
@@ -103,6 +104,35 @@ class AlertEmailsTest extends TestCase
         $this->assertFalse($this->mailedTo('noc-alerts@example.com', 'outage_created'));
         $this->assertFalse(NotificationLog::query()->where('recipient', 'noc1@example.com')->where('channel', 'mail')->where('event', 'assigned')->exists());
         $this->assertTrue(NotificationLog::query()->where('channel', 'database')->where('event', 'assigned')->exists(), 'in-app assignment alert still sent');
+    }
+
+    public function test_in_app_alerts_reach_the_bell_without_a_queue_worker(): void
+    {
+        config(['queue.default' => 'database']);
+        $agent = $this->makeUser('CX Agent', 'CX');
+        $lead = $this->makeUser('NOC Team Leader', 'NOC', attributes: ['availability_status' => 'offline']);
+
+        $this->reportOutage($agent);
+
+        // Delivered straight after commit: stored for the bell, log marked sent.
+        $this->assertTrue($lead->notifications()->exists(), 'bell notification stored');
+        $this->assertSame(0, NotificationLog::query()->where('channel', 'database')->where('status', '!=', 'sent')->count());
+
+        // E-mail still goes through the queue (worker needed for delivery and retries).
+        $this->assertTrue(NotificationLog::query()->where('channel', 'mail')->where('status', 'pending')->exists());
+        $this->assertGreaterThan(0, DB::table('jobs')->count());
+    }
+
+    public function test_super_admin_follows_ticket_updates_in_app_only(): void
+    {
+        $admin = $this->makeUser('Super Admin', 'MGMT', attributes: ['email' => 'admin@example.com', 'availability_status' => 'offline']);
+        $agent = $this->makeUser('CX Agent', 'CX');
+        $this->makeUser('NOC Tier I', 'NOC');
+
+        $this->reportOutage($agent);
+
+        $this->assertSame(2, $admin->notifications()->count(), 'ticket created + assigned to NOC');
+        $this->assertFalse($this->mailedTo('admin@example.com', 'outage_created'), 'no e-mail noise for admins');
     }
 
     public function test_alert_settings_page_is_permission_protected(): void
