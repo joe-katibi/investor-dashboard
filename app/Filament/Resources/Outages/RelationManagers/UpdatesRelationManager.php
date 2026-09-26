@@ -31,7 +31,7 @@ class UpdatesRelationManager extends RelationManager
                         'system' => 'gray', 'restoration' => 'success', 'escalation' => 'danger', default => 'info',
                     }),
                 TextColumn::make('body')->label('Update')->wrap(),
-                TextColumn::make('user.name')->label('By')->placeholder('System'),
+                TextColumn::make('user.name')->label('By')->placeholder('System')->visibleFrom('md'),
             ])
             ->headerActions([OutageActions::addUpdate()->record($this->getOwnerRecord())]);
     }

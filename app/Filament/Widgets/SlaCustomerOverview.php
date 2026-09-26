@@ -17,6 +17,9 @@ class SlaCustomerOverview extends StatsOverviewWidget
 
     protected ?string $pollingInterval = '60s';
 
+    /** Two per row on phones, three on tablets, one row on desktop. */
+    protected int|array|null $columns = ['default' => 2, 'md' => 3, 'xl' => 6];
+
     protected ?string $heading = 'SLA & customer impact';
 
     protected function getStats(): array

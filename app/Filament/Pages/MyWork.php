@@ -109,19 +109,19 @@ class MyWork extends Page implements HasTable
             ->emptyStateDescription('Set yourself Available to receive the next eligible ticket from the FIFO queue.')
             ->emptyStateIcon('heroicon-o-inbox')
             ->columns([
-                TextColumn::make('ticket_number')->label('Ticket')->weight('bold')->description(fn (Outage $record) => str($record->title)->limit(45)),
-                TextColumn::make('queue')->label('My step')->badge()
+                TextColumn::make('ticket_number')->label('Ticket')->weight('bold')->wrap()->formatStateUsing(fn (?string $state) => str_replace('-', "\u{2011}", (string) $state))->description(fn (Outage $record) => str($record->title)->limit(45)),
+                TextColumn::make('queue')->label('My step')->badge()->visibleFrom('sm')
                     ->state(fn (Outage $record) => $record->assignments->first()?->queue_type?->getLabel()),
-                TextColumn::make('assignment_status')->label('Assignment')->badge()
+                TextColumn::make('assignment_status')->label('Assignment')->badge()->wrap()
                     ->state(fn (Outage $record) => $record->assignments->first()?->status)
                     ->description(fn (Outage $record) => ($a = $record->assignments->first()) && $a->status === AssignmentStatus::Assigned && $a->ack_due_at
                         ? 'accept by '.$a->ack_due_at->format('H:i').' ('.$a->ack_due_at->diffForHumans(short: true).')' : null),
-                TextColumn::make('priority.name')->label('Priority')->badge()->color(fn (Outage $record) => $record->priority?->color ?? 'gray'),
-                TextColumn::make('customers_affected')->label('Customers')->numeric(),
-                TextColumn::make('status.name')->label('Status')->badge()->color(fn (Outage $record) => $record->status?->color ?? 'gray'),
-                TextColumn::make('sla_state')->label('SLA')->badge()
+                TextColumn::make('priority.name')->label('Priority')->badge()->color(fn (Outage $record) => $record->priority?->color ?? 'gray')->visibleFrom('sm'),
+                TextColumn::make('customers_affected')->label('Customers')->numeric()->visibleFrom('lg'),
+                TextColumn::make('status.name')->label('Status')->badge()->wrap()->color(fn (Outage $record) => $record->status?->color ?? 'gray')->visibleFrom('md'),
+                TextColumn::make('sla_state')->label('SLA')->badge()->visibleFrom('md')->state(fn (Outage $record) => $record->currentSlaState())
                     ->description(fn (Outage $record) => $record->sla_due_at ? 'due '.$record->sla_due_at->diffForHumans(short: true) : null),
-                TextColumn::make('elapsed')->state(fn (Outage $record) => $record->elapsedForHumans()),
+                TextColumn::make('elapsed')->state(fn (Outage $record) => $record->elapsedForHumans())->visibleFrom('lg'),
             ])
             ->recordActions([
                 OutageActions::accept()->button()->size('sm'),

@@ -16,6 +16,7 @@ use App\Services\Fifo\FifoAssignmentEngine;
 use App\Support\Settings;
 use BackedEnum;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
@@ -85,6 +86,23 @@ class FifoQueue extends Page implements HasTable
             ->all();
     }
 
+    /**
+     * Second line under the ticket. On phones the position, priority and assignee columns are
+     * hidden, so this line carries them.
+     */
+    public function ticketLine(OutageQueueEntry $record): string
+    {
+        $row = $this->snapshot()[$record->id] ?? [];
+        $owner = $record->status === QueueEntryStatus::Pending ? ($row['next'] ?? null) : ($row['assigned'] ?? null);
+
+        return collect([
+            ($row['position'] ?? null) ? '#'.$row['position'] : null,
+            $record->priority?->name,
+            str($record->outage?->title)->limit(40)->toString(),
+            $owner ? '→ '.$owner : null,
+        ])->filter()->implode(' · ');
+    }
+
     public function getQueueCounts(): array
     {
         return OutageQueueEntry::query()->open()->toBase()
@@ -136,23 +154,23 @@ class FifoQueue extends Page implements HasTable
             ->emptyStateHeading('Queue is empty')
             ->emptyStateIcon('heroicon-o-check-circle')
             ->columns([
-                TextColumn::make('position')->label('Pos.')
+                TextColumn::make('position')->label('Pos.')->visibleFrom('sm')
                     ->state(fn (OutageQueueEntry $record) => $this->snapshot()[$record->id]['position'] ?? '—')
                     ->weight('bold'),
-                TextColumn::make('outage.ticket_number')->label('Ticket')->searchable()->weight('bold')
-                    ->description(fn (OutageQueueEntry $record) => str($record->outage?->title)->limit(40)),
-                TextColumn::make('priority.name')->label('Priority')->badge()->color(fn (OutageQueueEntry $record) => $record->priority?->color ?? 'gray'),
-                TextColumn::make('queued_at')->label('Queue age')->since()->tooltip(fn (OutageQueueEntry $record) => $record->queued_at->format('Y-m-d H:i:s.v')),
-                TextColumn::make('outage.customers_affected')->label('Customers')->numeric(),
-                TextColumn::make('outage.outageType.name')->label('Type')->toggleable(),
-                TextColumn::make('outage.vertical.name')->label('Vertical')->toggleable(),
-                TextColumn::make('team.name')->label('Team')->placeholder($this->queueType()->getLabel()),
-                TextColumn::make('subTeam.name')->label('Sub-team')->placeholder('—'),
-                TextColumn::make('outage.sla_state')->label('SLA')->badge()
+                TextColumn::make('outage.ticket_number')->label('Ticket')->searchable()->weight('bold')->formatStateUsing(fn (?string $state) => str_replace('-', "\u{2011}", (string) $state))
+                    ->description(fn (OutageQueueEntry $record) => $this->ticketLine($record))->wrap(),
+                TextColumn::make('priority.name')->label('Priority')->badge()->color(fn (OutageQueueEntry $record) => $record->priority?->color ?? 'gray')->visibleFrom('sm'),
+                TextColumn::make('queued_at')->label('Queue age')->visibleFrom('sm')->since()->tooltip(fn (OutageQueueEntry $record) => $record->queued_at->format('Y-m-d H:i:s.v')),
+                TextColumn::make('outage.customers_affected')->label('Customers')->numeric()->visibleFrom('xl'),
+                TextColumn::make('outage.outageType.name')->label('Type')->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('outage.vertical.name')->label('Vertical')->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('team.name')->label('Team')->toggleable()->visibleFrom('2xl')->placeholder($this->queueType()->getLabel()),
+                TextColumn::make('subTeam.name')->label('Sub-team')->placeholder('—')->toggleable()->visibleFrom('2xl'),
+                TextColumn::make('outage.sla_state')->label('SLA')->badge()->visibleFrom('xl')->state(fn (OutageQueueEntry $record) => $record->outage?->currentSlaState())
                     ->formatStateUsing(fn ($state) => $state instanceof SlaState ? $state->getLabel() : $state)
                     ->color(fn ($state) => $state instanceof SlaState ? $state->getColor() : 'gray'),
-                TextColumn::make('status')->label('Queue status')->badge(),
-                TextColumn::make('assignee')->label('Assigned / next eligible')
+                TextColumn::make('status')->label('Queue status')->badge()->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('assignee')->label('Assigned / next eligible')->wrap()->visibleFrom('sm')
                     ->state(fn (OutageQueueEntry $record) => $record->status === QueueEntryStatus::Pending
                         ? ($this->snapshot()[$record->id]['next'] ?? 'Beyond preview')
                         : ($this->snapshot()[$record->id]['assigned'] ?? '—'))
@@ -171,7 +189,8 @@ class FifoQueue extends Page implements HasTable
                     ->options(fn () => Vertical::query()->orderBy('name')->pluck('name', 'id'))
                     ->query(fn (Builder $query, array $data) => $query->when($data['value'] ?? null, fn ($q, $v) => $q->whereHas('outage', fn ($o) => $o->where('vertical_id', $v)))),
             ])
-            ->recordActions([
+            // One compact menu per row so the queue fits phones and tablets.
+            ->recordActions([ActionGroup::make([
                 Action::make('explain')
                     ->label('Why?')
                     ->icon(Heroicon::OutlinedQuestionMarkCircle)
@@ -203,6 +222,6 @@ class FifoQueue extends Page implements HasTable
                         }
                         $this->snapshotCache = null;
                     }),
-            ]);
+            ])]);
     }
 }

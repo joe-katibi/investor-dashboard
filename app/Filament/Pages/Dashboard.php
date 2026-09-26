@@ -51,7 +51,7 @@ class Dashboard extends BaseDashboard
                     ->options(fn () => Vertical::query()->active()->pluck('name', 'id')),
                 Select::make('major_outage_type_id')->label('Major type')->placeholder('All types')
                     ->options(fn () => MajorOutageType::query()->active()->orderBy('sort_order')->pluck('name', 'id')),
-            ])->columns(4)->columnSpanFull(),
+            ])->columns(['default' => 2, 'lg' => 4])->columnSpanFull(),
         ]);
     }
 

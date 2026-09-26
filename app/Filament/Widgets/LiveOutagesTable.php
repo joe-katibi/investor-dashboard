@@ -41,16 +41,18 @@ abstract class LiveOutagesTable extends TableWidget
             ->emptyStateHeading('No live outages')
             ->emptyStateIcon('heroicon-o-check-circle')
             ->columns([
-                TextColumn::make('ticket_number')->label('Ticket')->weight('bold'),
-                TextColumn::make('title')->limit(35)->description(fn (Outage $record) => $record->topologyPath() ?: $record->location),
-                TextColumn::make('vertical.name')->label('Vertical'),
+                TextColumn::make('ticket_number')->label('Ticket')->weight('bold')->wrap()->formatStateUsing(fn (?string $state) => str_replace('-', "\u{2011}", (string) $state))
+                    ->description(fn (Outage $record) => str($record->title)->limit(40)),
+                TextColumn::make('where')->label('Location')->visibleFrom('xl')->wrap()
+                    ->state(fn (Outage $record) => $record->topologyPath() ?: $record->location)->placeholder('—'),
+                TextColumn::make('vertical.name')->label('Vertical')->visibleFrom('xl'),
                 TextColumn::make('priority.name')->label('Priority')->badge()->color(fn (Outage $record) => $record->priority?->color ?? 'gray'),
-                TextColumn::make('customers_affected')->label('Customers')->numeric(),
-                TextColumn::make('sla_state')->label('SLA')->badge(),
-                TextColumn::make('elapsed')->state(fn (Outage $record) => $record->elapsedForHumans()),
-                TextColumn::make('status.name')->label('Status')->badge()->color(fn (Outage $record) => $record->status?->color ?? 'gray'),
-                TextColumn::make('currentAssignee.name')->label('Owner')->placeholder('Queue'),
-                TextColumn::make('latest_update')->label('Latest action')->limit(40)->placeholder('—'),
+                TextColumn::make('customers_affected')->label('Customers')->numeric()->visibleFrom('md'),
+                TextColumn::make('sla_state')->label('SLA')->badge()->visibleFrom('sm')->state(fn (Outage $record) => $record->currentSlaState()),
+                TextColumn::make('elapsed')->state(fn (Outage $record) => $record->elapsedForHumans())->visibleFrom('lg'),
+                TextColumn::make('status.name')->label('Status')->badge()->wrap()->color(fn (Outage $record) => $record->status?->color ?? 'gray')->visibleFrom('lg'),
+                TextColumn::make('currentAssignee.name')->label('Owner')->placeholder('Queue')->visibleFrom('md'),
+                TextColumn::make('latest_update')->label('Latest action')->limit(40)->placeholder('—')->visibleFrom('xl'),
             ]);
     }
 }

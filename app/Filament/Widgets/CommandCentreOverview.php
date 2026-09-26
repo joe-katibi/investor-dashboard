@@ -18,6 +18,9 @@ class CommandCentreOverview extends StatsOverviewWidget
 
     protected ?string $pollingInterval = '60s';
 
+    /** 2 × 2 grid on phones and tablets, one row of four on desktop. */
+    protected int|array|null $columns = ['default' => 2, 'xl' => 4];
+
     protected ?string $heading = 'Live command centre';
 
     protected function getStats(): array

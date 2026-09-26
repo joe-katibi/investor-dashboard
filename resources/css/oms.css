@@ -41,3 +41,35 @@
 
 .oms-check-pass { color: rgb(22 163 74); }
 .oms-check-fail { color: rgb(220 38 38); }
+
+/* Responsive helpers: tables scroll inside their card on phones instead of stretching the page. */
+.oms-scroll { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.oms-scroll .oms-table { min-width: 28rem; }
+@media (max-width: 639px) {
+    .oms-table th, .oms-table td { padding: .35rem .4rem; font-size: .8rem; }
+    .oms-stat-value { font-size: 1.25rem; }
+    .oms-email { padding: .75rem; max-height: 60vh; }
+}
+
+/* Phones: keep operational tables inside the screen. Rows open the record, so row menus can hide. */
+@media (max-width: 639px) {
+    .fi-ta-cell.fi-ta-cell-compact-state { max-width: 8.5rem; }
+    .oms-hide-mobile { display: none !important; }
+}
+
+/* Phones: tighter table cells so key columns fit without sideways scrolling. */
+@media (max-width: 639px) {
+    .fi-ta-text:not(.fi-inline) { padding-inline: .5rem; padding-block: .75rem; }
+    .fi-ta-header-cell { padding-inline: .5rem !important; }
+}
+
+/* Tables whose rows open the record: drop the (empty) row-action column on phones. */
+@media (max-width: 639px) {
+    .oms-mobile-no-actions .fi-ta-actions-header-cell,
+    .oms-mobile-no-actions td.fi-ta-cell:has(> .fi-ta-actions),
+    .oms-mobile-no-actions td:has(.fi-ta-actions) { display: none; }
+}
+
+/* Table badges may wrap onto two lines when a column is narrow (long status names on phones / tablets). */
+.fi-ta-cell .fi-badge { max-width: 100%; white-space: normal; text-align: start; }
+.fi-ta-cell .fi-badge .fi-badge-label { white-space: normal; overflow: visible; text-overflow: clip; text-align: start; }

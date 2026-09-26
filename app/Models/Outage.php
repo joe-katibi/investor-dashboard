@@ -268,6 +268,24 @@ class Outage extends Model
     }
 
     /** Minutes the outage has been open (or took, when closed). */
+    /**
+     * SLA state as of now for display: open, running clocks are evaluated against the due times so
+     * screens never show a stale "Compliant" if the scheduler is delayed. Closed / paused outages
+     * keep the stored state.
+     */
+    public function currentSlaState(): ?SlaState
+    {
+        if ($this->is_closed || $this->sla_paused_at || ! $this->sla_due_at) {
+            return $this->sla_state;
+        }
+
+        return match (true) {
+            now()->greaterThanOrEqualTo($this->sla_due_at) => SlaState::Breached,
+            $this->sla_pre_breach_at && now()->greaterThanOrEqualTo($this->sla_pre_breach_at) => SlaState::AtRisk,
+            default => SlaState::Compliant,
+        };
+    }
+
     public function elapsedMinutes(): int
     {
         $end = $this->end_time ?? $this->resolved_at ?? now();

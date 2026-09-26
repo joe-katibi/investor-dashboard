@@ -33,7 +33,7 @@
         <div>
             <div class="oms-value">Eligible users at decision time ({{ $meta['eligible_count'] ?? count($meta['eligible_ranking']) }} of {{ $meta['candidates_evaluated'] ?? '?' }} evaluated)</div>
             <p class="oms-muted">{{ $meta['selection_order'] ?? '' }}</p>
-            <table class="oms-table">
+            <div class="oms-scroll"><table class="oms-table">
                 <thead><tr><th>Rank</th><th>User</th><th>Active tickets</th><th>Last assigned</th></tr></thead>
                 <tbody>
                     @foreach ($meta['eligible_ranking'] as $row)
@@ -45,7 +45,7 @@
                         </tr>
                     @endforeach
                 </tbody>
-            </table>
+            </table></div>
         </div>
     @endif
 

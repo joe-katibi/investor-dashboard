@@ -18,7 +18,6 @@ use App\Filament\Resources\Outages\RelationManagers\UpdatesRelationManager;
 use App\Models\Outage;
 use BackedEnum;
 use Filament\Actions\ActionGroup;
-use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Infolists\Components\IconEntry;
 use Filament\Infolists\Components\TextEntry;
@@ -81,24 +80,40 @@ class OutageResource extends Resource
             ]))
             ->defaultSort('start_time', 'desc')
             ->poll('60s')
+            // Whole row opens the outage page (saves an action column on small screens).
+            ->recordUrl(fn (Outage $record) => static::getUrl('view', ['record' => $record]))
+            ->extraAttributes(['class' => 'oms-mobile-no-actions'])
             ->columns([
-                TextColumn::make('ticket_number')->label('Ticket')->searchable()->sortable()->copyable()->weight('bold'),
-                TextColumn::make('title')->searchable()->limit(40)->tooltip(fn (Outage $record) => $record->title)
-                    ->description(fn (Outage $record) => $record->olts->pluck('name')->implode(', ') ?: $record->location),
-                TextColumn::make('majorOutageType.name')->label('Major')->badge()->color('gray')->toggleable(),
-                TextColumn::make('outageType.name')->label('Type')->toggleable(),
-                TextColumn::make('vertical.name')->label('Vertical')->toggleable(),
-                TextColumn::make('priority.name')->label('Priority')->badge()->color(fn (Outage $record) => $record->priority?->color ?? 'gray')->sortable(),
-                TextColumn::make('customers_affected')->label('Customers')->numeric()->sortable(),
-                TextColumn::make('status.name')->label('Status')->badge()->color(fn (Outage $record) => $record->status?->color ?? 'gray'),
-                TextColumn::make('sla_state')->label('SLA')->badge()
+                // Phone: ticket + stacked priority/status. Tablet adds priority (with customers), status, SLA. Desktop adds
+                // location and owner; very wide screens add vertical, customers, elapsed and start. The rest is in the column toggle.
+                TextColumn::make('ticket_number')->label('Ticket')->searchable(['ticket_number', 'title'])->sortable()->weight('bold')
+                    // Non-breaking hyphen keeps the ticket on one line while the title wraps; copy uses the real value.
+                    ->formatStateUsing(fn (string $state) => str_replace('-', "\u{2011}", $state))
+                    ->copyable()->copyableState(fn (Outage $record) => $record->ticket_number)
+                    ->description(fn (Outage $record) => str($record->title)->limit(60))->wrap(),
+                // Phone only: priority and status badges stacked in one column.
+                TextColumn::make('compact_state')->label('Priority / status')->hiddenFrom('sm')->badge()->listWithLineBreaks()->wrap()
+                    ->state(fn (Outage $record) => array_values(array_filter([$record->priority?->name, $record->status?->name])))
+                    ->color(fn (string $state, Outage $record) => $state === $record->priority?->name
+                        ? ($record->priority?->color ?? 'gray')
+                        : ($record->status?->color ?? 'gray')),
+                TextColumn::make('location')->label('Location / OLT')->visibleFrom('xl')->wrap()
+                    ->state(fn (Outage $record) => $record->olts->pluck('name')->implode(', ') ?: $record->location)->placeholder('—'),
+                TextColumn::make('majorOutageType.name')->label('Major')->badge()->color('gray')->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('outageType.name')->label('Type')->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('vertical.name')->label('Vertical')->toggleable()->visibleFrom('2xl'),
+                TextColumn::make('priority.name')->label('Priority')->badge()->color(fn (Outage $record) => $record->priority?->color ?? 'gray')->sortable()->visibleFrom('sm')
+                    ->description(fn (Outage $record) => number_format($record->customers_affected).' customers'),
+                TextColumn::make('customers_affected')->label('Customers')->numeric()->sortable()->toggleable()->visibleFrom('2xl'),
+                TextColumn::make('status.name')->label('Status')->badge()->color(fn (Outage $record) => $record->status?->color ?? 'gray')->visibleFrom('sm')->wrap(),
+                TextColumn::make('sla_state')->label('SLA')->badge()->visibleFrom('sm')->wrap()->state(fn (Outage $record) => $record->currentSlaState())
                     ->description(fn (Outage $record) => ! $record->is_closed && $record->sla_due_at ? 'due '.$record->sla_due_at->diffForHumans(short: true) : null),
-                TextColumn::make('elapsed')->label('Elapsed')->state(fn (Outage $record) => $record->elapsedForHumans()),
-                TextColumn::make('current_queue')->label('Queue')->badge()->placeholder('—')->toggleable(),
-                TextColumn::make('currentAssignee.name')->label('Owner')->placeholder('Unassigned'),
-                IconColumn::make('sms_sent')->label('SMS')->boolean()->toggleable(),
-                IconColumn::make('credit_shared')->label('Credit')->boolean()->toggleable(),
-                TextColumn::make('start_time')->label('Start')->dateTime('d M H:i')->sortable(),
+                TextColumn::make('elapsed')->label('Elapsed')->state(fn (Outage $record) => $record->elapsedForHumans())->visibleFrom('2xl'),
+                TextColumn::make('current_queue')->label('Queue')->badge()->placeholder('—')->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('currentAssignee.name')->label('Owner')->placeholder('Unassigned')->visibleFrom('xl')->wrap(),
+                IconColumn::make('sms_sent')->label('SMS')->boolean()->toggleable(isToggledHiddenByDefault: true),
+                IconColumn::make('credit_shared')->label('Credit')->boolean()->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('start_time')->label('Start')->dateTime('d M H:i')->sortable()->toggleable()->visibleFrom('2xl'),
             ])
             ->filters([
                 SelectFilter::make('major_outage_type_id')->label('Major type')->relationship('majorOutageType', 'name'),
@@ -118,15 +133,16 @@ class OutageResource extends Resource
             ])
             ->filtersFormColumns(3)
             ->recordActions([
-                ViewAction::make()->iconButton(),
-                ActionGroup::make([...OutageActions::primary(), ...OutageActions::secondary()]),
+                // On phones the row itself opens the outage page, where every action is available.
+                ActionGroup::make([...OutageActions::primary(), ...OutageActions::secondary()])
+                    ->extraAttributes(['class' => 'oms-hide-mobile']),
             ]);
     }
 
     public static function infolist(Schema $schema): Schema
     {
         return $schema->components([
-            Grid::make(3)->schema([
+            Grid::make(['default' => 1, 'lg' => 3])->schema([
                 Section::make('Outage')->schema([
                     TextEntry::make('ticket_number')->label('Ticket')->weight('bold')->copyable(),
                     TextEntry::make('status.name')->label('Status')->badge()->color(fn (Outage $record) => $record->status?->color ?? 'gray'),
@@ -144,11 +160,11 @@ class OutageResource extends Resource
                         ->visible(fn (Outage $record) => $record->is4g())->columnSpanFull(),
                     TextEntry::make('description')->columnSpanFull()->placeholder('—')->prose(),
                     TextEntry::make('latest_update')->label('Latest action / update')->columnSpanFull()->placeholder('Awaiting update')->prose(),
-                ])->columns(3)->columnSpan(2),
+                ])->columns(['default' => 2, 'lg' => 3])->columnSpan(['default' => 'full', 'lg' => 2]),
 
                 Grid::make(1)->schema([
                     Section::make('SLA')->schema([
-                        TextEntry::make('sla_state')->label('State')->badge(),
+                        TextEntry::make('sla_state')->label('State')->badge()->state(fn (Outage $record) => $record->currentSlaState()),
                         TextEntry::make('sla_due_at')->label('Due')->dateTime('d M Y H:i')
                             ->helperText(fn (Outage $record) => ! $record->is_closed && $record->sla_due_at ? $record->sla_due_at->diffForHumans() : null)->placeholder('—'),
                         TextEntry::make('slaPolicy.name')->label('Policy')->placeholder('Default'),
@@ -174,7 +190,7 @@ class OutageResource extends Resource
                         TextEntry::make('creditUpdatedBy.name')->label('by')->placeholder('—')
                             ->helperText(fn (Outage $record) => $record->credit_updated_at?->format('d M H:i')),
                     ])->columns(2),
-                ])->columnSpan(1),
+                ])->columnSpan(['default' => 'full', 'lg' => 1]),
             ])->columnSpanFull(),
 
             Section::make('Lifecycle')->schema([
@@ -193,7 +209,7 @@ class OutageResource extends Resource
                     ->helperText(fn (Outage $record) => $record->resolvedBy?->name),
                 TextEntry::make('rejection_reason')->label('NOC rejection reason')->placeholder('—')->visible(fn (Outage $record) => filled($record->rejection_reason))->columnSpanFull(),
                 TextEntry::make('final_reason')->label('Final Reason / RFO')->placeholder('—')->columnSpanFull(),
-            ])->columns(5)->collapsible()->columnSpanFull(),
+            ])->columns(['default' => 2, 'md' => 3, 'xl' => 5])->collapsible()->columnSpanFull(),
         ]);
     }
 

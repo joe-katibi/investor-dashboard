@@ -28,14 +28,14 @@ class RecentOutagesTable extends TableWidget
             ->poll('60s')
             ->recordUrl(fn (Outage $record) => OutageResource::getUrl('view', ['record' => $record]))
             ->columns([
-                TextColumn::make('ticket_number')->label('Ticket')->weight('bold'),
-                TextColumn::make('outageType.name')->label('Type'),
-                TextColumn::make('title')->limit(40),
-                TextColumn::make('customers_affected')->label('Impact')->numeric(),
-                TextColumn::make('status.name')->label('Status')->badge()->color(fn (Outage $record) => $record->status?->color ?? 'gray'),
-                TextColumn::make('owner')->state(fn (Outage $record) => $record->currentAssignee?->name ?? $record->team?->name)->placeholder('—'),
-                TextColumn::make('sla_state')->label('SLA')->badge(),
-                TextColumn::make('created_at')->label('Reported')->since(),
+                TextColumn::make('ticket_number')->label('Ticket')->weight('bold')->wrap()->formatStateUsing(fn (?string $state) => str_replace('-', "\u{2011}", (string) $state))
+                    ->description(fn (Outage $record) => str($record->title)->limit(40)),
+                TextColumn::make('outageType.name')->label('Type')->visibleFrom('lg'),
+                TextColumn::make('customers_affected')->label('Impact')->numeric()->visibleFrom('md'),
+                TextColumn::make('status.name')->label('Status')->badge()->wrap()->color(fn (Outage $record) => $record->status?->color ?? 'gray'),
+                TextColumn::make('owner')->state(fn (Outage $record) => $record->currentAssignee?->name ?? $record->team?->name)->placeholder('—')->visibleFrom('lg'),
+                TextColumn::make('sla_state')->label('SLA')->badge()->visibleFrom('sm')->state(fn (Outage $record) => $record->currentSlaState()),
+                TextColumn::make('created_at')->label('Reported')->since()->visibleFrom('md'),
             ]);
     }
 }

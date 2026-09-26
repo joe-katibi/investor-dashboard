@@ -20,7 +20,7 @@ class AssignmentHistoriesRelationManager extends RelationManager
             ->modifyQueryUsing(fn ($query) => $query->with(['previousUser:id,name', 'newUser:id,name', 'performer:id,name']))
             ->columns([
                 TextColumn::make('performed_at')->label('When')->dateTime('d M H:i:s'),
-                TextColumn::make('queue_type')->label('Queue')->badge()->placeholder('—'),
+                TextColumn::make('queue_type')->label('Queue')->badge()->placeholder('—')->visibleFrom('md'),
                 TextColumn::make('action')->badge()->formatStateUsing(fn (string $state) => str($state)->replace('_', ' ')->title())
                     ->color(fn (string $state) => match ($state) {
                         'assigned', 'accepted', 'completed' => 'success',
@@ -28,11 +28,11 @@ class AssignmentHistoriesRelationManager extends RelationManager
                         'released' => 'warning',
                         default => 'gray',
                     }),
-                TextColumn::make('previousUser.name')->label('From')->placeholder('—'),
+                TextColumn::make('previousUser.name')->label('From')->placeholder('—')->visibleFrom('md'),
                 TextColumn::make('newUser.name')->label('To')->placeholder('—'),
-                TextColumn::make('reason')->wrap()->placeholder('—'),
-                TextColumn::make('performer.name')->label('By')->placeholder('System'),
-                TextColumn::make('trigger')->color('gray'),
+                TextColumn::make('reason')->wrap()->placeholder('—')->visibleFrom('lg'),
+                TextColumn::make('performer.name')->label('By')->placeholder('System')->visibleFrom('lg'),
+                TextColumn::make('trigger')->color('gray')->visibleFrom('xl'),
             ]);
     }
 }
