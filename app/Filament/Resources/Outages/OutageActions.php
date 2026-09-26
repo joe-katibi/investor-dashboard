@@ -288,8 +288,11 @@ final class OutageActions
             ->first();
     }
 
-    public static function teamOptions(?string $teamType): array
+    /** Form state holds the enum once Filament hydrates it, or the raw value before that. */
+    public static function teamOptions(TeamType|string|null $teamType): array
     {
+        $teamType = $teamType instanceof TeamType ? $teamType->value : $teamType;
+
         return Team::query()->active()->topLevel()
             ->whereIn('department_id', Department::query()->whereIn('code', ['INFRA', 'DISPATCH'])->pluck('id'))
             ->when($teamType, fn ($q) => $q->where('team_type', $teamType))

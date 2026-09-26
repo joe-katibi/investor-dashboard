@@ -13,6 +13,7 @@ use App\Models\Slot;
 use App\Models\Team;
 use App\Models\Vertical;
 use App\Services\Outages\PriorityResolver;
+use Closure;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -34,6 +35,9 @@ use Illuminate\Support\Facades\Auth;
  */
 final class OutageForm
 {
+    /** Sentinel option value for "select every item at this level". */
+    public const ALL = 'all';
+
     public static function configure(Schema $schema): Schema
     {
         return $schema->components([
@@ -61,24 +65,19 @@ final class OutageForm
 
             Section::make('Affected topology')
                 ->icon('heroicon-o-share')
-                ->description('OLT → FDT → Slot → Port. Each level only lists children of what you selected above it.')
+                ->description('OLT → FDT → Slot → Port. Each level only lists children of what you selected above it. Pick "ALL" to select every item at that level.')
                 ->visible(fn (Get $get) => self::usesTopology($get('major_outage_type_id')))
                 ->schema([
-                    Select::make('olt_ids')->label('OLT(s)')->multiple()->searchable()->live()
-                        ->options(fn (Get $get) => Olt::query()->active()->orderBy('name')->pluck('name', 'id')
-                            ->union(self::keep(Olt::class, $get('olt_ids'))))
+                    self::topologySelect('olt_ids', 'OLT(s)', 'ALL OLTs', fn (Get $get) => self::oltOptions($get('olt_ids') ?? []))
                         ->afterStateUpdated(fn (Get $get, Set $set) => self::pruneChildren($get, $set, 'olt')),
-                    Select::make('fdt_ids')->label('FDT(s)')->multiple()->searchable()->live()
-                        ->options(fn (Get $get) => self::fdtOptions($get('olt_ids') ?? [], $get('fdt_ids') ?? []))
-                        ->disabled(fn (Get $get) => empty($get('olt_ids')))
+                    self::topologySelect('fdt_ids', 'FDT(s)', 'ALL FDTs of the selected OLT(s)', fn (Get $get) => self::fdtOptions(self::ids($get('olt_ids')), self::ids($get('fdt_ids'))))
+                        ->disabled(fn (Get $get) => self::ids($get('olt_ids')) === [])
                         ->afterStateUpdated(fn (Get $get, Set $set) => self::pruneChildren($get, $set, 'fdt')),
-                    Select::make('slot_ids')->label('Slot(s)')->multiple()->searchable()->live()
-                        ->options(fn (Get $get) => self::slotOptions($get('fdt_ids') ?? [], $get('slot_ids') ?? []))
-                        ->disabled(fn (Get $get) => empty($get('fdt_ids')))
+                    self::topologySelect('slot_ids', 'Slot(s)', 'ALL slots of the selected FDT(s)', fn (Get $get) => self::slotOptions(self::ids($get('fdt_ids')), self::ids($get('slot_ids'))))
+                        ->disabled(fn (Get $get) => self::ids($get('fdt_ids')) === [])
                         ->afterStateUpdated(fn (Get $get, Set $set) => self::pruneChildren($get, $set, 'slot')),
-                    Select::make('port_ids')->label('Port(s)')->multiple()->searchable()
-                        ->options(fn (Get $get) => self::portOptions($get('slot_ids') ?? [], $get('port_ids') ?? []))
-                        ->disabled(fn (Get $get) => empty($get('slot_ids'))),
+                    self::topologySelect('port_ids', 'Port(s)', 'ALL ports of the selected slot(s)', fn (Get $get) => self::portOptions(self::ids($get('slot_ids')), self::ids($get('port_ids'))))
+                        ->disabled(fn (Get $get) => self::ids($get('slot_ids')) === []),
                 ])->columns(2),
 
             Section::make('Impact')
@@ -153,6 +152,45 @@ final class OutageForm
         return $ids ? $model::query()->whereIn('id', $ids)->pluck('name', 'id')->all() : [];
     }
 
+    /**
+     * Cascading topology multi-select with an "ALL" entry on top. Choosing it replaces
+     * the selection with every option at that level (the sentinel is never saved).
+     *
+     * @param  Closure(Get): array<int, string>  $options
+     */
+    private static function topologySelect(string $field, string $label, string $allLabel, Closure $options): Select
+    {
+        return Select::make($field)->label($label)->multiple()->searchable()->live()
+            ->options(function (Get $get) use ($field, $allLabel, $options): array {
+                $list = $options($get);
+                $unselected = array_diff(array_keys($list), self::ids($get($field)));
+
+                return count($list) > 1 && $unselected !== []
+                    ? [self::ALL => $allLabel.' ('.count($list).')'] + $list
+                    : $list;
+            })
+            ->afterStateUpdated(function (Get $get, Set $set) use ($field, $options): void {
+                if (in_array(self::ALL, (array) $get($field), true)) {
+                    $set($field, array_keys($options($get)));
+                }
+            })
+            ->dehydrateStateUsing(fn (Get $get, mixed $state) => in_array(self::ALL, (array) $state, true)
+                ? array_keys($options($get))
+                : self::ids($state));
+    }
+
+    /** Selected topology ids without the "ALL" sentinel. */
+    public static function ids(mixed $state): array
+    {
+        return array_values(array_map('intval', array_filter((array) $state, fn ($id) => is_int($id) || ctype_digit((string) $id))));
+    }
+
+    public static function oltOptions(array $selected = []): array
+    {
+        return Olt::query()->where(fn ($q) => $q->where('is_active', true)->orWhereIn('id', $selected ?: [0]))
+            ->orderBy('name')->pluck('name', 'id')->all();
+    }
+
     public static function fdtOptions(array $oltIds, array $selected = []): array
     {
         if ($oltIds === []) {
@@ -193,13 +231,13 @@ final class OutageForm
     private static function pruneChildren(Get $get, Set $set, string $level): void
     {
         if ($level === 'olt') {
-            $set('fdt_ids', array_values(array_intersect($get('fdt_ids') ?? [], array_keys(self::fdtOptions($get('olt_ids') ?? [], $get('fdt_ids') ?? [])))));
+            $set('fdt_ids', array_values(array_intersect(self::ids($get('fdt_ids')), array_keys(self::fdtOptions(self::ids($get('olt_ids')), self::ids($get('fdt_ids')))))));
         }
 
         if (in_array($level, ['olt', 'fdt'], true)) {
-            $set('slot_ids', array_values(array_intersect($get('slot_ids') ?? [], array_keys(self::slotOptions($get('fdt_ids') ?? [], $get('slot_ids') ?? [])))));
+            $set('slot_ids', array_values(array_intersect(self::ids($get('slot_ids')), array_keys(self::slotOptions(self::ids($get('fdt_ids')), self::ids($get('slot_ids')))))));
         }
 
-        $set('port_ids', array_values(array_intersect($get('port_ids') ?? [], array_keys(self::portOptions($get('slot_ids') ?? [], $get('port_ids') ?? [])))));
+        $set('port_ids', array_values(array_intersect(self::ids($get('port_ids')), array_keys(self::portOptions(self::ids($get('slot_ids')), self::ids($get('port_ids')))))));
     }
 }
