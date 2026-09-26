@@ -73,3 +73,10 @@
 /* Table badges may wrap onto two lines when a column is narrow (long status names on phones / tablets). */
 .fi-ta-cell .fi-badge { max-width: 100%; white-space: normal; text-align: start; }
 .fi-ta-cell .fi-badge .fi-badge-label { white-space: normal; overflow: visible; text-overflow: clip; text-align: start; }
+
+/* Brand: app icon + name (sidebar / top bar), stacked and larger on the sign-in page. */
+.oms-brand { display: inline-flex; align-items: center; gap: .6rem; height: 100%; font-weight: 700; font-size: 1rem; line-height: 1.15; letter-spacing: -.01em; white-space: nowrap; }
+.oms-brand-icon { height: 100%; width: auto; flex-shrink: 0; }
+.oms-brand-stacked { flex-direction: column; justify-content: center; gap: .5rem; font-size: 1.2rem; white-space: normal; text-align: center; }
+.oms-brand-stacked .oms-brand-icon { height: calc(100% - 1.9rem); }
+@media (max-width: 639px) { .oms-brand:not(.oms-brand-stacked) { font-size: .9rem; } }

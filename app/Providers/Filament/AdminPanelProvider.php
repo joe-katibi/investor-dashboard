@@ -25,11 +25,13 @@ use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
 use Filament\Support\Enums\Width;
+use Filament\View\PanelsRenderHook;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
+use Illuminate\Support\HtmlString;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 class AdminPanelProvider extends PanelProvider
@@ -48,7 +50,16 @@ class AdminPanelProvider extends PanelProvider
                 [AppAuthentication::make()->recoverable()],
                 isRequired: fn () => (bool) config('oms.security.require_mfa'),
             )
-            ->brandName('Outage Management System')
+            ->brandName(fn () => config('app.name'))
+            // App icon + name in the sidebar / top bar; larger stacked version on the sign-in pages.
+            ->brandLogo(fn () => view('filament.brand'))
+            ->brandLogoHeight(fn () => request()->routeIs('filament.*.auth.*') ? '9.5rem' : '2.25rem')
+            ->favicon(asset('favicon.ico'))
+            ->renderHook(PanelsRenderHook::HEAD_START, fn () => view('filament.head-icons'))
+            // OMS styles, cache-busted by content hash so every deploy reaches browsers immediately.
+            ->renderHook(PanelsRenderHook::STYLES_AFTER, fn () => new HtmlString(
+                '<link rel="stylesheet" href="'.e(asset('css/oms.css')).'?v='.substr((string) @md5_file(public_path('css/oms.css')), 0, 12).'">'
+            ))
             ->colors([
                 'primary' => Color::Amber,
                 'danger' => Color::Red,

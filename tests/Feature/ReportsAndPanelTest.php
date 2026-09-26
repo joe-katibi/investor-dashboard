@@ -124,6 +124,20 @@ class ReportsAndPanelTest extends TestCase
         $this->actingAs($user)->get(Dashboard::getUrl())->assertForbidden();
     }
 
+    public function test_branding_title_and_icons(): void
+    {
+        $this->get('/admin/login')
+            ->assertOk()
+            ->assertSee('<title>Outage Management System | Login</title>', false)
+            ->assertSee('favicon.ico', false)
+            ->assertSee('apple-touch-icon.png', false)
+            ->assertSee('images/oms-logo-128.png', false);
+
+        foreach (['favicon.ico', 'favicon-32x32.png', 'apple-touch-icon.png', 'images/oms-logo.png', 'css/oms.css'] as $file) {
+            $this->assertFileExists(public_path($file));
+        }
+    }
+
     public function test_security_headers_are_sent(): void
     {
         $this->get('/admin/login')

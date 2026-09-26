@@ -486,8 +486,9 @@ app/
 config/oms.php             Queues, SMS, security, trusted proxies, report limits
 database/migrations/       Schema
 database/seeders/          Reference data + demo data
-resources/css/oms.css      Custom view styles (registered via FilamentAsset, no build step)
-resources/views/           E-mails, PDF report, custom Filament views
+public/css/oms.css         Custom styles (loaded with a content-hash URL, no build step)
+resources/views/           E-mails, PDF report, custom Filament views, brand, layout override (tab title)
+public/images, favicon*     App icon set (generated from resources/images/oms-icon-source.webp)
 routes/console.php         Scheduler
 routes/channels.php        Broadcast channel authorisation
 tests/Feature/             FIFO, workflow, SLA, reports, panel & security tests
@@ -615,4 +616,4 @@ Checklist:
 | Tickets stay unassigned in FIFO Queues | Use *Why?* on the ticket — typical causes: no user *Available*, no active shift, on leave, workload limit, missing queue permission or department. |
 | Scheduled e-mails not sent | Template must be active with recipients; scheduler and queue worker must run; check *Notification Log*. |
 | Changes to `.env` ignored | Run `php artisan optimize:clear` (config may be cached). |
-| Custom styles missing | Run `php artisan filament:assets`. |
+| Custom styles missing | Run `php artisan filament:assets` (Filament's own assets); OMS styles live in `public/css/oms.css`. |

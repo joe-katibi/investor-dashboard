@@ -11,8 +11,6 @@ use App\Services\Notifications\Sms\LogSmsGateway;
 use App\Services\Notifications\Sms\SmsGateway;
 use App\Services\Reports\DashboardMetrics;
 use App\Support\Settings;
-use Filament\Support\Assets\Css;
-use Filament\Support\Facades\FilamentAsset;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Model;
@@ -79,8 +77,6 @@ class AppServiceProvider extends ServiceProvider
                 $event->user->forceFill(['last_login_at' => now()])->saveQuietly();
             }
         });
-
-        FilamentAsset::register([Css::make('oms', resource_path('css/oms.css'))]);
 
         // Any real-time OMS event invalidates the shared dashboard cache.
         Event::listen('App\Events\*', function (string $eventName): void {
