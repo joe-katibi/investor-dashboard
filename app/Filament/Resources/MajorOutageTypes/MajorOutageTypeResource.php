@@ -44,6 +44,8 @@ class MajorOutageTypeResource extends Resource
             Toggle::make('requires_noc_confirmation')->label('Requires NOC confirmation')->default(true),
             Toggle::make('requires_infrastructure')->label('Escalate to Infrastructure after NOC confirmation')->default(true),
             Toggle::make('uses_topology')->label('Uses OLT / FDT / Slot / Port topology'),
+            Toggle::make('requires_it_review')->label('IT reviews first (escalates to NOC if core / network)')
+                ->helperText('New tickets go to the IT Review queue instead of NOC; IT confirms the fix and shares feedback.'),
             TextInput::make('sort_order')->numeric()->default(0),
             AuditFields::description(),
             AuditFields::activeToggle(),
@@ -60,6 +62,7 @@ class MajorOutageTypeResource extends Resource
                 IconColumn::make('requires_noc_confirmation')->label('NOC')->boolean(),
                 IconColumn::make('requires_infrastructure')->label('Infra')->boolean(),
                 IconColumn::make('uses_topology')->label('Topology')->boolean(),
+                IconColumn::make('requires_it_review')->label('IT first')->boolean(),
                 AuditFields::activeColumn(),
                 ...AuditFields::columns(),
             ])

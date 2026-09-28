@@ -20,6 +20,10 @@ class QueueDefinitionSeeder extends Seeder
             [QueueType::Infrastructure, 'Infrastructure Dispatch Queue', 'INFRA', 15],
             [QueueType::Technician, 'Technician Queue', 'INFRA', 20],
             [QueueType::NocRestore, 'NOC Restore Confirmation Queue', 'NOC', 15],
+            [QueueType::CxFollowUp, 'CX Tier II Follow-up Queue', 'CX', 30],
+            [QueueType::SupportTechnician, 'Support Technician Queue', 'DISPATCH', 20],
+            [QueueType::ItReview, 'IT Review Queue', 'IT', 15],
+            [QueueType::ItConfirmation, 'IT Confirmation Queue', 'IT', 15],
         ] as [$type, $name, $departmentCode, $ack]) {
             QueueDefinition::query()->updateOrCreate(['queue_type' => $type->value, 'name' => $name], [
                 'department_id' => $department[$departmentCode] ?? null,

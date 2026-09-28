@@ -27,6 +27,11 @@ class OutageStatusSeeder extends Seeder
             [StatusCode::AwaitingCustomerConfirmation, 'Awaiting Customer Confirmation', 'info', true, false, false, false, true, 12],
             [StatusCode::Resolved, 'Outage Resolved', 'success', true, true, true, false, false, 13],
             [StatusCode::ScheduledMaintenance, 'Scheduled Maintenance', 'gray', false, false, false, true, true, 14],
+            // NOC rejected: waiting for CX Tier II to call the customer back. Not a confirmed outage, so the SLA is paused.
+            [StatusCode::CxFollowUp, 'NOC Rejected – CX Follow-up', 'danger', false, false, false, true, false, 15],
+            [StatusCode::ItReview, 'IT Review', 'gray', false, false, false, false, false, 16],
+            [StatusCode::EscalatedToNoc, 'Escalated to NOC by IT', 'info', false, false, false, false, false, 17],
+            [StatusCode::AwaitingItConfirmation, 'NOC Resolved – Awaiting IT Confirmation', 'success', false, false, false, false, false, 18],
         ] as [$code, $name, $color, $prompt, $closed, $resolved, $pauses, $manual, $sort]) {
             OutageStatus::query()->updateOrCreate(['code' => $code->value], [
                 'name' => $name, 'color' => $color, 'prompt_final_reason' => $prompt, 'is_closed' => $closed,

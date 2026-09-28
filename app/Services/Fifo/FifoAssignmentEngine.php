@@ -107,7 +107,10 @@ class FifoAssignmentEngine
                 'status' => QueueEntryStatus::Pending,
             ]);
 
-            $outage->forceFill(['current_queue' => $type, 'current_assignee_id' => null])->save();
+            // A parallel queue (support technician) runs alongside; the ticket keeps its main owner.
+            if (! $type->isParallel()) {
+                $outage->forceFill(['current_queue' => $type, 'current_assignee_id' => null])->save();
+            }
 
             $this->history($outage, null, $type, null, null, 'queued', $options['reason'] ?? 'Placed in '.$type->getLabel().' queue');
 
@@ -257,11 +260,13 @@ class FifoAssignmentEngine
             // saveQuietly: bookkeeping only, keeps the user audit trail readable.
             $user->forceFill(['last_assigned_at' => $now])->saveQuietly();
 
-            $outageUpdates = ['current_assignee_id' => $user->id, 'current_queue' => $entry->queue_type];
-            if ($entry->queue_type === QueueType::Technician) {
-                $outageUpdates['technician_id'] = $user->id;
+            if (! $entry->queue_type->isParallel()) {
+                $outageUpdates = ['current_assignee_id' => $user->id, 'current_queue' => $entry->queue_type];
+                if ($entry->queue_type === QueueType::Technician) {
+                    $outageUpdates['technician_id'] = $user->id;
+                }
+                $outage->forceFill($outageUpdates)->save();
             }
-            $outage->forceFill($outageUpdates)->save();
 
             $this->history($outage, $assignment, $entry->queue_type, $current?->user_id, $user->id, $type === AssignmentType::AutoFifo ? 'assigned' : $type->value, $reason, $by);
 
@@ -528,7 +533,7 @@ class FifoAssignmentEngine
             $entry->forceFill(['status' => QueueEntryStatus::Completed, 'completed_at' => now()])->save();
         }
 
-        if ($entries->isNotEmpty()) {
+        if ($entries->isNotEmpty() && ! $type->isParallel()) {
             $outage->forceFill(['current_queue' => null, 'current_assignee_id' => null])->save();
         }
     }
@@ -757,7 +762,9 @@ class FifoAssignmentEngine
             'status' => QueueEntryStatus::Pending,
         ]);
 
-        $outage->forceFill(['current_queue' => $type])->save();
+        if (! $type->isParallel()) {
+            $outage->forceFill(['current_queue' => $type])->save();
+        }
         $this->history($outage, null, $type, null, null, 'queued', 'Placed in '.$type->getLabel().' queue');
 
         return $entry;
@@ -789,7 +796,9 @@ class FifoAssignmentEngine
         ])->save();
 
         $outage = $assignment->outage;
-        $outage->forceFill(['current_assignee_id' => null])->save();
+        if (! $entry->queue_type->isParallel()) {
+            $outage->forceFill(['current_assignee_id' => null])->save();
+        }
 
         if (! $requeue || ($threshold > 0 && $attempts >= $threshold && ! $entry->escalated_at)) {
             $entry->forceFill(['escalated_at' => now()])->save();

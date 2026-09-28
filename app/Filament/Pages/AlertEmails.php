@@ -55,8 +55,14 @@ class AlertEmails extends Page
         NotificationEvent::NocEscalation,
         NotificationEvent::NocConfirmed,
         NotificationEvent::NocRejected,
+        NotificationEvent::CxFollowUp,
+        NotificationEvent::SiteVisitRaised,
         NotificationEvent::InfrastructureEscalation,
         NotificationEvent::Dispatched,
+        NotificationEvent::SupportRequested,
+        NotificationEvent::SupportCompleted,
+        NotificationEvent::ItEscalation,
+        NotificationEvent::ReturnedToIt,
         NotificationEvent::Assigned,
         NotificationEvent::UpdatePosted,
         NotificationEvent::StatusChanged,
@@ -83,6 +89,13 @@ class AlertEmails extends Page
         'update_posted' => 'Any progress update posted on a ticket',
         'restore_reported' => 'Outage technician closes the job (restoration reported)',
         'resolved' => 'Ticket resolved and closed',
+        'noc_rejected' => 'NOC rejected — returned to CX Tier II for customer follow-up',
+        'cx_follow_up' => 'CX recorded the customer callback',
+        'site_visit_raised' => 'CX raised a site visit for the customer',
+        'support_requested' => 'Field team requested a support technician (drop cable / premises)',
+        'support_completed' => 'Support technician finished the drop cable / premises work',
+        'it_escalation' => 'System outage assigned to IT for review',
+        'returned_to_it' => 'NOC fixed an IT-escalated issue and returned it to IT to confirm',
     ];
 
     public static function canAccess(): bool

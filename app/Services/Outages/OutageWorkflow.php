@@ -13,6 +13,7 @@ use App\Models\Fdt;
 use App\Models\Olt;
 use App\Models\Outage;
 use App\Models\OutageFlagEvent;
+use App\Models\OutageFollowUp;
 use App\Models\OutageStatus;
 use App\Models\OutageStatusHistory;
 use App\Models\OutageType;
@@ -20,6 +21,7 @@ use App\Models\OutageUpdate;
 use App\Models\Port;
 use App\Models\Service;
 use App\Models\Slot;
+use App\Models\SupportRequest;
 use App\Models\User;
 use App\Services\Fifo\FifoAssignmentEngine;
 use App\Services\Notifications\NotificationDispatcher;
@@ -69,7 +71,8 @@ class OutageWorkflow
             $outage->start_time = Carbon::parse($data['start_time'] ?? now());
             $this->applyPriority($outage, $data, $by);
 
-            $initial = OutageStatus::forCode(StatusCode::SupportUnconfirmed);
+            // System outages go to IT first; everything else starts unconfirmed for NOC.
+            $initial = OutageStatus::forCode($major->requires_it_review ? StatusCode::ItReview : StatusCode::SupportUnconfirmed);
             $outage->status_id = $initial->id;
             $outage->is_closed = false;
             $outage->sla_state = SlaState::Compliant;
@@ -92,7 +95,11 @@ class OutageWorkflow
             event(new OutageCreated($outage->id, $outage->ticket_number));
             $this->notifier->dispatch(NotificationEvent::OutageCreated, $outage);
 
-            if ($major->requires_noc_confirmation) {
+            if ($major->requires_it_review) {
+                // IT checks the system first and escalates to NOC only for core / network causes.
+                $this->fifo->enqueue($outage, QueueType::ItReview, ['reason' => 'System outage: IT reviews first']);
+                $this->notifier->dispatch(NotificationEvent::ItEscalation, $outage);
+            } elseif ($major->requires_noc_confirmation) {
                 // Step 2: automatic escalation / routing to the NOC FIFO queue.
                 $outage->forceFill(['noc_escalated_at' => now()])->save();
                 $this->fifo->enqueue($outage, QueueType::NocReview, ['reason' => 'Automatic NOC escalation on creation']);
@@ -193,9 +200,13 @@ class OutageWorkflow
                 'end_time' => now(),
             ]);
             $this->fifo->complete($outage, QueueType::NocReview, $by, 'NOC rejected');
-            $this->transition($outage, StatusCode::NocReject, $by, $reason);
-            $this->addSystemUpdate($outage, "NOC rejected the outage: {$reason}", $by);
-            $this->notifier->dispatch(NotificationEvent::NocRejected, $outage, ['reason' => $reason]);
+
+            // Not an outage: Customer Experience (Tier II) calls the customer back and raises a
+            // site visit if needed. The ticket closes as "NOC Reject" once they record the follow-up.
+            $this->transition($outage, StatusCode::CxFollowUp, $by, $reason);
+            $this->addSystemUpdate($outage, "NOC rejected the outage: {$reason}. Returned to Customer Experience (Tier II) for a customer callback.", $by);
+            $this->fifo->enqueue($outage, QueueType::CxFollowUp, ['reason' => 'NOC rejected — customer callback / site visit']);
+            $this->notifier->dispatch(NotificationEvent::NocRejected, $outage, ['reason' => $reason, 'notify_user_ids' => [$outage->created_by]]);
 
             return $outage->refresh();
         });
@@ -285,6 +296,11 @@ class OutageWorkflow
         $result = DB::transaction(function () use ($outage, $by, $note, $restoredAt): Outage {
             $outage = $this->lock($outage);
             Gate::forUser($by)->authorize('reportRestored', $outage);
+
+            // Customer uptime needs both the live line and the drop cable to the premises.
+            if (SupportRequest::query()->open()->where('outage_id', $outage->id)->exists()) {
+                throw ValidationException::withMessages(['note' => 'The support technician request (drop cable / customer premises) is still open. Wait for the support technician to complete it, or cancel the request, before reporting restoration.']);
+            }
 
             if ($outage->majorOutageType?->requires_infrastructure) {
                 $this->fifo->authorizeWork($outage, QueueType::Technician, $by);
@@ -438,6 +454,292 @@ class OutageWorkflow
         return $result->refresh();
     }
 
+    // ------------------------------------------------------------------ NOC reject → CX follow-up
+
+    /**
+     * CX Tier II records the customer callback on a NOC-rejected ticket, and optionally the site
+     * visit they raised. With $data['close'] (default) the ticket closes as "NOC Reject"; without
+     * it the ticket stays with the agent for another call (e.g. no answer).
+     *
+     * @param  array{call_outcome: string, callback_notes: string, called_at?: mixed, site_visit_required?: bool, site_visit_at?: mixed, site_visit_reference?: ?string, site_visit_notes?: ?string, close?: bool}  $data
+     */
+    public function recordCxFollowUp(Outage $outage, User $by, array $data): Outage
+    {
+        if (! array_key_exists($data['call_outcome'] ?? '', OutageFollowUp::OUTCOMES)) {
+            throw ValidationException::withMessages(['call_outcome' => 'Select the outcome of the callback.']);
+        }
+
+        $this->requireText($data['callback_notes'] ?? null, 'callback_notes', 'Describe the callback with the customer.');
+        $siteVisit = ! empty($data['site_visit_required']);
+
+        if ($siteVisit && empty($data['site_visit_at'])) {
+            throw ValidationException::withMessages(['site_visit_at' => 'Enter when the site visit is scheduled.']);
+        }
+
+        $result = DB::transaction(function () use ($outage, $by, $data, $siteVisit): Outage {
+            $outage = $this->lock($outage);
+            Gate::forUser($by)->authorize('cxFollowUp', $outage);
+            $this->fifo->authorizeWork($outage, QueueType::CxFollowUp, $by);
+            $close = $data['close'] ?? true;
+
+            $followUp = OutageFollowUp::query()->create([
+                'outage_id' => $outage->id,
+                'user_id' => $by->id,
+                'called_at' => Carbon::parse($data['called_at'] ?? now()),
+                'call_outcome' => $data['call_outcome'],
+                'callback_notes' => trim($data['callback_notes']),
+                'site_visit_required' => $siteVisit,
+                'site_visit_at' => $siteVisit ? Carbon::parse($data['site_visit_at']) : null,
+                'site_visit_reference' => $siteVisit ? ($data['site_visit_reference'] ?? null) : null,
+                'site_visit_notes' => $siteVisit ? ($data['site_visit_notes'] ?? null) : null,
+                'closed_ticket' => (bool) $close,
+            ]);
+
+            $visit = $siteVisit
+                ? 'Site visit raised for '.$followUp->site_visit_at->format('d M Y H:i')
+                    .($followUp->site_visit_reference ? " (ref {$followUp->site_visit_reference})" : '')
+                    .($followUp->site_visit_notes ? ": {$followUp->site_visit_notes}" : '.')
+                : null;
+            $summary = "Customer callback — {$followUp->outcomeLabel()}: {$followUp->callback_notes}".($visit ? " {$visit}" : '');
+
+            OutageUpdate::query()->create(['outage_id' => $outage->id, 'user_id' => $by->id, 'type' => 'action', 'body' => $summary]);
+            $outage->forceFill(['latest_update' => $summary, 'cx_followed_up_at' => now()])->save();
+
+            $this->notifier->dispatch(NotificationEvent::CxFollowUp, $outage, ['reason' => $summary]);
+
+            if ($visit) {
+                $this->notifier->dispatch(NotificationEvent::SiteVisitRaised, $outage, ['reason' => $visit]);
+            }
+
+            if ($close) {
+                $this->fifo->complete($outage, QueueType::CxFollowUp, $by, 'Customer follow-up completed');
+                $outage->forceFill(['end_time' => $outage->end_time ?? now()]);
+                $this->transition($outage, StatusCode::NocReject, $by, 'CX follow-up completed: '.$followUp->outcomeLabel());
+            } else {
+                event(new OutageUpdated($outage->id, $outage->ticket_number));
+            }
+
+            return $outage->refresh();
+        });
+
+        return $result->refresh();
+    }
+
+    // ------------------------------------------------------------------ support technician (parallel)
+
+    /**
+     * The field team asks for a support technician (drop cable → customer premises) on the same
+     * ticket. The request is worked from its own FIFO queue in parallel: the outage technician
+     * keeps the ticket while the support technician fixes the premises side.
+     *
+     * @param  array{work_required: string, customer_details?: ?string, location?: ?string}  $data
+     */
+    public function requestSupport(Outage $outage, User $by, array $data): SupportRequest
+    {
+        $this->requireText($data['work_required'] ?? null, 'work_required', 'Describe the work the support technician must do.');
+
+        return DB::transaction(function () use ($outage, $by, $data): SupportRequest {
+            $outage = $this->lock($outage);
+            Gate::forUser($by)->authorize('requestSupport', $outage);
+
+            $request = SupportRequest::query()->create([
+                'outage_id' => $outage->id,
+                'requested_by' => $by->id,
+                'work_required' => trim($data['work_required']),
+                'customer_details' => $data['customer_details'] ?? null,
+                'location' => $data['location'] ?? $outage->location,
+                'status' => SupportRequest::OPEN,
+            ]);
+
+            $entry = $this->fifo->enqueue($outage, QueueType::SupportTechnician, [
+                'reason' => 'Support technician requested by '.$by->name,
+            ]);
+            $request->forceFill(['queue_entry_id' => $entry->id])->save();
+
+            $details = collect([
+                $request->work_required,
+                $request->customer_details ? 'Customer: '.$request->customer_details : null,
+                $request->location ? 'Location: '.$request->location : null,
+            ])->filter()->implode('. ');
+
+            $this->addSystemUpdate($outage, "Support technician requested on site (drop cable / customer premises): {$details}", $by);
+            $this->notifier->dispatch(NotificationEvent::SupportRequested, $outage, ['reason' => $details, 'by' => $by->name]);
+            event(new OutageUpdated($outage->id, $outage->ticket_number));
+
+            return $request;
+        });
+    }
+
+    public function completeSupport(Outage $outage, User $by, string $note): Outage
+    {
+        $this->requireText($note, 'note', 'Describe the drop cable / premises work done.');
+
+        $result = DB::transaction(function () use ($outage, $by, $note): Outage {
+            $outage = $this->lock($outage);
+            Gate::forUser($by)->authorize('completeSupport', $outage);
+            $this->fifo->authorizeWork($outage, QueueType::SupportTechnician, $by);
+
+            $request = SupportRequest::query()->open()->where('outage_id', $outage->id)->lockForUpdate()->latest('id')->firstOrFail();
+            $request->forceFill([
+                'status' => SupportRequest::COMPLETED,
+                'completed_by' => $by->id,
+                'completed_at' => now(),
+                'completion_note' => $note,
+            ])->save();
+
+            $this->fifo->complete($outage, QueueType::SupportTechnician, $by, 'Support work completed');
+            OutageUpdate::query()->create([
+                'outage_id' => $outage->id, 'user_id' => $by->id, 'type' => 'action',
+                'body' => "Support technician completed the drop cable / premises work: {$note}",
+            ]);
+
+            // The requester and the outage technician hear about it directly.
+            $this->notifier->dispatch(NotificationEvent::SupportCompleted, $outage, [
+                'reason' => $note,
+                'notify_user_ids' => [$request->requested_by, $outage->technician_id],
+            ]);
+            event(new OutageUpdated($outage->id, $outage->ticket_number));
+
+            return $outage->refresh();
+        });
+
+        return $result->refresh();
+    }
+
+    public function cancelSupport(Outage $outage, User $by, string $reason): Outage
+    {
+        $this->requireText($reason, 'reason', 'Give a reason for cancelling the support request.');
+
+        $result = DB::transaction(function () use ($outage, $by, $reason): Outage {
+            $outage = $this->lock($outage);
+            Gate::forUser($by)->authorize('cancelSupport', $outage);
+
+            SupportRequest::query()->open()->where('outage_id', $outage->id)->lockForUpdate()->get()
+                ->each(fn (SupportRequest $request) => $request->forceFill([
+                    'status' => SupportRequest::CANCELLED,
+                    'cancelled_by' => $by->id,
+                    'cancelled_at' => now(),
+                    'cancel_reason' => $reason,
+                ])->save());
+
+            $this->fifo->complete($outage, QueueType::SupportTechnician, $by, 'Support request cancelled');
+            $this->addSystemUpdate($outage, "Support technician request cancelled: {$reason}", $by);
+            event(new OutageUpdated($outage->id, $outage->ticket_number));
+
+            return $outage->refresh();
+        });
+
+        return $result->refresh();
+    }
+
+    // ------------------------------------------------------------------ system outages: IT first
+
+    /** IT finds a core / network cause and escalates the system outage to NOC. */
+    public function itEscalateToNoc(Outage $outage, User $by, string $reason): Outage
+    {
+        $this->requireText($reason, 'reason', 'Explain why NOC is needed (core / network cause).');
+
+        $result = DB::transaction(function () use ($outage, $by, $reason): Outage {
+            $outage = $this->lock($outage);
+            Gate::forUser($by)->authorize('itReview', $outage);
+            $this->fifo->authorizeWork($outage, QueueType::ItReview, $by);
+
+            $outage->forceFill(['it_escalated_to_noc_at' => now(), 'it_escalated_by' => $by->id, 'noc_escalated_at' => now()]);
+            $this->fifo->complete($outage, QueueType::ItReview, $by, 'Escalated to NOC');
+            $this->transition($outage, StatusCode::EscalatedToNoc, $by, $reason);
+            $this->addSystemUpdate($outage, "IT escalated to NOC (core / network cause): {$reason}", $by);
+            $this->fifo->enqueue($outage, QueueType::NocReview, ['reason' => 'Escalated by IT: '.$reason]);
+            $this->notifier->dispatch(NotificationEvent::NocEscalation, $outage, ['reason' => 'Escalated by IT: '.$reason]);
+
+            return $outage->refresh();
+        });
+
+        return $result->refresh();
+    }
+
+    /** NOC has fixed the core / network side and hands the ticket back to IT to confirm. */
+    public function nocReturnToIt(Outage $outage, User $by, string $note): Outage
+    {
+        $this->requireText($note, 'note', 'Describe what NOC fixed.');
+
+        $result = DB::transaction(function () use ($outage, $by, $note): Outage {
+            $outage = $this->lock($outage);
+            Gate::forUser($by)->authorize('returnToIt', $outage);
+            $this->fifo->authorizeWork($outage, QueueType::NocReview, $by);
+
+            $outage->forceFill(['noc_returned_to_it_at' => now(), 'noc_returned_by' => $by->id]);
+            $this->fifo->complete($outage, QueueType::NocReview, $by, 'Resolved by NOC — returned to IT');
+            $this->transition($outage, StatusCode::AwaitingItConfirmation, $by, $note);
+            $this->addSystemUpdate($outage, "NOC resolved the core / network issue and returned the ticket to IT to confirm: {$note}", $by);
+            $this->fifo->enqueue($outage, QueueType::ItConfirmation, ['reason' => 'NOC resolved — IT to confirm']);
+            $this->notifier->dispatch(NotificationEvent::ReturnedToIt, $outage, ['reason' => $note]);
+
+            return $outage->refresh();
+        });
+
+        return $result->refresh();
+    }
+
+    /**
+     * IT confirms the system is working and shares the feedback with the team, closing the
+     * ticket. Used both when IT fixes it directly (IT Review) and after NOC returned it.
+     */
+    public function itResolve(Outage $outage, User $by, string $feedback): Outage
+    {
+        $this->requireText($feedback, 'feedback', 'Share the resolution feedback for the team.');
+
+        $result = DB::transaction(function () use ($outage, $by, $feedback): Outage {
+            $outage = $this->lock($outage);
+            $inReview = $this->statusIs($outage, StatusCode::ItReview);
+            Gate::forUser($by)->authorize($inReview ? 'itReview' : 'itConfirm', $outage);
+            $queue = $inReview ? QueueType::ItReview : QueueType::ItConfirmation;
+            $this->fifo->authorizeWork($outage, $queue, $by);
+
+            $outage->forceFill([
+                'final_reason' => $feedback,
+                'it_confirmed_at' => now(),
+                'it_confirmed_by' => $by->id,
+                'resolved_at' => now(),
+                'resolved_by' => $by->id,
+                'end_time' => $outage->end_time ?? now(),
+                'latest_update' => $feedback,
+            ]);
+
+            $this->fifo->complete($outage, $queue, $by, 'IT confirmed resolved');
+            $this->transition($outage, StatusCode::Resolved, $by, 'IT confirmed resolved');
+            $this->addSystemUpdate($outage, "IT confirmed the system is working. Feedback: {$feedback}", $by);
+
+            // Feedback goes to the resolution rules and straight to the person who reported it.
+            $this->notifier->dispatch(NotificationEvent::Resolved, $outage, ['reason' => $feedback, 'notify_user_ids' => [$outage->created_by]]);
+
+            return $outage->refresh();
+        });
+
+        return $result->refresh();
+    }
+
+    /** IT checked NOC's fix and the system is still failing: back to NOC. */
+    public function itReturnToNoc(Outage $outage, User $by, string $reason): Outage
+    {
+        $this->requireText($reason, 'reason', 'Describe what is still failing.');
+
+        $result = DB::transaction(function () use ($outage, $by, $reason): Outage {
+            $outage = $this->lock($outage);
+            Gate::forUser($by)->authorize('itConfirm', $outage);
+            $this->fifo->authorizeWork($outage, QueueType::ItConfirmation, $by);
+
+            $this->fifo->complete($outage, QueueType::ItConfirmation, $by, 'Not resolved — returned to NOC');
+            $this->transition($outage, StatusCode::EscalatedToNoc, $by, $reason);
+            $this->addSystemUpdate($outage, "IT: still not working — returned to NOC: {$reason}", $by);
+            $this->fifo->enqueue($outage, QueueType::NocReview, ['reason' => 'IT: not resolved — '.$reason]);
+            $this->notifier->dispatch(NotificationEvent::NocEscalation, $outage, ['reason' => 'IT: still not working — '.$reason]);
+
+            return $outage->refresh();
+        });
+
+        return $result->refresh();
+    }
+
     /** Explicit YES/NO credit / SMS tracking with who/when audit (spec §18). */
     public function setFlag(Outage $outage, string $flag, bool $value, User $by, bool $authorize = true): void
     {
@@ -512,6 +814,13 @@ class OutageWorkflow
         $this->sla->onStatusChanged($outage, $status);
 
         if ($status->is_closed) {
+            SupportRequest::query()->open()->where('outage_id', $outage->id)->update([
+                'status' => SupportRequest::CANCELLED,
+                'cancelled_at' => now(),
+                'cancelled_by' => $by?->id,
+                'cancel_reason' => 'Outage closed: '.$status->name,
+                'updated_at' => now(),
+            ]);
             $this->fifo->cancelAll($outage, 'Outage closed: '.$status->name, $by);
             $this->sla->finalize($outage);
         }
@@ -648,6 +957,11 @@ class OutageWorkflow
     private function lock(Outage $outage): Outage
     {
         return Outage::query()->with(['status', 'majorOutageType', 'priority', 'slaPolicy', 'team', 'subTeam'])->lockForUpdate()->findOrFail($outage->id);
+    }
+
+    private function statusIs(Outage $outage, StatusCode $code): bool
+    {
+        return OutageStatus::codeForId($outage->status_id) === $code->value;
     }
 
     private function requireText(?string $value, string $field, string $message): void

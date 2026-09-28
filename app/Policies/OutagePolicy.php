@@ -6,6 +6,7 @@ use App\Enums\StatusCode;
 use App\Models\MajorOutageType;
 use App\Models\Outage;
 use App\Models\OutageStatus;
+use App\Models\SupportRequest;
 use App\Models\User;
 
 /**
@@ -105,6 +106,78 @@ class OutagePolicy
     public function overrideAssignment(User $user, Outage $outage): bool
     {
         return $user->can('queue.override') && ! $outage->is_closed;
+    }
+
+    // ------------------------------------------------------------------ NOC reject → CX follow-up
+
+    /** CX Tier II records the customer callback (and any site visit) on a NOC-rejected ticket. */
+    public function cxFollowUp(User $user, Outage $outage): bool
+    {
+        return $user->can('outage.cx_follow_up')
+            && ! $outage->is_closed
+            && $this->statusIs($outage, StatusCode::CxFollowUp);
+    }
+
+    // ------------------------------------------------------------------ support technician (parallel)
+
+    /** Field team asks for a support technician (drop cable → premises) on an ongoing, dispatched outage. */
+    public function requestSupport(User $user, Outage $outage): bool
+    {
+        return $user->can('outage.request_support')
+            && ! $outage->is_closed
+            && $outage->dispatched_at !== null
+            && ! $this->statusIs($outage, StatusCode::RestoreReported, StatusCode::NocRestoreConfirmed)
+            && ! $this->hasOpenSupportRequest($outage);
+    }
+
+    public function completeSupport(User $user, Outage $outage): bool
+    {
+        return $user->can('outage.support_work')
+            && ! $outage->is_closed
+            && $this->hasOpenSupportRequest($outage);
+    }
+
+    public function cancelSupport(User $user, Outage $outage): bool
+    {
+        return ($user->can('outage.request_support') || $user->can('queue.override'))
+            && ! $outage->is_closed
+            && $this->hasOpenSupportRequest($outage);
+    }
+
+    // ------------------------------------------------------------------ system outages: IT first
+
+    /** IT reviews a new system outage: resolve it or escalate to NOC. */
+    public function itReview(User $user, Outage $outage): bool
+    {
+        return $user->can('outage.it_review')
+            && ! $outage->is_closed
+            && $this->statusIs($outage, StatusCode::ItReview);
+    }
+
+    /** IT confirms (or refuses) the fix NOC returned. */
+    public function itConfirm(User $user, Outage $outage): bool
+    {
+        return $user->can('outage.it_review')
+            && ! $outage->is_closed
+            && $this->statusIs($outage, StatusCode::AwaitingItConfirmation);
+    }
+
+    /** NOC has fixed an IT-escalated issue and hands it back to IT. */
+    public function returnToIt(User $user, Outage $outage): bool
+    {
+        return $user->can('outage.confirm')
+            && ! $outage->is_closed
+            && $this->statusIs($outage, StatusCode::EscalatedToNoc);
+    }
+
+    private function hasOpenSupportRequest(Outage $outage): bool
+    {
+        // Tables eager-load the relation so row actions don't query per row.
+        if ($outage->relationLoaded('openSupportRequest')) {
+            return $outage->openSupportRequest !== null;
+        }
+
+        return SupportRequest::query()->open()->where('outage_id', $outage->id)->exists();
     }
 
     private function statusIs(Outage $outage, StatusCode ...$codes): bool

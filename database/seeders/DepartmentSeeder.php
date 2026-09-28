@@ -13,6 +13,7 @@ class DepartmentSeeder extends Seeder
         ['CX', 'Customer Experience', 'Customer Experience / contact centre'],
         ['DISPATCH', 'Dispatch', 'Field dispatch and installation'],
         ['INFRA', 'Infrastructure', 'Infrastructure / outage maintenance'],
+        ['IT', 'IT', 'Information Technology — first line for system outages'],
         ['MGMT', 'Management', 'Executive and management'],
     ];
 

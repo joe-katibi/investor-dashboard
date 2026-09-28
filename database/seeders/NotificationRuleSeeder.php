@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\MajorOutageType;
 use App\Models\NotificationRule;
 use App\Models\Priority;
 use Illuminate\Database\Seeder;
@@ -12,6 +13,7 @@ class NotificationRuleSeeder extends Seeder
     public function run(): void
     {
         $critical = Priority::query()->where('code', Priority::CRITICAL)->value('id');
+        $system = MajorOutageType::query()->where('code', MajorOutageType::SYSTEM)->value('id');
 
         // Lifecycle alerts: in-app, e-mail and SMS (SMS reaches users who have a phone number on their profile).
         $all = ['database', 'mail', 'sms'];
@@ -33,6 +35,16 @@ class NotificationRuleSeeder extends Seeder
             ['Assignment rejected – leaders', 'assignment_rejected', null, ['database'], [], false, true],
             ['Queue escalation – managers', 'queue_escalation', null, $inAppAndMail, ['NOC Manager', 'Infrastructure Manager'], false, true],
             ['Credit due – CX', 'credit_due', null, $inAppAndMail, ['CX Manager', 'CX Team Leader'], false, false],
+            // NOC reject → CX Tier II callback / site visit
+            ['CX follow-up recorded', 'cx_follow_up', null, $inAppAndMail, ['CX Team Leader', 'NOC Team Leader'], false, false],
+            ['Site visit raised', 'site_visit_raised', null, $all, ['Dispatch Team Leader', 'Dispatch Manager', 'CX Team Leader'], false, false],
+            // Support technician on site, in parallel with the outage technician
+            ['Support technician requested', 'support_requested', null, $all, ['Dispatch Team Leader', 'Dispatch Manager'], false, true],
+            ['Support technician work completed', 'support_completed', null, $all, ['Infrastructure Team Leader'], false, true],
+            // System outages: IT first
+            ['Assigned to IT', 'it_escalation', null, $all, ['IT Team Leader', 'IT Manager'], false, false],
+            ['NOC resolved – returned to IT', 'returned_to_it', null, $all, ['IT Team Leader'], false, false],
+            ['System outage resolved – IT feedback', 'resolved', $system, $all, ['IT Manager', 'IT Team Leader', 'NOC Manager', 'CX Team Leader'], false, false, 'major'],
             // Administrators follow every ticket update in the bell (in-app only, no e-mail/SMS noise).
             ['Admin feed – ticket created', 'outage_created', null, ['database'], ['Super Admin'], false, false],
             ['Admin feed – assigned to NOC', 'noc_escalation', null, ['database'], ['Super Admin'], false, false],
@@ -42,11 +54,21 @@ class NotificationRuleSeeder extends Seeder
             ['Admin feed – progress update', 'update_posted', null, ['database'], ['Super Admin'], false, false],
             ['Admin feed – closed by outage technician', 'restore_reported', null, ['database'], ['Super Admin'], false, false],
             ['Admin feed – resolved', 'resolved', null, ['database'], ['Super Admin'], false, false],
-        ] as [$name, $event, $priorityId, $channels, $roles, $assignee, $leaders]) {
+            ['Admin feed – CX follow-up', 'cx_follow_up', null, ['database'], ['Super Admin'], false, false],
+            ['Admin feed – support technician requested', 'support_requested', null, ['database'], ['Super Admin'], false, false],
+            ['Admin feed – support work completed', 'support_completed', null, ['database'], ['Super Admin'], false, false],
+            ['Admin feed – assigned to IT', 'it_escalation', null, ['database'], ['Super Admin'], false, false],
+            ['Admin feed – returned to IT', 'returned_to_it', null, ['database'], ['Super Admin'], false, false],
+        ] as $row) {
+            // Optional 8th element: 'major' means the 3rd element filters by major outage type instead of priority.
+            [$name, $event, $filterId, $channels, $roles, $assignee, $leaders] = $row;
+            $byMajor = ($row[7] ?? null) === 'major';
+
             // firstOrCreate: re-seeding on deploy never overwrites rules an administrator has edited.
             NotificationRule::query()->firstOrCreate(['name' => $name], [
                 'event' => $event,
-                'priority_id' => $priorityId,
+                'priority_id' => $byMajor ? null : $filterId,
+                'major_outage_type_id' => $byMajor ? $filterId : null,
                 'channels' => $channels,
                 'recipient_roles' => $roles,
                 'notify_assignee' => $assignee,

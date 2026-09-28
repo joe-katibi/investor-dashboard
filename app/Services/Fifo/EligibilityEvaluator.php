@@ -172,7 +172,7 @@ class EligibilityEvaluator
             $checks['skill'] = $this->skillCheck($user, $outage->services->pluck('id')->all(), $outage->vertical_id);
         }
 
-        if ($outage && in_array($entry->queue_type, [QueueType::Infrastructure, QueueType::Technician], true)) {
+        if ($outage && in_array($entry->queue_type, [QueueType::Infrastructure, QueueType::Technician, QueueType::SupportTechnician], true)) {
             $checks['coverage'] = $this->coverageCheck($user, $outage->olts->pluck('id')->all());
         }
 

@@ -61,6 +61,10 @@ class Outage extends Model
             'restored_at' => 'datetime',
             'restore_confirmed_at' => 'datetime',
             'resolved_at' => 'datetime',
+            'cx_followed_up_at' => 'datetime',
+            'it_escalated_to_noc_at' => 'datetime',
+            'noc_returned_to_it_at' => 'datetime',
+            'it_confirmed_at' => 'datetime',
         ];
     }
 
@@ -216,6 +220,33 @@ class Outage extends Model
     public function notificationLogs(): HasMany
     {
         return $this->hasMany(NotificationLog::class)->latest('id');
+    }
+
+    public function followUps(): HasMany
+    {
+        return $this->hasMany(OutageFollowUp::class)->latest('id');
+    }
+
+    public function supportRequests(): HasMany
+    {
+        return $this->hasMany(SupportRequest::class)->latest('id');
+    }
+
+    public function openSupportRequest(): HasOne
+    {
+        return $this->hasOne(SupportRequest::class)->ofMany(['id' => 'max'], function (Builder $query): void {
+            $query->where('status', SupportRequest::OPEN);
+        });
+    }
+
+    public function itEscalatedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'it_escalated_by');
+    }
+
+    public function itConfirmedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'it_confirmed_by');
     }
 
     // ---------------------------------------------------------------- scopes

@@ -57,6 +57,12 @@ class NotificationDispatcher
             ], $outage, $context), $context, $rule->id, $seen);
         }
 
+        // People directly involved (ticket reporter, support requester): in-app + e-mail, once.
+        if (! empty($context['notify_user_ids'])) {
+            $users = User::query()->active()->whereIn('id', array_filter((array) $context['notify_user_ids']))->get();
+            $this->deliver($event, $outage, [NotificationChannel::InApp->value, NotificationChannel::Mail->value], $users->map(fn (User $user) => ['user' => $user, 'email' => null, 'phone' => null]), $context, null, $seen);
+        }
+
         $this->deliverToAlertList($event, $outage, $context, $seen);
     }
 

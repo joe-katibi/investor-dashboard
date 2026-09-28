@@ -1,0 +1,5 @@
+# Laravel scheduler for the Outage Management System (SLA checks, FIFO timeouts/sweep,
+# scheduled reports, pruning). Runs every minute as the web-server user.
+#
+# Install:  sudo cp deploy/cron/oms /etc/cron.d/oms && sudo chmod 644 /etc/cron.d/oms
+* * * * * www-data cd /home/nms/www/outagemangementsystem && php artisan schedule:run >> /dev/null 2>&1

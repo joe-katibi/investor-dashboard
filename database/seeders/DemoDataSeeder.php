@@ -37,7 +37,10 @@ class DemoDataSeeder extends Seeder
         $noc = $this->team('NOC Operations', $dept['NOC'], TeamType::InHouse);
         $nocShiftA = $this->team('NOC Shift A', $dept['NOC'], TeamType::InHouse, $noc);
         $cx = $this->team('Customer Experience', $dept['CX'], TeamType::InHouse);
+        $cxTier2 = $this->team('CX Tier II', $dept['CX'], TeamType::InHouse, $cx);
         $dispatch = $this->team('Field Dispatch', $dept['DISPATCH'], TeamType::InHouse);
+        $support = $this->team('Support Technicians', $dept['DISPATCH'], TeamType::InHouse, $dispatch);
+        $it = $this->team('IT Service Desk', $dept['IT'], TeamType::InHouse);
         $infra = $this->team('Infrastructure Field Ops', $dept['INFRA'], TeamType::InHouse);
         $north = $this->team('North Crew', $dept['INFRA'], TeamType::InHouse, $infra);
         $south = $this->team('South Crew', $dept['INFRA'], TeamType::InHouse, $infra);
@@ -54,8 +57,18 @@ class DemoDataSeeder extends Seeder
         $this->user('Grace NOC Tier II', 'noc.tier2', 'NOC', 'NOC Tier II', [$nocShiftA]);
 
         $cxAgent = $this->user('Chris CX Agent', 'cx.agent', 'CX', 'CX Agent', [$cx]);
-        $this->user('Clara CX Lead', 'cx.lead', 'CX', 'CX Team Leader', [$cx]);
+        $cxLead = $this->user('Clara CX Lead', 'cx.lead', 'CX', 'CX Team Leader', [$cx]);
+        $this->user('Tess CX Tier II', 'cx.tier2', 'CX', 'CX Tier II', [$cxTier2]);
+        $this->user('Tony CX Tier II', 'cx.tier2b', 'CX', 'CX Tier II', [$cxTier2]);
         $this->user('Dan Dispatcher', 'dispatch', 'DISPATCH', 'Dispatcher', [$dispatch]);
+        $dispatchLead = $this->user('Dora Dispatch Lead', 'dispatch.lead', 'DISPATCH', 'Dispatch Team Leader', [$dispatch]);
+        $this->user('Steve Support Tech', 'support1', 'DISPATCH', 'Support/Installation Technician', [$support]);
+        $this->user('Susan Support Tech', 'support2', 'DISPATCH', 'Support/Installation Technician', [$support]);
+
+        $itManager = $this->user('Isaac IT Manager', 'it.manager', 'IT', 'IT Manager', [$it]);
+        $itLead = $this->user('Irene IT Lead', 'it.lead', 'IT', 'IT Team Leader', [$it]);
+        $this->user('Evan IT Engineer', 'it.eng1', 'IT', 'IT Engineer', [$it]);
+        $this->user('Esther IT Engineer', 'it.eng2', 'IT', 'IT Engineer', [$it]);
 
         $infraManager = $this->user('Ian Infra Manager', 'infra.manager', 'INFRA', 'Infrastructure Manager', [$infra]);
         $infraLead = $this->user('Ivy Infra Lead', 'infra.lead', 'INFRA', 'Infrastructure Team Leader', [$infra]);
@@ -71,6 +84,11 @@ class DemoDataSeeder extends Seeder
         ];
 
         $noc->forceFill(['leader_id' => $nocLead->id, 'manager_id' => $nocManager->id])->save();
+        $cx->forceFill(['leader_id' => $cxLead->id])->save();
+        $cxTier2->forceFill(['leader_id' => $cxLead->id])->save();
+        $dispatch->forceFill(['leader_id' => $dispatchLead->id])->save();
+        $support->forceFill(['leader_id' => $dispatchLead->id])->save();
+        $it->forceFill(['leader_id' => $itLead->id, 'manager_id' => $itManager->id])->save();
         $infra->forceFill(['leader_id' => $infraLead->id, 'manager_id' => $infraManager->id])->save();
         $north->forceFill(['leader_id' => $infraLead->id])->save();
         $south->forceFill(['leader_id' => $infraLead->id])->save();
@@ -125,7 +143,9 @@ class DemoDataSeeder extends Seeder
 
         $samples = [
             ['Salaama FDT 3 fibre cut', 'regular', $ftth, 11, 'Salaama', [$olts['Salaama']->id], [$salaamaFdt->id], 'resolve'],
-            ['Kanengo OLT power failure', 'emergency', $ftth, 240, 'Kanengo', [$olts['Kanengo']->id], [], 'dispatch'],
+            ['Kanengo OLT power failure', 'emergency', $ftth, 240, 'Kanengo', [$olts['Kanengo']->id], [], 'support'],
+            ['Area 47 customer reports no service', 'regular', $ftth, 1, 'Area 47', [$olts['Area 47']->id], [], 'reject'],
+            ['CRM login failures across branches', 'system', $ftth, 0, 'Head office', [], [], 'it_escalate'],
             ['Area 47 splitter degradation', 'regular', $ftth, 35, 'Area 47', [$olts['Area 47']->id], [], 'confirm'],
             ['Njewa scheduled OLT firmware upgrade', 'planned', $ftth, 60, 'Njewa', [$olts['Njewa']->id], [], 'none'],
             ['Lilongwe CBD 4G cluster down', 'regular', $mobility, 420, 'Lilongwe CBD', [], [], 'confirm', ['sites_down' => 1, 'cells_down' => 9, 'power_faults' => 1]],
@@ -155,15 +175,37 @@ class DemoDataSeeder extends Seeder
             }
 
             $outage->refresh();
+
+            if ($progress === 'it_escalate') {
+                $itUser = $outage->currentAssignee ?? $itLead;
+                $this->as($itUser, fn () => $workflow->itEscalateToNoc($outage, $itUser, 'CRM servers healthy; core DNS resolution failing — needs NOC.'));
+
+                continue;
+            }
+
             $nocUser = $outage->currentAssignee ?? $nocLead;
+
+            if ($progress === 'reject') {
+                $this->as($nocUser, fn () => $workflow->rejectByNoc($outage, $nocUser, 'Single customer; OLT and PON healthy — likely drop cable or CPE.'));
+
+                continue;
+            }
+
             $this->as($nocUser, fn () => $workflow->confirmByNoc($outage, $nocUser, 'Confirmed via monitoring alarms.'));
 
-            if (in_array($progress, ['dispatch', 'resolve'], true) && $outage->refresh()->currentAssignee) {
+            if (in_array($progress, ['dispatch', 'support', 'resolve'], true) && $outage->refresh()->currentAssignee) {
                 $dispatcher = $outage->currentAssignee;
                 $crew = in_array($location, ['Salaama', 'Kanengo'], true) ? $north : $south;
                 $this->as($dispatcher, fn () => $workflow->dispatch($outage, [
                     'team_type' => TeamType::InHouse->value, 'team_id' => $infra->id, 'sub_team_id' => $crew->id, 'note' => 'Crew engaged.',
                 ], $dispatcher));
+            }
+
+            if ($progress === 'support' && ($tech = $outage->refresh()->currentAssignee)) {
+                $this->as($tech, fn () => $workflow->requestSupport($outage, $tech, [
+                    'work_required' => 'Replace damaged drop cable from FDT to the clinic and re-terminate the ONT.',
+                    'customer_details' => 'Kanengo Clinic — account 100245',
+                ]));
             }
 
             if ($progress === 'resolve' && ($tech = $outage->refresh()->currentAssignee)) {

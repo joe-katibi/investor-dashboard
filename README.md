@@ -145,7 +145,11 @@ Seeded only when `APP_ENV` is not `production` (and `OMS_SEED_DEMO=true`). Passw
 | `noc.lead@oms.test` | NOC Team Leader | Can override FIFO |
 | `noc.tier1@oms.test`, `noc.tier2@oms.test` | NOC Tier I / II | Receive NOC queue tickets |
 | `cx.agent@oms.test`, `cx.lead@oms.test` | Customer Experience | Report outages, SMS / credit |
-| `dispatch@oms.test` | Dispatcher | |
+| `cx.tier2@oms.test`, `cx.tier2b@oms.test` | CX Tier II | Receive NOC-rejected tickets: customer callback / site visit |
+| `dispatch@oms.test`, `dispatch.lead@oms.test` | Dispatcher / Dispatch Team Leader | Dispatch leader is told about site visits and support requests |
+| `support1@oms.test`, `support2@oms.test` | Support/Installation Technician | Receive support requests (drop cable → customer premises) |
+| `it.manager@oms.test`, `it.lead@oms.test` | IT Manager / IT Team Leader | Can override FIFO in the IT queues |
+| `it.eng1@oms.test`, `it.eng2@oms.test` | IT Engineer | Receive system outages first (IT Review / IT Confirmation) |
 | `infra.manager@oms.test`, `infra.lead@oms.test` | Infrastructure Manager / Team Leader | |
 | `infra.dispatch1@oms.test`, `infra.dispatch2@oms.test` | Infrastructure Dispatcher | Receive Infrastructure queue tickets |
 | `tech.north1@oms.test`, `tech.north2@oms.test` | Outage Technician (North Crew) | Cover Salaama, Kanengo OLTs |
@@ -153,7 +157,10 @@ Seeded only when `APP_ENV` is not `production` (and `OMS_SEED_DEMO=true`). Passw
 | `vendor.tech1@oms.test` | Outage Technician (outsourced) | FibreTech Contractors |
 
 Demo data also includes teams / sub-teams, four OLTs with FDT → Slot → Port topology, 7 days of shifts for every
-user, skills, and seven sample outages driven through the real workflow (one fully resolved).
+user, skills, and nine sample outages driven through the real workflow: one fully resolved, one NOC-rejected
+waiting for a CX Tier II callback, one dispatched with a support technician working in parallel, and system
+outages at IT Review and escalated to NOC. (Sample outages are only created on an empty database; demo users and
+teams are added on every seed.)
 
 ---
 
@@ -178,11 +185,15 @@ outages. Filters: date range, vertical, major type. Updates in real time.
   filters (major type, outage type, vertical, priority, status, SLA state, team, OLT, service, date range), global
   search and **Export Excel** of the current view.
 * Outage page: summary, SLA countdown, FIFO ownership, customer communication, lifecycle timestamps, final
-  reason / RFO, plus tabs for timeline & updates, status history, FIFO assignments (with *Why?* explanation),
-  assignment history, SMS & credit history, SLA events, notifications and audit trail.
+  reason / RFO, plus tabs for timeline & updates, CX follow-up (callbacks and site visits), support technician
+  requests, status history, FIFO assignments (with *Why?* explanation), assignment history, SMS & credit history,
+  SLA events, notifications and audit trail.
 * Workflow actions (only shown when both permission and workflow state allow them): Accept / Reject assignment,
-  NOC Confirm, NOC Reject (reason mandatory), Dispatch, Add update, Report restored, NOC Restore Confirmed,
-  Restoration not confirmed, Resolve (final reason when required), Set status, SMS / Credit, Assign / override FIFO.
+  NOC Confirm, NOC Reject (reason mandatory), Record customer callback, Dispatch, Request support technician,
+  Support work done, Cancel support request, Escalate to NOC (IT), Resolve (IT) / IT confirm resolved,
+  Resolved — return to IT (NOC), Not resolved — back to NOC (IT), Add update, Report restored, NOC Restore
+  Confirmed, Restoration not confirmed, Resolve (final reason when required), Set status, SMS / Credit,
+  Assign / override FIFO.
 
 ### FIFO Queues screen
 One tab per queue with live counts; each ticket shows queue position, ticket, priority, queue age, customers,
@@ -221,13 +232,74 @@ REPORT → SUPPORT UNCONFIRMED → NOC FIFO QUEUE → NOC REVIEW → NOC CONFIRM
 | 1. Report | Ticket number generated, priority from impact rules, SLA clock started, status *Support Unconfirmed Outage*. |
 | 2. NOC escalation | `noc_escalated_at` recorded; ticket placed in the **NOC Review** FIFO queue and assigned to the next eligible NOC user. |
 | 3. NOC review | Assignee accepts (or rejects the assignment with a reason → requeued). |
-| 4. NOC Reject | Reason mandatory; outage closed, SLA *N/A*, queues cleared. |
-| 5. NOC Confirm | Confirmation recorded; for types requiring Infrastructure the outage moves to *Assigned to Infrastructure* and into the **Infrastructure** FIFO queue. System outages skip Infrastructure. |
-| 6. Dispatch | Dispatcher selects team type, team, sub-team and either a specific **eligible** technician or automatic FIFO; status *Team Dispatched*. |
+| 4. NOC Reject | Reason mandatory. The ticket goes back to **Customer Experience (Tier II)**: status *NOC Rejected – CX Follow-up*, **CX Follow-up** FIFO queue, SLA paused, reporter notified. See [NOC reject → CX follow-up](#noc-reject--cx-tier-ii-follow-up). |
+| 5. NOC Confirm | Confirmation recorded; for types requiring Infrastructure the outage moves to *Assigned to Infrastructure* and into the **Infrastructure** FIFO queue. |
+| 6. Dispatch | Dispatcher selects team type, team, sub-team and either a specific **eligible** technician or automatic FIFO; status *Team Dispatched*. The field team can then [request a support technician](#support-technician-on-the-same-ticket) on the same ticket. |
 | 7. Field action | Technician posts updates, may set operational statuses (Partial Restore, Awaiting Field Access, Vendor Escalated, …) and reports restoration → *Restore Reported – Awaiting NOC* and the **NOC Restore** FIFO queue. |
 | 8. NOC Restore Confirmed | Restoration time recorded; or *Restoration not confirmed* sends it back to the field team. |
 | 9. Resolved | Final Reason / RFO required (status flag); SLA finalised as *met* / *missed*; all queue items closed. |
 | 10. Notifications | Configured SLA, credit, SMS and operational notifications; dashboards update live. |
+
+System outages follow their own flow — see [System outages: IT first](#system-outages-it-first).
+
+### NOC reject → CX Tier II follow-up
+
+```
+NOC REJECT (reason) → NOC REJECTED – CX FOLLOW-UP → CX FOLLOW-UP FIFO QUEUE (CX Tier II)
+       → RECORD CUSTOMER CALLBACK (+ optional SITE VISIT) → NOC REJECT (closed, SLA N/A)
+```
+
+* The rejected ticket is **not** closed straight away. It is assigned by FIFO to a **CX Tier II** agent
+  (permission `queue.work_cx`, Customer Experience department) so they can call the customer back.
+* **Record customer callback** form: when they called, the call outcome (reached — working / still affected /
+  CPE fault, no answer, wrong number, call back later) and notes. Optionally **Raise a site visit** with the
+  scheduled date and time, a site visit reference / job number and the action raised.
+* *Follow-up complete — close the ticket* (on by default) closes it as *NOC Reject*. Turn it off to keep the ticket
+  for another call (for example no answer); every attempt is kept on the **CX follow-up** tab.
+* The SLA clock is paused while it waits (it is not a confirmed outage) and finalised as *N/A*.
+* Alerts: the reporter and CX Team Leader hear about the rejection; CX / NOC team leaders about the callback;
+  Dispatch leaders (and CX Team Leader) about a **site visit raised**.
+
+### Support technician on the same ticket
+
+```
+TEAM DISPATCHED → REQUEST SUPPORT TECHNICIAN (work, customer, premises)
+       → SUPPORT TECHNICIAN FIFO QUEUE (parallel) → SUPPORT WORK DONE
+       → outage technician: REPORT RESTORED → NOC RESTORE CONFIRMATION → …
+```
+
+* While an outage is dispatched, the Infrastructure / maintenance team (Outage Technician, Infrastructure
+  Dispatcher / Team Leader / Manager — permission `outage.request_support`) can ask for a **support technician**
+  who handles the **drop cable to the customer premises**.
+* The request goes to the **Support Technician** FIFO queue (Dispatch department, permission
+  `queue.work_support`) and runs **in parallel**: the outage technician keeps the ticket and the live line, the
+  support technician gets their own assignment on the same ticket (visible on *My Work* and in the *Support
+  technician* panel / tab).
+* The support technician (or a Dispatch leader) records **Support work done**; the requester and the outage
+  technician are notified.
+* **Report restored** is blocked while a support request is still open, so the ticket is only restored when both
+  the live line and the drop cable are done. The requester or a leader can **Cancel support request** if it is no
+  longer needed. Closing the outage cancels any open request.
+
+### System outages: IT first
+
+```
+REPORT → IT REVIEW (IT Review FIFO queue)
+   ├─ IT resolves → RESOLVED (IT feedback shared with the team and the reporter)
+   └─ core / network cause → ESCALATE TO NOC → ESCALATED TO NOC BY IT (NOC Review FIFO queue)
+          → NOC: RESOLVED — RETURN TO IT → NOC RESOLVED – AWAITING IT CONFIRMATION (IT Confirmation queue)
+          ├─ IT confirm resolved (feedback) → RESOLVED
+          └─ not resolved → back to NOC
+```
+
+* Controlled by the **IT reviews first** flag on the major outage type (seeded on *System Outage*). New tickets go
+  to the **IT** department's queue instead of NOC (permission `queue.work_it`; roles IT Manager, IT Team Leader,
+  IT Engineer — permission `outage.it_review`).
+* IT either fixes it and **resolves with feedback**, or **escalates to NOC** with the reason (core / network).
+* NOC works it from the NOC Review queue and uses **Resolved — return to IT** with what was fixed.
+* IT checks: **IT confirm resolved** closes the ticket with the feedback as the Final Reason / RFO, sent to the
+  resolution alert rules and directly to the person who reported it; **Not resolved — back to NOC** returns it.
+* System outages already open before this change keep the NOC flow they started with.
 
 Rules enforced everywhere (UI, future APIs, integrations) by `App\Services\Outages\OutageWorkflow` +
 `App\Policies\OutagePolicy`:
@@ -246,8 +318,10 @@ Implemented as UI-independent domain services — `App\Services\Fifo\FifoAssignm
 monitoring integrations or a mobile app.
 
 **Queues** (configurable under *Configuration → FIFO Queues*): NOC Review, Infrastructure Dispatch, Technician,
-NOC Restore Confirmation. Each queue definition sets department, optional team, routing (major type / vertical),
-required permission, automatic or manual mode, acknowledgement timeout and escalation threshold.
+NOC Restore Confirmation, CX Follow-up (CX Tier II), Support Technician, IT Review and IT Confirmation. Each queue
+definition sets department, optional team, routing (major type / vertical), required permission, automatic or
+manual mode, acknowledgement timeout and escalation threshold. The **Support Technician** queue is *parallel*: its
+assignment never replaces the ticket's main queue / owner.
 
 **Ordering — priority-aware FIFO**: Critical → High → Medium → Low (rank editable per priority), oldest first within
 each priority using microsecond queue timestamps with the id as final tie-break. Can be switched to strict FIFO.
@@ -259,12 +333,12 @@ each priority using microsecond queue timestamps with the id as final tie-break.
 | User status | Active users only |
 | Availability | Status *Available* |
 | Department | Belongs to the queue's department |
-| Permission | Holds the queue permission (`queue.work_noc`, `queue.work_infrastructure`, `queue.work_technician`) |
+| Permission | Holds the queue permission (`queue.work_noc`, `queue.work_infrastructure`, `queue.work_technician`, `queue.work_cx`, `queue.work_support`, `queue.work_it`) |
 | Team / sub-team | Member of the required team (or its sub-teams) / sub-team |
 | Shift | Inside an active scheduled shift |
 | Leave | Not on approved leave |
 | Skill (optional) | Skill for an affected service or the vertical |
-| OLT coverage | Team covers the affected OLT (when coverage is configured) |
+| OLT coverage | Team covers the affected OLT (when coverage is configured) — Infrastructure, Technician and Support Technician queues |
 | Workload | Below the maximum active tickets (per user or global); optional Critical bypass |
 | Previous attempts | Has not already rejected / timed out on this ticket |
 
@@ -329,6 +403,15 @@ Each stage below is delivered in-app, by e-mail and by SMS (SMS reaches users wi
 | Progress update posted | `update_posted` | Team leaders of the assigned team |
 | Closed by outage technician | `restore_reported` | NOC Team Leader, NOC Manager, team leaders |
 | Resolved and closed | `resolved` | NOC Manager, CX Team Leader, team leaders |
+| NOC rejected → CX | `noc_rejected` + `assigned` | CX Team Leader, the reporter, and the CX Tier II agent FIFO assigned |
+| Customer callback recorded | `cx_follow_up` | CX Team Leader, NOC Team Leader (in-app + e-mail) |
+| Site visit raised | `site_visit_raised` | Dispatch Team Leader / Manager, CX Team Leader |
+| Support technician requested | `support_requested` + `assigned` | Dispatch Team Leader / Manager, team leaders, and the support technician assigned |
+| Support work completed | `support_completed` | Infrastructure Team Leader, team leaders, the requester and the outage technician |
+| System outage to IT | `it_escalation` + `assigned` | IT Team Leader / Manager, and the IT engineer assigned |
+| IT escalated to NOC | `noc_escalation` + `assigned` | NOC Team Leader / Tier II / Tier I, and the NOC user assigned |
+| NOC resolved → IT | `returned_to_it` + `assigned` | IT Team Leader, and the IT engineer assigned to confirm |
+| IT confirmed resolved | `resolved` | IT Manager / Team Leader, NOC Manager, CX Team Leader, and the reporter (with IT's feedback) |
 
 **Super Admin** follows every stage above in the bell through the *Admin feed – …* rules (in-app only, so
 administrators get no extra e-mail / SMS). Deactivate them under *Configuration → Notification Rules* if not wanted.
@@ -445,8 +528,8 @@ deleted from the UI. Super Admin holds every permission but still obeys workflow
 
 | Group | Permissions |
 |---|---|
-| Outages | `outage.view`, `outage.create`, `outage.edit`, `outage.delete`, `outage.confirm`, `outage.dispatch`, `outage.update_progress`, `outage.update_restoration`, `outage.confirm_restoration`, `outage.close`, `outage.change_status`, `outage.update_credit_sms`, `outage.override_priority` |
-| FIFO Queues | `queue.view`, `queue.work_noc`, `queue.work_infrastructure`, `queue.work_technician`, `queue.override` |
+| Outages | `outage.view`, `outage.create`, `outage.edit`, `outage.delete`, `outage.confirm`, `outage.dispatch`, `outage.update_progress`, `outage.update_restoration`, `outage.confirm_restoration`, `outage.close`, `outage.change_status`, `outage.update_credit_sms`, `outage.override_priority`, `outage.cx_follow_up`, `outage.request_support`, `outage.support_work`, `outage.it_review` |
+| FIFO Queues | `queue.view`, `queue.work_noc`, `queue.work_infrastructure`, `queue.work_technician`, `queue.work_cx`, `queue.work_support`, `queue.work_it`, `queue.override` |
 | Configuration | `topology.manage`, `sla.manage`, `templates.manage`, `notifications.manage`, `master_data.manage`, `config.admin` |
 | People | `users.manage`, `teams.manage`, `roles.manage`, `workforce.manage` |
 | Reporting & Audit | `reports.view`, `reports.export`, `audit.view` |
@@ -456,10 +539,15 @@ Seeded roles (spec §4.1):
 | Department | Roles |
 |---|---|
 | NOC | NOC Manager, NOC Team Leader, NOC Tier II, NOC Tier I |
-| Customer Experience | CX Manager, CX Team Leader, CX Agent |
-| Dispatch | Dispatch Manager, Dispatch Team Leader, Dispatcher, Support/Installation Technician |
+| Customer Experience | CX Manager, CX Team Leader, CX Tier II (NOC-rejected callbacks), CX Agent |
+| Dispatch | Dispatch Manager, Dispatch Team Leader, Dispatcher, Support/Installation Technician (support requests) |
 | Infrastructure | Infrastructure Manager, Infrastructure Team Leader, Infrastructure Dispatcher, Outage Technician |
+| IT | IT Manager, IT Team Leader, IT Engineer (system outages) |
 | Management | Executive (read-only), Super Admin |
+
+The role seeder only **adds** missing permissions to existing roles (it never removes any), so on an existing
+installation review *Support/Installation Technician* — it no longer needs `queue.work_technician`,
+`outage.update_restoration` or `outage.change_status` now that it works its own Support Technician queue.
 
 ## Seeded reference data
 
@@ -470,16 +558,16 @@ users and outages are added only outside production. Each seeder can also be run
 | Seeder | Seeds |
 |---|---|
 | `RolesAndPermissionsSeeder` | Permission catalogue + roles above |
-| `DepartmentSeeder` | NOC, Customer Experience, Dispatch, Infrastructure, Management |
+| `DepartmentSeeder` | NOC, Customer Experience, Dispatch, Infrastructure, IT, Management |
 | `VerticalSeeder` | FTTH, 4G Mobility |
 | `ServiceSeeder` | FTTH: Internet, Voice (VoIP), IPTV, Enterprise Fibre · 4G: Mobile Data, Voice, SMS, Fixed Wireless (MiFi) · Cross-vertical: CRM, Call Center, Dialer, Billing (Savbill), International Transit (SEACOM) |
-| `MajorOutageTypeSeeder` | Network (topology, NOC + Infrastructure), Core (NOC + Infrastructure), System (NOC only) |
+| `MajorOutageTypeSeeder` | Network (topology, NOC + Infrastructure), Core (NOC + Infrastructure), System (IT first, NOC on escalation) |
 | `OutageTypeSeeder` | Regular `OUT`, Emergency `EMO`, Planned Maintenance `PLM`, SEACOM / Core `CORE`, System `SYS` |
-| `OutageStatusSeeder` | Support Unconfirmed, NOC Confirmed, NOC Reject, Assigned to Infrastructure, Infrastructure Confirmed, Team Dispatched, Awaiting Field Access, Vendor Escalated, Partial Restore, Restore Reported – Awaiting NOC, NOC Restore Confirmed, Awaiting Customer Confirmation, Outage Resolved, Scheduled Maintenance |
+| `OutageStatusSeeder` | Support Unconfirmed, NOC Confirmed, NOC Reject, Assigned to Infrastructure, Infrastructure Confirmed, Team Dispatched, Awaiting Field Access, Vendor Escalated, Partial Restore, Restore Reported – Awaiting NOC, NOC Restore Confirmed, Awaiting Customer Confirmation, Outage Resolved, Scheduled Maintenance, NOC Rejected – CX Follow-up (pauses SLA), IT Review, Escalated to NOC by IT, NOC Resolved – Awaiting IT Confirmation |
 | `PrioritySeeder` | Low 0–9, Medium 10–49, High 50–199, Critical 200+ customers; FIFO rank Critical 1 → Low 4 |
 | `SlaPolicySeeder` | Critical 4h, High 8h, Medium 12h, Low 24h (pre-breach, ack timeout, escalation), Planned Maintenance window |
-| `QueueDefinitionSeeder` | NOC Review (NOC, 10 min ack), Infrastructure Dispatch (INFRA, 15), Technician (INFRA, 20), NOC Restore (NOC, 15) |
-| `NotificationRuleSeeder` | In-app + e-mail + SMS lifecycle alerts: ticket created, assigned to NOC, NOC rejected, assigned to Infrastructure, dispatched, progress update, closed by technician, resolved; critical outages, queue escalation, credit due; in-app *Admin feed* for Super Admin |
+| `QueueDefinitionSeeder` | NOC Review (NOC, 10 min ack), Infrastructure Dispatch (INFRA, 15), Technician (INFRA, 20), NOC Restore (NOC, 15), CX Tier II Follow-up (CX, 30), Support Technician (DISPATCH, 20), IT Review (IT, 15), IT Confirmation (IT, 15) |
+| `NotificationRuleSeeder` | In-app + e-mail + SMS lifecycle alerts: ticket created, assigned to NOC, NOC rejected, CX callback, site visit raised, assigned to Infrastructure, dispatched, support technician requested / completed, assigned to IT, returned to IT, progress update, closed by technician, resolved (plus IT feedback for system outages); critical outages, queue escalation, credit due; in-app *Admin feed* for Super Admin |
 | `EmailTemplateSeeder` | Two-Hour Update, Executive Summary, Summary Report |
 | `DemoDataSeeder` | Non-production only: teams, users, topology, shifts, skills, sample outages |
 
@@ -634,6 +722,16 @@ Checklist:
    php artisan reverb:restart
    ```
 6. Supervise `queue:work` and `reverb:start` with Supervisor or systemd; run `schedule:run` from cron on every node.
+   Ready-made files (edit the path / user if yours differ):
+   ```bash
+   sudo apt install -y supervisor
+   sudo cp deploy/supervisor/oms.conf /etc/supervisor/conf.d/oms.conf
+   sudo supervisorctl reread && sudo supervisorctl update
+   sudo cp deploy/cron/oms /etc/cron.d/oms && sudo chmod 644 /etc/cron.d/oms
+   ```
+   Run workers as the web-server user (`www-data`) and keep `storage/` and `bootstrap/cache/` writable by it:
+   `sudo chown -R $USER:www-data storage bootstrap/cache && sudo chmod -R ug+rwX storage bootstrap/cache`
+   `sudo find storage bootstrap/cache -type d -exec chmod g+s {} +`
 7. Load balancer health check: `GET /up`.
 8. Enable OPcache (`opcache.validate_timestamps=0` in production).
 

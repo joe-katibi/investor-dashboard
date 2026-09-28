@@ -11,9 +11,11 @@ use App\Filament\Resources\Outages\RelationManagers\AssignmentHistoriesRelationM
 use App\Filament\Resources\Outages\RelationManagers\AssignmentsRelationManager;
 use App\Filament\Resources\Outages\RelationManagers\AuditLogsRelationManager;
 use App\Filament\Resources\Outages\RelationManagers\FlagEventsRelationManager;
+use App\Filament\Resources\Outages\RelationManagers\FollowUpsRelationManager;
 use App\Filament\Resources\Outages\RelationManagers\NotificationLogsRelationManager;
 use App\Filament\Resources\Outages\RelationManagers\SlaEventsRelationManager;
 use App\Filament\Resources\Outages\RelationManagers\StatusHistoriesRelationManager;
+use App\Filament\Resources\Outages\RelationManagers\SupportRequestsRelationManager;
 use App\Filament\Resources\Outages\RelationManagers\UpdatesRelationManager;
 use App\Models\Outage;
 use BackedEnum;
@@ -76,7 +78,7 @@ class OutageResource extends Resource
         return $table
             ->modifyQueryUsing(fn (Builder $query) => $query->with([
                 'majorOutageType:id,name,code', 'outageType:id,name', 'vertical:id,name', 'priority:id,name,color',
-                'status:id,name,color', 'currentAssignee:id,name', 'olts:id,name', 'activeAssignments',
+                'status:id,name,color', 'currentAssignee:id,name', 'olts:id,name', 'activeAssignments', 'openSupportRequest',
             ]))
             ->defaultSort('start_time', 'desc')
             ->poll('60s')
@@ -182,6 +184,15 @@ class OutageResource extends Resource
                         TextEntry::make('technician.name')->label('Technician')->placeholder('—'),
                         TextEntry::make('team_type')->label('Team type')->badge()->placeholder('—'),
                     ])->columns(2),
+                    // Parallel work on the same ticket: drop cable → customer premises.
+                    Section::make('Support technician')->icon(Heroicon::OutlinedUserPlus)->schema([
+                        TextEntry::make('openSupportRequest.work_required')->label('Work required')->columnSpanFull(),
+                        TextEntry::make('support_owner')->label('Assigned to')
+                            ->state(fn (Outage $record) => $record->openSupportRequest?->queueEntry?->activeAssignment?->user?->name)
+                            ->placeholder('Waiting for next support technician'),
+                        TextEntry::make('openSupportRequest.requester.name')->label('Requested by')
+                            ->helperText(fn (Outage $record) => $record->openSupportRequest?->created_at?->format('d M H:i')),
+                    ])->columns(2)->visible(fn (Outage $record) => $record->openSupportRequest !== null),
                     Section::make('Customer communication')->schema([
                         IconEntry::make('sms_sent')->label('SMS sent')->boolean(),
                         TextEntry::make('smsUpdatedBy.name')->label('by')->placeholder('—')
@@ -207,6 +218,16 @@ class OutageResource extends Resource
                 TextEntry::make('end_time')->label('End time')->dateTime('d M Y H:i')->placeholder('—'),
                 TextEntry::make('resolved_at')->label('Resolved')->dateTime('d M Y H:i')->placeholder('—')
                     ->helperText(fn (Outage $record) => $record->resolvedBy?->name),
+                TextEntry::make('cx_followed_up_at')->label('CX followed up')->dateTime('d M H:i')->placeholder('—')
+                    ->visible(fn (Outage $record) => $record->noc_rejected_at !== null),
+                TextEntry::make('it_escalated_to_noc_at')->label('IT escalated to NOC')->dateTime('d M H:i')->placeholder('—')
+                    ->helperText(fn (Outage $record) => $record->itEscalatedBy?->name)
+                    ->visible(fn (Outage $record) => $record->it_escalated_to_noc_at !== null),
+                TextEntry::make('noc_returned_to_it_at')->label('NOC returned to IT')->dateTime('d M H:i')->placeholder('—')
+                    ->visible(fn (Outage $record) => $record->noc_returned_to_it_at !== null),
+                TextEntry::make('it_confirmed_at')->label('IT confirmed')->dateTime('d M H:i')->placeholder('—')
+                    ->helperText(fn (Outage $record) => $record->itConfirmedBy?->name)
+                    ->visible(fn (Outage $record) => $record->it_confirmed_at !== null),
                 TextEntry::make('rejection_reason')->label('NOC rejection reason')->placeholder('—')->visible(fn (Outage $record) => filled($record->rejection_reason))->columnSpanFull(),
                 TextEntry::make('final_reason')->label('Final Reason / RFO')->placeholder('—')->columnSpanFull(),
             ])->columns(['default' => 2, 'md' => 3, 'xl' => 5])->collapsible()->columnSpanFull(),
@@ -217,6 +238,8 @@ class OutageResource extends Resource
     {
         return [
             UpdatesRelationManager::class,
+            FollowUpsRelationManager::class,
+            SupportRequestsRelationManager::class,
             StatusHistoriesRelationManager::class,
             AssignmentsRelationManager::class,
             AssignmentHistoriesRelationManager::class,

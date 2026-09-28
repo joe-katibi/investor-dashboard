@@ -41,6 +41,12 @@ class NotificationMessageFactory
             NotificationEvent::CreditShared => "Credit shared: {$ticket}",
             NotificationEvent::SmsSent => "Customer SMS sent: {$ticket}",
             NotificationEvent::ScheduledReport => 'Scheduled report',
+            NotificationEvent::CxFollowUp => "CX follow-up recorded: {$ticket}",
+            NotificationEvent::SiteVisitRaised => "Site visit raised: {$ticket}",
+            NotificationEvent::SupportRequested => "Support technician requested on site: {$ticket}",
+            NotificationEvent::SupportCompleted => "Support technician work completed: {$ticket}",
+            NotificationEvent::ItEscalation => "Assigned to IT for review: {$ticket}",
+            NotificationEvent::ReturnedToIt => "NOC resolved — returned to IT to confirm: {$ticket}",
         };
 
         $owner = $outage->currentAssignee?->name

@@ -14,6 +14,10 @@ enum QueueType: string implements HasColor, HasLabel
     case Infrastructure = 'infrastructure';
     case Technician = 'technician';
     case NocRestore = 'noc_restore';
+    case CxFollowUp = 'cx_follow_up';
+    case SupportTechnician = 'support_technician';
+    case ItReview = 'it_review';
+    case ItConfirmation = 'it_confirmation';
 
     public function getLabel(): string
     {
@@ -22,6 +26,10 @@ enum QueueType: string implements HasColor, HasLabel
             self::Infrastructure => 'Infrastructure Dispatch',
             self::Technician => 'Technician',
             self::NocRestore => 'NOC Restore Confirmation',
+            self::CxFollowUp => 'CX Follow-up',
+            self::SupportTechnician => 'Support Technician',
+            self::ItReview => 'IT Review',
+            self::ItConfirmation => 'IT Confirmation',
         };
     }
 
@@ -32,6 +40,9 @@ enum QueueType: string implements HasColor, HasLabel
             self::Infrastructure => 'warning',
             self::Technician => 'primary',
             self::NocRestore => 'success',
+            self::CxFollowUp => 'danger',
+            self::SupportTechnician => 'warning',
+            self::ItReview, self::ItConfirmation => 'gray',
         };
     }
 
@@ -43,6 +54,9 @@ enum QueueType: string implements HasColor, HasLabel
             self::Infrastructure => 'queue.work_infrastructure',
             self::Technician => 'queue.work_technician',
             self::NocRestore => 'queue.work_noc',
+            self::CxFollowUp => 'queue.work_cx',
+            self::SupportTechnician => 'queue.work_support',
+            self::ItReview, self::ItConfirmation => 'queue.work_it',
         };
     }
 
@@ -52,6 +66,19 @@ enum QueueType: string implements HasColor, HasLabel
         return match ($this) {
             self::NocReview, self::NocRestore => 'NOC',
             self::Infrastructure, self::Technician => 'INFRA',
+            self::CxFollowUp => 'CX',
+            self::SupportTechnician => 'DISPATCH',
+            self::ItReview, self::ItConfirmation => 'IT',
         };
+    }
+
+    /**
+     * Parallel queues run alongside the main flow on the same ticket (a support technician
+     * works the drop cable while the outage technician works the live line). They never
+     * take over the ticket's current queue / owner.
+     */
+    public function isParallel(): bool
+    {
+        return $this === self::SupportTechnician;
     }
 }

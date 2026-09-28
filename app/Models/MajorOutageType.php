@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Cache;
 
-#[Fillable(['name', 'code', 'description', 'requires_noc_confirmation', 'requires_infrastructure', 'uses_topology', 'sort_order', 'is_active'])]
+#[Fillable(['name', 'code', 'description', 'requires_noc_confirmation', 'requires_infrastructure', 'uses_topology', 'requires_it_review', 'sort_order', 'is_active'])]
 class MajorOutageType extends Model
 {
     use Auditable, HasAuditColumns;
@@ -27,11 +27,12 @@ class MajorOutageType extends Model
             'requires_noc_confirmation' => 'boolean',
             'requires_infrastructure' => 'boolean',
             'uses_topology' => 'boolean',
+            'requires_it_review' => 'boolean',
             'is_active' => 'boolean',
         ];
     }
 
-    public const FLAGS_CACHE_KEY = 'oms.major-type-flags';
+    public const FLAGS_CACHE_KEY = 'oms.major-type-flags.v2';
 
     protected static function booted(): void
     {
@@ -41,19 +42,20 @@ class MajorOutageType extends Model
     /**
      * Workflow flags by id, cached — lets policies decide per table row without a query.
      *
-     * @return array{requires_noc_confirmation: bool, requires_infrastructure: bool, uses_topology: bool}
+     * @return array{requires_noc_confirmation: bool, requires_infrastructure: bool, uses_topology: bool, requires_it_review: bool}
      */
     public static function flags(?int $id): array
     {
         $all = Cache::rememberForever(self::FLAGS_CACHE_KEY, fn () => static::query()
-            ->get(['id', 'requires_noc_confirmation', 'requires_infrastructure', 'uses_topology'])
+            ->get(['id', 'requires_noc_confirmation', 'requires_infrastructure', 'uses_topology', 'requires_it_review'])
             ->mapWithKeys(fn (self $type) => [$type->id => [
                 'requires_noc_confirmation' => $type->requires_noc_confirmation,
                 'requires_infrastructure' => $type->requires_infrastructure,
                 'uses_topology' => $type->uses_topology,
+                'requires_it_review' => $type->requires_it_review,
             ]])->all());
 
-        return $all[$id] ?? ['requires_noc_confirmation' => true, 'requires_infrastructure' => true, 'uses_topology' => false];
+        return $all[$id] ?? ['requires_noc_confirmation' => true, 'requires_infrastructure' => true, 'uses_topology' => false, 'requires_it_review' => false];
     }
 
     public function outageTypes(): HasMany

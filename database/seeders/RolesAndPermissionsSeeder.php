@@ -37,38 +37,61 @@ class RolesAndPermissionsSeeder extends Seeder
         ],
 
         // Customer Experience
-        'CX Manager' => ['outage.view', 'outage.create', 'outage.update_credit_sms', 'reports.view', 'reports.export'],
-        'CX Team Leader' => ['outage.view', 'outage.create', 'outage.update_credit_sms', 'reports.view'],
+        'CX Manager' => [
+            'outage.view', 'outage.create', 'outage.update_credit_sms', 'outage.update_progress', 'outage.cx_follow_up',
+            'queue.view', 'queue.override', 'reports.view', 'reports.export', 'workforce.manage',
+        ],
+        'CX Team Leader' => [
+            'outage.view', 'outage.create', 'outage.update_credit_sms', 'outage.update_progress', 'outage.cx_follow_up',
+            'queue.view', 'queue.override', 'reports.view',
+        ],
+        // Tier II receives NOC-rejected tickets (FIFO) to call the customer back / raise a site visit.
+        'CX Tier II' => [
+            'outage.view', 'outage.create', 'outage.update_credit_sms', 'outage.update_progress', 'outage.cx_follow_up',
+            'queue.view', 'queue.work_cx',
+        ],
         'CX Agent' => ['outage.view', 'outage.create', 'outage.update_credit_sms'],
 
         // Dispatch
         'Dispatch Manager' => [
-            'outage.view', 'outage.dispatch', 'outage.update_progress', 'queue.view', 'queue.work_infrastructure', 'queue.override',
+            'outage.view', 'outage.dispatch', 'outage.update_progress', 'outage.support_work', 'queue.view', 'queue.work_infrastructure', 'queue.override',
             'reports.view', 'reports.export', 'workforce.manage',
         ],
         'Dispatch Team Leader' => [
-            'outage.view', 'outage.dispatch', 'outage.update_progress', 'queue.view', 'queue.work_infrastructure', 'queue.override', 'reports.view',
+            'outage.view', 'outage.dispatch', 'outage.update_progress', 'outage.support_work', 'queue.view', 'queue.work_infrastructure', 'queue.override', 'reports.view',
         ],
         'Dispatcher' => ['outage.view', 'outage.dispatch', 'outage.update_progress', 'queue.view', 'queue.work_infrastructure'],
+        // Drop cable → customer premises. Works support requests in parallel with the outage technician.
         'Support/Installation Technician' => [
-            'outage.view', 'outage.update_progress', 'outage.update_restoration', 'outage.change_status', 'queue.work_technician',
+            'outage.view', 'outage.update_progress', 'outage.support_work', 'queue.work_support',
         ],
 
         // Infrastructure
         'Infrastructure Manager' => [
             'outage.view', 'outage.edit', 'outage.dispatch', 'outage.update_progress', 'outage.update_restoration', 'outage.change_status',
-            'queue.view', 'queue.work_infrastructure', 'queue.override', 'topology.manage', 'reports.view', 'reports.export', 'workforce.manage',
+            'outage.request_support', 'queue.view', 'queue.work_infrastructure', 'queue.override', 'topology.manage', 'reports.view', 'reports.export', 'workforce.manage',
         ],
         'Infrastructure Team Leader' => [
             'outage.view', 'outage.dispatch', 'outage.update_progress', 'outage.update_restoration', 'outage.change_status',
-            'queue.view', 'queue.work_infrastructure', 'queue.override', 'topology.manage', 'reports.view', 'workforce.manage',
+            'outage.request_support', 'queue.view', 'queue.work_infrastructure', 'queue.override', 'topology.manage', 'reports.view', 'workforce.manage',
         ],
         'Infrastructure Dispatcher' => [
-            'outage.view', 'outage.dispatch', 'outage.update_progress', 'queue.view', 'queue.work_infrastructure',
+            'outage.view', 'outage.dispatch', 'outage.update_progress', 'outage.request_support', 'queue.view', 'queue.work_infrastructure',
         ],
         'Outage Technician' => [
-            'outage.view', 'outage.update_progress', 'outage.update_restoration', 'outage.change_status', 'queue.work_technician',
+            'outage.view', 'outage.update_progress', 'outage.update_restoration', 'outage.change_status', 'outage.request_support', 'queue.work_technician',
         ],
+
+        // IT: first line for system outages; escalates core / network causes to NOC and confirms the fix.
+        'IT Manager' => [
+            'outage.view', 'outage.create', 'outage.edit', 'outage.update_progress', 'outage.it_review', 'outage.change_status',
+            'queue.view', 'queue.work_it', 'queue.override', 'reports.view', 'reports.export', 'workforce.manage',
+        ],
+        'IT Team Leader' => [
+            'outage.view', 'outage.create', 'outage.edit', 'outage.update_progress', 'outage.it_review', 'outage.change_status',
+            'queue.view', 'queue.work_it', 'queue.override', 'reports.view', 'workforce.manage',
+        ],
+        'IT Engineer' => ['outage.view', 'outage.create', 'outage.update_progress', 'outage.it_review', 'queue.view', 'queue.work_it'],
 
         // Management (read-only command centre)
         'Executive' => ['outage.view', 'queue.view', 'reports.view', 'reports.export'],

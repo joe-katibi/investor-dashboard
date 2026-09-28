@@ -22,4 +22,12 @@ enum StatusCode: string
     case VendorEscalated = 'vendor_escalated';
     case AwaitingCustomerConfirmation = 'awaiting_customer_confirmation';
     case InfrastructureConfirmed = 'infrastructure_confirmed';
+
+    // NOC rejected: Customer Experience (Tier II) calls the customer back / raises a site visit.
+    case CxFollowUp = 'cx_follow_up';
+
+    // System outages: IT reviews first, may escalate to NOC, and confirms the fix at the end.
+    case ItReview = 'it_review';
+    case EscalatedToNoc = 'escalated_to_noc';
+    case AwaitingItConfirmation = 'awaiting_it_confirmation';
 }

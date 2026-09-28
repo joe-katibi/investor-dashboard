@@ -73,7 +73,7 @@ class OutageWorkflowTest extends TestCase
         $this->assertSame(Priority::query()->where('code', 'high')->value('queue_rank'), $outage->queueEntries()->first()->priority_rank);
     }
 
-    public function test_noc_reject_requires_a_reason_and_closes_the_outage(): void
+    public function test_noc_reject_requires_a_reason_and_returns_the_ticket_to_cx(): void
     {
         $agent = $this->makeUser('CX Agent', 'CX');
         $noc = $this->makeUser('NOC Tier I', 'NOC');
@@ -88,10 +88,12 @@ class OutageWorkflowTest extends TestCase
 
         $outage = app(OutageWorkflow::class)->rejectByNoc($outage, $noc, 'Customer CPE fault, not an outage');
 
-        $this->assertTrue($outage->status->isCode(StatusCode::NocReject));
-        $this->assertTrue($outage->is_closed);
-        $this->assertSame(SlaState::NotApplicable, $outage->sla_state);
-        $this->assertSame(0, $outage->openQueueEntries()->count());
+        // Not closed yet: CX Tier II calls the customer back first (see CxSupportItFlowsTest).
+        $this->assertTrue($outage->status->isCode(StatusCode::CxFollowUp));
+        $this->assertFalse($outage->is_closed);
+        $this->assertNotNull($outage->sla_paused_at, 'SLA paused while it is not a confirmed outage');
+        $this->assertSame(QueueType::CxFollowUp, $outage->current_queue);
+        $this->assertSame('Customer CPE fault, not an outage', $outage->rejection_reason);
     }
 
     public function test_full_lifecycle_from_report_to_resolution(): void
