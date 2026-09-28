@@ -19,17 +19,19 @@ class RolesAndPermissionsSeeder extends Seeder
 
         // NOC
         'NOC Manager' => [
-            'outage.*', '!outage.delete', 'queue.*', 'reports.*', 'audit.view', 'workforce.manage', 'sla.manage',
+            'outage.*', '!outage.delete', 'queue.*', 'reports.*', 'audit.view', 'workforce.manage', 'sla.manage', 'maintenance.*',
             'notifications.manage', 'templates.manage',
         ],
         'NOC Team Leader' => [
             'outage.view', 'outage.create', 'outage.edit', 'outage.confirm', 'outage.update_progress', 'outage.confirm_restoration',
             'outage.close', 'outage.change_status', 'outage.update_credit_sms', 'outage.override_priority',
             'queue.view', 'queue.work_noc', 'queue.override', 'reports.view', 'reports.export', 'workforce.manage',
+            'maintenance.manage', 'maintenance.reschedule',
         ],
         'NOC Tier II' => [
             'outage.view', 'outage.create', 'outage.edit', 'outage.confirm', 'outage.update_progress', 'outage.confirm_restoration',
             'outage.close', 'outage.change_status', 'outage.update_credit_sms', 'queue.view', 'queue.work_noc', 'reports.view',
+            'maintenance.manage',
         ],
         'NOC Tier I' => [
             'outage.view', 'outage.create', 'outage.confirm', 'outage.update_progress', 'outage.confirm_restoration',
@@ -39,16 +41,17 @@ class RolesAndPermissionsSeeder extends Seeder
         // Customer Experience
         'CX Manager' => [
             'outage.view', 'outage.create', 'outage.update_credit_sms', 'outage.update_progress', 'outage.cx_follow_up',
-            'queue.view', 'queue.override', 'reports.view', 'reports.export', 'workforce.manage',
+            'queue.view', 'queue.override', 'reports.view', 'reports.export', 'workforce.manage', 'maintenance.notify_customers',
         ],
         'CX Team Leader' => [
             'outage.view', 'outage.create', 'outage.update_credit_sms', 'outage.update_progress', 'outage.cx_follow_up',
-            'queue.view', 'queue.override', 'reports.view',
+            'queue.view', 'queue.override', 'reports.view', 'maintenance.notify_customers',
         ],
-        // Tier II receives NOC-rejected tickets (FIFO) to call the customer back / raise a site visit.
+        // Tier II receives NOC-rejected tickets (FIFO) to call the customer back / raise a site visit,
+        // and completed planned maintenance to tell customers all is well.
         'CX Tier II' => [
             'outage.view', 'outage.create', 'outage.update_credit_sms', 'outage.update_progress', 'outage.cx_follow_up',
-            'queue.view', 'queue.work_cx',
+            'queue.view', 'queue.work_cx', 'maintenance.notify_customers',
         ],
         'CX Agent' => ['outage.view', 'outage.create', 'outage.update_credit_sms'],
 
@@ -70,13 +73,16 @@ class RolesAndPermissionsSeeder extends Seeder
         'Infrastructure Manager' => [
             'outage.view', 'outage.edit', 'outage.dispatch', 'outage.update_progress', 'outage.update_restoration', 'outage.change_status',
             'outage.request_support', 'queue.view', 'queue.work_infrastructure', 'queue.override', 'topology.manage', 'reports.view', 'reports.export', 'workforce.manage',
+            'maintenance.request', 'maintenance.reschedule',
         ],
         'Infrastructure Team Leader' => [
             'outage.view', 'outage.dispatch', 'outage.update_progress', 'outage.update_restoration', 'outage.change_status',
             'outage.request_support', 'queue.view', 'queue.work_infrastructure', 'queue.override', 'topology.manage', 'reports.view', 'workforce.manage',
+            'maintenance.request', 'maintenance.reschedule',
         ],
         'Infrastructure Dispatcher' => [
             'outage.view', 'outage.dispatch', 'outage.update_progress', 'outage.request_support', 'queue.view', 'queue.work_infrastructure',
+            'maintenance.request',
         ],
         'Outage Technician' => [
             'outage.view', 'outage.update_progress', 'outage.update_restoration', 'outage.change_status', 'outage.request_support', 'queue.work_technician',

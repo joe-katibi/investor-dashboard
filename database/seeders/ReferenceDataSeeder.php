@@ -24,6 +24,7 @@ class ReferenceDataSeeder extends Seeder
         QueueDefinitionSeeder::class,
         NotificationRuleSeeder::class,
         EmailTemplateSeeder::class,
+        MaintenanceTemplateSeeder::class,
     ];
 
     public function run(): void

@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Enums\NotificationChannel;
+use App\Mail\MaintenanceMail;
 use App\Mail\OutageNotificationMail;
 use App\Models\NotificationLog;
 use App\Services\Notifications\Sms\SmsGateway;
@@ -51,7 +52,9 @@ class SendNotificationJob implements ShouldQueue
         try {
             match (NotificationChannel::from($log->channel)) {
                 NotificationChannel::InApp => $this->sendInApp($log),
-                NotificationChannel::Mail => Mail::to($log->recipient)->send(new OutageNotificationMail($log)),
+                NotificationChannel::Mail => Mail::to($log->recipient)->send(
+                    isset($log->meta['html']) ? new MaintenanceMail($log) : new OutageNotificationMail($log),
+                ),
                 NotificationChannel::Sms => $sms->send((string) $log->recipient, (string) $log->body),
             };
 

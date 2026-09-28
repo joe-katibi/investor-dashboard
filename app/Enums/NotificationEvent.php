@@ -35,10 +35,30 @@ enum NotificationEvent: string implements HasLabel
     case SupportCompleted = 'support_completed';
     case ItEscalation = 'it_escalation';
     case ReturnedToIt = 'returned_to_it';
+    case MaintenanceRequested = 'maintenance_requested';
+    case CrfSignoffRequested = 'crf_signoff_requested';
+    case CrfSigned = 'crf_signed';
+    case CrfChangesRequested = 'crf_changes_requested';
+    case CrfApproved = 'crf_approved';
+    case MaintenanceReminder = 'maintenance_reminder';
+    case MaintenanceStarted = 'maintenance_started';
+    case MaintenanceRescheduled = 'maintenance_rescheduled';
+    case MaintenanceCompleted = 'maintenance_completed';
+    case MaintenanceCancelled = 'maintenance_cancelled';
 
     public function getLabel(): string
     {
         return match ($this) {
+            self::MaintenanceRequested => 'Planned Maintenance Requested',
+            self::CrfSignoffRequested => 'CRF Sent for Sign-off',
+            self::CrfSigned => 'CRF Signed by a Signatory',
+            self::CrfChangesRequested => 'CRF Changes Requested',
+            self::CrfApproved => 'CRF Fully Signed',
+            self::MaintenanceReminder => 'Maintenance Reminder',
+            self::MaintenanceStarted => 'Maintenance Started',
+            self::MaintenanceRescheduled => 'Maintenance Rescheduled',
+            self::MaintenanceCompleted => 'Maintenance Completed (customers notified)',
+            self::MaintenanceCancelled => 'Maintenance Cancelled',
             self::CxFollowUp => 'CX Follow-up Recorded (callback)',
             self::SiteVisitRaised => 'Site Visit Raised',
             self::SupportRequested => 'Support Technician Requested',

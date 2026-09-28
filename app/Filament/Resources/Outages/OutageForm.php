@@ -53,8 +53,10 @@ final class OutageForm
                         ->disabledOn('edit')
                         ->afterStateUpdated(fn (Set $set) => $set('outage_type_id', null)),
                     Select::make('outage_type_id')->label('Outage type')->required()->live()
-                        ->options(fn (Get $get) => OutageType::query()->active()
+                        ->options(fn (Get $get, string $operation) => OutageType::query()->active()
                             ->when($get('major_outage_type_id'), fn ($q, $major) => $q->where('major_outage_type_id', $major))
+                            // Planned maintenance is raised with "Request planned maintenance" (CRF + sign-off).
+                            ->when($operation === 'create', fn ($q) => $q->where('is_planned', false))
                             ->orderBy('sort_order')->get()->mapWithKeys(fn (OutageType $t) => [$t->id => "{$t->name} ({$t->prefix})"]))
                         ->disabledOn('edit'),
                     Select::make('vertical_id')->label('Vertical')->required()->live()
@@ -67,18 +69,7 @@ final class OutageForm
                 ->icon('heroicon-o-share')
                 ->description('OLT → FDT → Slot → Port. Each level only lists children of what you selected above it. Pick "ALL" to select every item at that level.')
                 ->visible(fn (Get $get) => self::usesTopology($get('major_outage_type_id')))
-                ->schema([
-                    self::topologySelect('olt_ids', 'OLT(s)', 'ALL OLTs', fn (Get $get) => self::oltOptions(self::ids($get('olt_ids'))))
-                        ->afterStateUpdated(fn (Get $get, Set $set) => self::pruneChildren($get, $set, 'olt')),
-                    self::topologySelect('fdt_ids', 'FDT(s)', 'ALL FDTs of the selected OLT(s)', fn (Get $get) => self::fdtOptions(self::ids($get('olt_ids')), self::ids($get('fdt_ids'))))
-                        ->disabled(fn (Get $get) => self::ids($get('olt_ids')) === [])
-                        ->afterStateUpdated(fn (Get $get, Set $set) => self::pruneChildren($get, $set, 'fdt')),
-                    self::topologySelect('slot_ids', 'Slot(s)', 'ALL slots of the selected FDT(s)', fn (Get $get) => self::slotOptions(self::ids($get('fdt_ids')), self::ids($get('slot_ids'))))
-                        ->disabled(fn (Get $get) => self::ids($get('fdt_ids')) === [])
-                        ->afterStateUpdated(fn (Get $get, Set $set) => self::pruneChildren($get, $set, 'slot')),
-                    self::topologySelect('port_ids', 'Port(s)', 'ALL ports of the selected slot(s)', fn (Get $get) => self::portOptions(self::ids($get('slot_ids')), self::ids($get('port_ids'))))
-                        ->disabled(fn (Get $get) => self::ids($get('slot_ids')) === []),
-                ])->columns(2),
+                ->schema(self::topologyFields())->columns(2),
 
             Section::make('Impact')
                 ->icon('heroicon-o-users')
@@ -132,6 +123,23 @@ final class OutageForm
                     Toggle::make('credit_shared')->label('Credit shared'),
                 ])->columns(2),
         ]);
+    }
+
+    /** Cascading OLT → FDT → Slot → Port selects with "ALL" (also used by the planned maintenance request). */
+    public static function topologyFields(): array
+    {
+        return [
+            self::topologySelect('olt_ids', 'OLT(s)', 'ALL OLTs', fn (Get $get) => self::oltOptions(self::ids($get('olt_ids'))))
+                ->afterStateUpdated(fn (Get $get, Set $set) => self::pruneChildren($get, $set, 'olt')),
+            self::topologySelect('fdt_ids', 'FDT(s)', 'ALL FDTs of the selected OLT(s)', fn (Get $get) => self::fdtOptions(self::ids($get('olt_ids')), self::ids($get('fdt_ids'))))
+                ->disabled(fn (Get $get) => self::ids($get('olt_ids')) === [])
+                ->afterStateUpdated(fn (Get $get, Set $set) => self::pruneChildren($get, $set, 'fdt')),
+            self::topologySelect('slot_ids', 'Slot(s)', 'ALL slots of the selected FDT(s)', fn (Get $get) => self::slotOptions(self::ids($get('fdt_ids')), self::ids($get('slot_ids'))))
+                ->disabled(fn (Get $get) => self::ids($get('fdt_ids')) === [])
+                ->afterStateUpdated(fn (Get $get, Set $set) => self::pruneChildren($get, $set, 'slot')),
+            self::topologySelect('port_ids', 'Port(s)', 'ALL ports of the selected slot(s)', fn (Get $get) => self::portOptions(self::ids($get('slot_ids')), self::ids($get('port_ids'))))
+                ->disabled(fn (Get $get) => self::ids($get('slot_ids')) === []),
+        ];
     }
 
     public static function usesTopology(mixed $majorTypeId): bool

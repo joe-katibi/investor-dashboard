@@ -18,6 +18,7 @@ enum QueueType: string implements HasColor, HasLabel
     case SupportTechnician = 'support_technician';
     case ItReview = 'it_review';
     case ItConfirmation = 'it_confirmation';
+    case CxNotify = 'cx_notify';
 
     public function getLabel(): string
     {
@@ -30,6 +31,7 @@ enum QueueType: string implements HasColor, HasLabel
             self::SupportTechnician => 'Support Technician',
             self::ItReview => 'IT Review',
             self::ItConfirmation => 'IT Confirmation',
+            self::CxNotify => 'CX Customer Notification',
         };
     }
 
@@ -43,6 +45,7 @@ enum QueueType: string implements HasColor, HasLabel
             self::CxFollowUp => 'danger',
             self::SupportTechnician => 'warning',
             self::ItReview, self::ItConfirmation => 'gray',
+            self::CxNotify => 'success',
         };
     }
 
@@ -54,7 +57,7 @@ enum QueueType: string implements HasColor, HasLabel
             self::Infrastructure => 'queue.work_infrastructure',
             self::Technician => 'queue.work_technician',
             self::NocRestore => 'queue.work_noc',
-            self::CxFollowUp => 'queue.work_cx',
+            self::CxFollowUp, self::CxNotify => 'queue.work_cx',
             self::SupportTechnician => 'queue.work_support',
             self::ItReview, self::ItConfirmation => 'queue.work_it',
         };
@@ -66,7 +69,7 @@ enum QueueType: string implements HasColor, HasLabel
         return match ($this) {
             self::NocReview, self::NocRestore => 'NOC',
             self::Infrastructure, self::Technician => 'INFRA',
-            self::CxFollowUp => 'CX',
+            self::CxFollowUp, self::CxNotify => 'CX',
             self::SupportTechnician => 'DISPATCH',
             self::ItReview, self::ItConfirmation => 'IT',
         };

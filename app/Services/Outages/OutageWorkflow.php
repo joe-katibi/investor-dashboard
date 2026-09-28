@@ -9,6 +9,7 @@ use App\Enums\StatusCode;
 use App\Events\OutageCreated;
 use App\Events\OutageStatusChanged;
 use App\Events\OutageUpdated;
+use App\Models\ChangeRequest;
 use App\Models\Fdt;
 use App\Models\Olt;
 use App\Models\Outage;
@@ -25,6 +26,7 @@ use App\Models\SupportRequest;
 use App\Models\User;
 use App\Services\Fifo\FifoAssignmentEngine;
 use App\Services\Notifications\NotificationDispatcher;
+use App\Services\Outages\Concerns\ManagesPlannedMaintenance;
 use App\Services\Sla\SlaService;
 use App\Support\AuditContext;
 use Illuminate\Support\Arr;
@@ -46,6 +48,8 @@ use Illuminate\Validation\ValidationException;
  */
 class OutageWorkflow
 {
+    use ManagesPlannedMaintenance;
+
     public function __construct(
         private readonly TicketNumberGenerator $tickets,
         private readonly PriorityResolver $priorities,
@@ -64,36 +68,13 @@ class OutageWorkflow
             $type = OutageType::query()->with('majorOutageType')->active()->findOrFail($data['outage_type_id']);
             $major = $type->majorOutageType;
 
-            $outage = new Outage(Arr::only($data, (new Outage)->getFillable()));
-            $outage->major_outage_type_id = $major->id;
-            $outage->ticket_number = $this->tickets->next($type->prefix);
-            $outage->customers_affected = (int) ($data['customers_affected'] ?? 0);
-            $outage->start_time = Carbon::parse($data['start_time'] ?? now());
-            $this->applyPriority($outage, $data, $by);
-
-            // System outages go to IT first; everything else starts unconfirmed for NOC.
-            $initial = OutageStatus::forCode($major->requires_it_review ? StatusCode::ItReview : StatusCode::SupportUnconfirmed);
-            $outage->status_id = $initial->id;
-            $outage->is_closed = false;
-            $outage->sla_state = SlaState::Compliant;
-            $outage->created_by = $by->id;
-            $outage->updated_by = $by->id;
-            $outage->save();
-
-            $this->syncTopology($outage, $data, forNewOutage: true);
-            $this->syncServices($outage, $data['service_ids'] ?? [], forNewOutage: true);
-
-            $this->recordHistory($outage, null, $initial, 'Outage reported', $by);
-            $this->sla->apply($outage->refresh(), 'started');
-
-            foreach (['credit_shared', 'sms_sent'] as $flag) {
-                if (! empty($data[$flag])) {
-                    $this->setFlag($outage, $flag, true, $by, authorize: false);
-                }
+            // Planned maintenance has its own request → CRF → sign-off flow.
+            if ($type->is_planned) {
+                throw ValidationException::withMessages(['outage_type_id' => 'Planned maintenance is raised with “Request planned maintenance”.']);
             }
 
-            event(new OutageCreated($outage->id, $outage->ticket_number));
-            $this->notifier->dispatch(NotificationEvent::OutageCreated, $outage);
+            // System outages go to IT first; everything else starts unconfirmed for NOC.
+            $outage = $this->newOutage($data, $by, $type, $major->requires_it_review ? StatusCode::ItReview : StatusCode::SupportUnconfirmed, 'Outage reported');
 
             if ($major->requires_it_review) {
                 // IT checks the system first and escalates to NOC only for core / network causes.
@@ -113,6 +94,46 @@ class OutageWorkflow
 
         // Re-read after commit: post-commit FIFO processing may have assigned the next owner.
         return $result->refresh();
+    }
+
+    /**
+     * Ticket number, rule-driven priority, initial status, topology, services, SLA and the
+     * "created" notification — shared by outage reports and planned maintenance requests.
+     */
+    private function newOutage(array $data, User $by, OutageType $type, StatusCode $initialCode, string $reason): Outage
+    {
+        $outage = new Outage(Arr::only($data, (new Outage)->getFillable()));
+        $outage->outage_type_id = $type->id;
+        $outage->major_outage_type_id = $type->major_outage_type_id;
+        $outage->ticket_number = $this->tickets->next($type->prefix);
+        $outage->customers_affected = (int) ($data['customers_affected'] ?? 0);
+        $outage->start_time = Carbon::parse($data['start_time'] ?? now());
+        $this->applyPriority($outage, $data, $by);
+
+        $initial = OutageStatus::forCode($initialCode);
+        $outage->status_id = $initial->id;
+        $outage->is_closed = false;
+        $outage->sla_state = SlaState::Compliant;
+        $outage->created_by = $by->id;
+        $outage->updated_by = $by->id;
+        $outage->save();
+
+        $this->syncTopology($outage, $data, forNewOutage: true);
+        $this->syncServices($outage, $data['service_ids'] ?? [], forNewOutage: true);
+
+        $this->recordHistory($outage, null, $initial, $reason, $by);
+        $this->sla->apply($outage->refresh(), 'started');
+
+        foreach (['credit_shared', 'sms_sent'] as $flag) {
+            if (! empty($data[$flag])) {
+                $this->setFlag($outage, $flag, true, $by, authorize: false);
+            }
+        }
+
+        event(new OutageCreated($outage->id, $outage->ticket_number));
+        $this->notifier->dispatch(NotificationEvent::OutageCreated, $outage);
+
+        return $outage;
     }
 
     public function update(Outage $outage, array $data, User $by): Outage
@@ -326,9 +347,18 @@ class OutageWorkflow
         return $result->refresh();
     }
 
-    public function confirmRestoration(Outage $outage, User $by, ?string $note = null): Outage
+    /**
+     * @param  array{final_status?: ?string, outcome_details?: ?string}  $maintenance  CRF outcome (planned maintenance only)
+     */
+    public function confirmRestoration(Outage $outage, User $by, ?string $note = null, array $maintenance = []): Outage
     {
-        $result = DB::transaction(function () use ($outage, $by, $note): Outage {
+        $changeRequest = ChangeRequest::query()->where('outage_id', $outage->id)->first();
+
+        if ($changeRequest && ! array_key_exists($maintenance['final_status'] ?? '', ChangeRequest::FINAL_STATUSES)) {
+            throw ValidationException::withMessages(['final_status' => 'Select the final status of the maintenance.']);
+        }
+
+        $result = DB::transaction(function () use ($outage, $by, $note, $changeRequest, $maintenance): Outage {
             $outage = $this->lock($outage);
             Gate::forUser($by)->authorize('confirmRestoration', $outage);
             $this->fifo->authorizeWork($outage, QueueType::NocRestore, $by);
@@ -338,6 +368,13 @@ class OutageWorkflow
                 'restore_confirmed_by' => $by->id,
                 'end_time' => $outage->restored_at ?? now(),
             ]);
+
+            if ($changeRequest) {
+                // Planned maintenance: all customers verified → CX tells them it is done.
+                $this->maintenanceVerified($outage, $changeRequest, $by, $note, $maintenance);
+
+                return $outage->refresh();
+            }
 
             $this->fifo->complete($outage, QueueType::NocRestore, $by, 'NOC restore confirmed');
             $this->transition($outage, StatusCode::NocRestoreConfirmed, $by, $note ?: 'NOC confirmed restoration');

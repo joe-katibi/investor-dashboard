@@ -301,6 +301,58 @@ REPORT → IT REVIEW (IT Review FIFO queue)
   resolution alert rules and directly to the person who reported it; **Not resolved — back to NOC** returns it.
 * System outages already open before this change keep the NOC flow they started with.
 
+### Planned maintenance (CRF & sign-off)
+
+```
+INFRASTRUCTURE: REQUEST PLANNED MAINTENANCE → MAINTENANCE REQUESTED – NOC REVIEW (NOC Review FIFO queue)
+   → NOC confirms affected customers, completes the CRF, picks signatories → CRF – AWAITING SIGN-OFF
+        stakeholders + signatories: "CRF for review" notice (CRF attached)
+        each signatory: personal "Sign CRF" e-mail (no login) → view CRF, type name, draw signature
+        ├─ Request changes → back to NOC (other links withdrawn) → NOC updates and re-issues
+        └─ everyone approved → signed CRF e-mailed to all → ASSIGNED TO INFRASTRUCTURE (dispatch FIFO queue)
+   → reminders 24h / 12h / 6h / 3h / 1h / 30m / 15m / 5m before, and a "started" alert when the window opens
+   → DISPATCH (team / technician) → TECHNICIAN: REPORT WORK COMPLETED → NOC RESTORE CONFIRMATION queue
+        ├─ customers not all up → back to Infrastructure
+        └─ all customers up + final status (Successful / Rolled back / Partial) → CX CUSTOMER NOTIFICATION queue
+   → CX: CUSTOMERS NOTIFIED — CLOSE → RESOLVED (completion e-mail with the final CRF)
+```
+
+* **Request** — *Operations → Request maintenance* (or *Request maintenance* on the outage list), permission
+  `maintenance.request` (Infrastructure Manager / Team Leader / Dispatcher). The form follows the CRF: title,
+  window, initiator, department, lead, emergency contact, escalation / rollback time, OLT → FDT → Slot → Port (with
+  ALL), estimated customers, services, risk tier, description of work, fallback plan, prior tests, risks & mitigation
+  and an optional customer list (Excel / CSV / PDF). A `PLM-…` ticket is created and routed to NOC. Planned
+  maintenance can no longer be raised through *Report outage*.
+* **CRF & sign-off** — NOC (`maintenance.manage`) uses **Complete CRF & send for sign-off**: confirms the number of
+  affected customers (priority and SLA follow it), completes the CRF, ticks the operational checklist and chooses the
+  signatories (defaults from *Maintenance Settings*; a user or any e-mail, e.g. the CTO). Each signatory gets a
+  personal link — a signed URL with a single-use token — to view the CRF and **Approve & sign** (typed name + drawn
+  signature, recorded with date and IP) or **Request changes**. *Re-send sign-off links* issues new links to those
+  who have not signed. The **CRF sign-off** tab shows every signature.
+* **CRF document** — generated as a PDF in the layout of the paper form (general details, risk rating, technical
+  scope & fallback, operational checklist, post-maintenance outcome, sign-offs with signatures). **View CRF** /
+  **Download CRF** on the ticket, attached to the maintenance e-mails, and always current (signatures appear as
+  they are given, the outcome once NOC records it).
+* **Reschedule** (`maintenance.reschedule`, until the work is reported done) — new window + reason: the ticket start
+  time, SLA and reminders move with it and everyone gets the updated CRF. Optionally collect the signatures again
+  (setting). **Cancel maintenance** closes it and notifies everyone.
+* **Reminders & start** — sent by `oms:maintenance-tick` (every minute) at the times set in *Maintenance Settings*,
+  in-app to stakeholder roles and by e-mail per template. Each reminder goes out once per window; one whose moment
+  passed while the scheduler was down is skipped rather than sent late.
+* **SLA** — the *Planned Maintenance – window* SLA policy: **6 hours** from the scheduled start until CX has notified
+  customers. Change it under *Configuration → SLA Policies* (re-seeding never overwrites it).
+* **E-mails** — *Configuration → Maintenance E-mails*: every e-mail is an editable template with its **trigger** (CRF
+  issued, sign-off request, fully signed, changes requested, reminder, a set number of minutes before the start,
+  started, rescheduled, completed, cancelled), recipients (stakeholders, signatories, extra TO / CC), CRF attachment,
+  subject and body with `**bold**` and placeholders such as `{{title}}`, `{{scheduled_date}}`, `{{start_time}}`,
+  `{{olt_fdt}}`, `{{customers}}`, `{{time_left}}`, `{{sign_button}}`, `{{ticket_button}}`. The seeded *CRF for review*
+  notice follows the usual "Please find attached the Change Request Form…" e-mail.
+* **Settings** — *Configuration → Maintenance Settings* (`maintenance.configure`): reminder times, stakeholder roles
+  and e-mails, default signatories, re-approval on reschedule, sign link validity and the SLA shortcut.
+* **Reports** — *Planned Maintenance Report*: window, reschedules, risk, lead, area, customers, CRF status, signed
+  x / y and signatories, approval time, team, technician, completion, final status, outcome, customer notification
+  and SLA (on screen, CSV, Excel, PDF).
+
 Rules enforced everywhere (UI, future APIs, integrations) by `App\Services\Outages\OutageWorkflow` +
 `App\Policies\OutagePolicy`:
 
@@ -318,7 +370,8 @@ Implemented as UI-independent domain services — `App\Services\Fifo\FifoAssignm
 monitoring integrations or a mobile app.
 
 **Queues** (configurable under *Configuration → FIFO Queues*): NOC Review, Infrastructure Dispatch, Technician,
-NOC Restore Confirmation, CX Follow-up (CX Tier II), Support Technician, IT Review and IT Confirmation. Each queue
+NOC Restore Confirmation, CX Follow-up (CX Tier II), Support Technician, IT Review, IT Confirmation and CX Customer
+Notification (planned maintenance). Each queue
 definition sets department, optional team, routing (major type / vertical), required permission, automatic or
 manual mode, acknowledgement timeout and escalation threshold. The **Support Technician** queue is *parallel*: its
 assignment never replaces the ticket's main queue / owner.
@@ -470,7 +523,7 @@ service, team / sub-team, technician, SLA state. Every report exports to **CSV, 
 | 4G Site / Cell Outage | Sites down, cells down, power faults |
 | System Outage | Register filtered to System |
 | Recurring Outage | Locations with two or more outages in the period |
-| Planned Maintenance | Register filtered to planned types |
+| Planned Maintenance | CRF window, reschedules, risk, sign-off, outcome, customer notification, SLA |
 | FIFO Assignment History | Every queue / assignment event |
 | Audit Trail | Every recorded change with user, trigger and IP |
 
@@ -537,6 +590,7 @@ deleted from the UI. Super Admin holds every permission but still obeys workflow
 | Group | Permissions |
 |---|---|
 | Outages | `outage.view`, `outage.create`, `outage.edit`, `outage.delete`, `outage.confirm`, `outage.dispatch`, `outage.update_progress`, `outage.update_restoration`, `outage.confirm_restoration`, `outage.close`, `outage.change_status`, `outage.update_credit_sms`, `outage.override_priority`, `outage.cx_follow_up`, `outage.request_support`, `outage.support_work`, `outage.it_review` |
+| Planned Maintenance | `maintenance.request`, `maintenance.manage`, `maintenance.reschedule`, `maintenance.notify_customers`, `maintenance.configure` |
 | FIFO Queues | `queue.view`, `queue.work_noc`, `queue.work_infrastructure`, `queue.work_technician`, `queue.work_cx`, `queue.work_support`, `queue.work_it`, `queue.override` |
 | Configuration | `topology.manage`, `sla.manage`, `templates.manage`, `notifications.manage`, `master_data.manage`, `config.admin` |
 | People | `users.manage`, `teams.manage`, `roles.manage`, `workforce.manage` |
@@ -574,9 +628,10 @@ users and outages are added only outside production. Each seeder can also be run
 | `OutageStatusSeeder` | Support Unconfirmed, NOC Confirmed, NOC Reject, Assigned to Infrastructure, Infrastructure Confirmed, Team Dispatched, Awaiting Field Access, Vendor Escalated, Partial Restore, Restore Reported – Awaiting NOC, NOC Restore Confirmed, Awaiting Customer Confirmation, Outage Resolved, Scheduled Maintenance, NOC Rejected – CX Follow-up (pauses SLA), IT Review, Escalated to NOC by IT, NOC Resolved – Awaiting IT Confirmation |
 | `PrioritySeeder` | Low 0–9, Medium 10–49, High 50–199, Critical 200+ customers; FIFO rank Critical 1 → Low 4 |
 | `SlaPolicySeeder` | Critical 4h, High 8h, Medium 12h, Low 24h (pre-breach, ack timeout, escalation), Planned Maintenance window |
-| `QueueDefinitionSeeder` | NOC Review (NOC, 10 min ack), Infrastructure Dispatch (INFRA, 15), Technician (INFRA, 20), NOC Restore (NOC, 15), CX Tier II Follow-up (CX, 30), Support Technician (DISPATCH, 20), IT Review (IT, 15), IT Confirmation (IT, 15) |
+| `QueueDefinitionSeeder` | NOC Review (NOC, 10 min ack), Infrastructure Dispatch (INFRA, 15), Technician (INFRA, 20), NOC Restore (NOC, 15), CX Tier II Follow-up (CX, 30), Support Technician (DISPATCH, 20), IT Review (IT, 15), IT Confirmation (IT, 15), CX Customer Notification (CX, 30) |
 | `NotificationRuleSeeder` | In-app + e-mail + SMS lifecycle alerts: ticket created, assigned to NOC, NOC rejected, CX callback, site visit raised, assigned to Infrastructure, dispatched, support technician requested / completed, assigned to IT, returned to IT, progress update, closed by technician, resolved (plus IT feedback for system outages); critical outages, queue escalation, credit due; in-app *Admin feed* for Super Admin |
 | `EmailTemplateSeeder` | Two-Hour Update, Executive Summary, Summary Report |
+| `MaintenanceTemplateSeeder` | Planned maintenance e-mails: CRF for review, sign-off request, fully signed, changes requested, reminder, started, rescheduled, completed, cancelled (created only when missing) |
 | `DemoDataSeeder` | Non-production only: teams, users, topology, shifts, skills, sample outages |
 
 ## Configuration screens
@@ -614,7 +669,7 @@ portable booleans and JSON), with composite indexes on the FIFO ordering, SLA an
 
 ```
 app/
-  Console/Commands/        oms:sla-check, oms:fifo-timeouts, oms:fifo-sweep, oms:send-scheduled-reports, oms:create-admin
+  Console/Commands/        oms:sla-check, oms:fifo-timeouts, oms:fifo-sweep, oms:send-scheduled-reports, oms:maintenance-tick, oms:create-admin
   Enums/                   QueueType, SlaState, AssignmentStatus, AvailabilityStatus, NotificationEvent, StatusCode, …
   Events/                  Reverb broadcast events (OmsBroadcastEvent base)
   Filament/
@@ -654,6 +709,7 @@ tests/Feature/             FIFO, workflow, SLA, reports, panel & security tests
 | `oms:fifo-timeouts` | every minute | Requeue / escalate unacknowledged assignments |
 | `oms:fifo-sweep` | every minute | Release tickets of users who became ineligible; assign waiting tickets |
 | `oms:send-scheduled-reports` | every minute | Queue due scheduled e-mails |
+| `oms:maintenance-tick` | every minute | Planned-maintenance reminders, before-start e-mails and "started" alerts |
 | `oms:prune-expired-cache` (scheduled closure) | hourly | Clean expired rows when the database cache driver is used |
 | `queue:prune-failed`, `queue:prune-batches` | daily | Housekeeping |
 | `oms:create-admin` | manual | Create a Super Admin |

@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
@@ -220,6 +221,17 @@ class Outage extends Model
     public function notificationLogs(): HasMany
     {
         return $this->hasMany(NotificationLog::class)->latest('id');
+    }
+
+    /** Maintenance & Change Request Form (planned maintenance tickets only). */
+    public function changeRequest(): HasOne
+    {
+        return $this->hasOne(ChangeRequest::class);
+    }
+
+    public function crfSignatures(): HasManyThrough
+    {
+        return $this->hasManyThrough(ChangeRequestSignature::class, ChangeRequest::class)->orderBy('change_request_signatures.sort');
     }
 
     public function followUps(): HasMany

@@ -28,6 +28,9 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // Global (not just the "web" group) so Filament panel routes are covered too.
         $middleware->append(SecurityHeaders::class);
+
+        // Non-panel pages that need a login (CRF PDF) send guests to the panel login.
+        $middleware->redirectGuestsTo(fn () => route('filament.admin.auth.login'));
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // Never leak internals on error pages in production (APP_DEBUG=false handles the rest).

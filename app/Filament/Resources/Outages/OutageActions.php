@@ -6,6 +6,7 @@ use App\Enums\AssignmentStatus;
 use App\Enums\QueueType;
 use App\Enums\StatusCode;
 use App\Enums\TeamType;
+use App\Models\ChangeRequest;
 use App\Models\Department;
 use App\Models\Outage;
 use App\Models\OutageAssignment;
@@ -16,18 +17,25 @@ use App\Models\Team;
 use App\Models\User;
 use App\Services\Fifo\FifoAssignmentEngine;
 use App\Services\Outages\OutageWorkflow;
+use App\Support\Settings;
 use Filament\Actions\Action;
+use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\DateTimePicker;
+use Filament\Forms\Components\Radio;
+use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TagsInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
+use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
@@ -44,15 +52,187 @@ final class OutageActions
         return [
             self::accept(), self::rejectAssignment(), self::nocConfirm(), self::nocReject(), self::cxFollowUp(),
             self::itEscalateToNoc(), self::itResolve(), self::nocReturnToIt(), self::itReturnToNoc(),
+            self::prepareCrf(), self::viewCrf(),
             self::dispatch(), self::requestSupport(), self::completeSupport(),
-            self::reportRestored(), self::confirmRestoration(), self::rejectRestoration(), self::resolve(),
+            self::reportRestored(), self::confirmRestoration(), self::rejectRestoration(), self::notifyCustomers(), self::resolve(),
         ];
     }
 
     /** @return list<Action> */
     public static function secondary(): array
     {
-        return [self::addUpdate(), self::setStatus(), self::customerCommunication(), self::cancelSupport(), self::reassign()];
+        return [
+            self::addUpdate(), self::setStatus(), self::customerCommunication(), self::cancelSupport(),
+            self::downloadCrf(), self::resendSignoff(), self::reschedule(), self::cancelMaintenance(), self::reassign(),
+        ];
+    }
+
+    // ------------------------------------------------------------------ planned maintenance (CRF)
+
+    public static function prepareCrf(): Action
+    {
+        return Action::make('prepareCrf')
+            ->label('Complete CRF & send for sign-off')
+            ->icon(Heroicon::OutlinedDocumentCheck)
+            ->color('primary')
+            ->visible(fn (Outage $record) => Auth::user()?->can('prepareCrf', $record))
+            ->modalHeading('Maintenance & Change Request Form (CRF)')
+            ->modalDescription('Confirm the affected customers and complete the CRF. Stakeholders receive the notice with the CRF attached and each signatory gets a personal “Sign CRF” link.')
+            ->modalWidth('5xl')
+            ->modalSubmitActionLabel('Send for sign-off')
+            ->fillForm(function (Outage $record): array {
+                $cr = $record->changeRequest;
+                $previous = $cr?->signatures()->get();
+
+                return [
+                    'customers_affected' => $record->customers_affected,
+                    'scheduled_start' => $cr?->scheduled_start?->toDateTimeString(),
+                    'scheduled_end' => $cr?->scheduled_end?->toDateTimeString(),
+                    ...Arr::only($cr?->toArray() ?? [], [
+                        'initiator', 'department', 'in_charge', 'escalation_time', 'rollback_time', 'emergency_contact', 'risk_tier',
+                        'work_description', 'fallback_plan', 'prior_tests', 'risks_mitigation', 'stakeholder_emails',
+                    ]),
+                    'checklist' => array_keys(array_filter((array) ($cr?->checklist ?? []))),
+                    // Re-issue keeps the previous signatories; a first issue starts from the configured defaults.
+                    'signatories' => $previous?->isNotEmpty()
+                        ? $previous->map(fn ($s) => ['role' => $s->role_label, 'user_id' => $s->user_id, 'email' => $s->user_id ? null : $s->email])->all()
+                        : array_values((array) app(Settings::class)->get('maintenance.default_signatories')),
+                ];
+            })
+            ->schema([
+                Section::make('1. General details')->schema([
+                    TextInput::make('customers_affected')->label('Confirmed customers affected')->numeric()->minValue(0)->required(),
+                    DateTimePicker::make('scheduled_start')->label('Scheduled start')->seconds(false)->required(),
+                    DateTimePicker::make('scheduled_end')->label('Scheduled end')->seconds(false)->required()->after('scheduled_start'),
+                    TextInput::make('initiator')->maxLength(150),
+                    TextInput::make('department')->maxLength(150),
+                    TextInput::make('in_charge')->label('In-charge / lead')->maxLength(150),
+                    TextInput::make('emergency_contact')->maxLength(100),
+                    TextInput::make('escalation_time')->maxLength(100),
+                    TextInput::make('rollback_time')->maxLength(100),
+                ])->columns(3),
+                Section::make('2–3. Risk, scope & fallback')->schema([
+                    Radio::make('risk_tier')->label('Risk tier')->required()->inline()
+                        ->options(collect(ChangeRequest::RISK_TIERS)->map(fn (array $tier) => $tier[0])->all()),
+                    Textarea::make('work_description')->label('Detail / description of work')->required()->rows(3)->maxLength(5000),
+                    Textarea::make('fallback_plan')->label('Recovery & fallback plan')->rows(2)->maxLength(5000),
+                    Textarea::make('prior_tests')->label('Prior test details')->rows(2)->maxLength(5000),
+                    Textarea::make('risks_mitigation')->label('Identified risks & mitigation')->rows(2)->maxLength(5000),
+                ]),
+                Section::make('4. Operational checklist')->schema([
+                    CheckboxList::make('checklist')->hiddenLabel()
+                        ->options(collect(ChangeRequest::CHECKLIST)->map(fn (array $item) => $item[0])->all())
+                        ->descriptions(collect(ChangeRequest::CHECKLIST)->map(fn (array $item) => $item[1])->all())
+                        ->columns(2),
+                ]),
+                Section::make('6. Signatories')->description('Everyone listed must approve before the work is handed to Infrastructure.')->schema([
+                    Repeater::make('signatories')->hiddenLabel()->minItems(1)->defaultItems(0)->reorderable()
+                        ->addActionLabel('Add signatory')
+                        ->schema([
+                            TextInput::make('role')->label('Role / authority')->required()->maxLength(150),
+                            Select::make('user_id')->label('User')->searchable()
+                                ->options(fn () => User::query()->active()->orderBy('name')->pluck('name', 'id'))
+                                ->live(),
+                            TextInput::make('email')->label('…or e-mail')->email()->maxLength(255)
+                                ->required(fn (Get $get) => blank($get('user_id')))
+                                ->hidden(fn (Get $get) => filled($get('user_id'))),
+                        ])->columns(3),
+                ]),
+                Section::make('Stakeholders')->schema([
+                    TagsInput::make('stakeholder_emails')->label('Extra stakeholder e-mails for this maintenance')
+                        ->nestedRecursiveRules(['email'])->placeholder('name@company.com')
+                        ->helperText('Added to the stakeholders set in Maintenance Settings.'),
+                ])->collapsed(),
+            ])
+            ->action(fn (Outage $record, array $data) => self::run($record, fn () => app(OutageWorkflow::class)->sendCrfForSignoff($record, Auth::user(), array_merge($data, [
+                'checklist' => array_fill_keys((array) ($data['checklist'] ?? []), true),
+            ])), 'CRF sent for sign-off'));
+    }
+
+    public static function viewCrf(): Action
+    {
+        return Action::make('viewCrf')
+            ->label('View CRF')
+            ->icon(Heroicon::OutlinedDocumentText)
+            ->color('gray')
+            ->visible(fn (Outage $record) => Auth::user()?->can('viewCrf', $record))
+            ->url(fn (Outage $record) => route('crf.pdf', $record), shouldOpenInNewTab: true);
+    }
+
+    public static function downloadCrf(): Action
+    {
+        return Action::make('downloadCrf')
+            ->label('Download CRF (PDF)')
+            ->icon(Heroicon::OutlinedArrowDownTray)
+            ->visible(fn (Outage $record) => Auth::user()?->can('viewCrf', $record))
+            ->url(fn (Outage $record) => route('crf.pdf', ['outage' => $record, 'download' => 1]));
+    }
+
+    public static function resendSignoff(): Action
+    {
+        return Action::make('resendSignoff')
+            ->label('Re-send sign-off links')
+            ->icon(Heroicon::OutlinedEnvelope)
+            ->visible(fn (Outage $record) => Auth::user()?->can('resendSignoff', $record))
+            ->requiresConfirmation()
+            ->modalDescription(fn (Outage $record) => 'New personal links go to everyone who has not signed: '
+                .($record->changeRequest?->signatures->where('status', 'pending')->pluck('role_label')->implode(', ') ?: '—').'. Older links stop working.')
+            ->action(fn (Outage $record) => self::run($record, fn () => app(OutageWorkflow::class)->resendSignoffRequests($record, Auth::user()), 'Sign-off links re-sent'));
+    }
+
+    public static function reschedule(): Action
+    {
+        return Action::make('rescheduleMaintenance')
+            ->label('Reschedule')
+            ->icon(Heroicon::OutlinedCalendarDays)
+            ->visible(fn (Outage $record) => Auth::user()?->can('rescheduleMaintenance', $record))
+            ->modalDescription('Stakeholders and signatories are notified with the updated CRF; reminders follow the new window.')
+            ->fillForm(fn (Outage $record) => [
+                'scheduled_start' => $record->changeRequest?->scheduled_start?->toDateTimeString(),
+                'scheduled_end' => $record->changeRequest?->scheduled_end?->toDateTimeString(),
+            ])
+            ->schema([
+                DateTimePicker::make('scheduled_start')->label('New start')->seconds(false)->required(),
+                DateTimePicker::make('scheduled_end')->label('New end')->seconds(false)->required()->after('scheduled_start'),
+                Textarea::make('reason')->label('Reason')->required()->maxLength(2000),
+            ])
+            ->action(fn (Outage $record, array $data) => self::run($record, fn () => app(OutageWorkflow::class)->rescheduleMaintenance(
+                $record, Auth::user(), $data['scheduled_start'], $data['scheduled_end'], $data['reason'],
+            ), 'Maintenance rescheduled'));
+    }
+
+    public static function cancelMaintenance(): Action
+    {
+        return Action::make('cancelMaintenance')
+            ->label('Cancel maintenance')
+            ->icon(Heroicon::OutlinedNoSymbol)
+            ->color('danger')
+            ->visible(fn (Outage $record) => Auth::user()?->can('cancelMaintenance', $record))
+            ->schema([Textarea::make('reason')->label('Reason')->required()->maxLength(2000)])
+            ->action(fn (Outage $record, array $data) => self::run($record, fn () => app(OutageWorkflow::class)->cancelMaintenance($record, Auth::user(), $data['reason']), 'Maintenance cancelled'));
+    }
+
+    public static function notifyCustomers(): Action
+    {
+        return Action::make('notifyCustomers')
+            ->label('Customers notified — close')
+            ->icon(Heroicon::OutlinedMegaphone)
+            ->color('success')
+            ->visible(fn (Outage $record) => Auth::user()?->can('notifyCustomers', $record))
+            ->modalDescription(fn (Outage $record) => 'Outcome: '.(ChangeRequest::FINAL_STATUSES[$record->changeRequest?->final_status] ?? '—')
+                .($record->changeRequest?->outcome_details ? ' — '.$record->changeRequest->outcome_details : ''))
+            ->schema([
+                CheckboxList::make('channels')->label('How were customers told?')->required()->columns(2)
+                    ->options(['SMS' => 'SMS', 'E-mail' => 'E-mail', 'Phone call' => 'Phone call', 'WhatsApp' => 'WhatsApp', 'Social media' => 'Social media']),
+                Textarea::make('note')->label('Message / note')->required()->rows(3)->maxLength(2000)
+                    ->default('Dear customer, the planned maintenance in your area was completed successfully and all services are restored. Thank you for your patience.'),
+            ])
+            ->action(fn (Outage $record, array $data) => self::run($record, fn () => app(OutageWorkflow::class)->notifyCustomersMaintenanceDone($record, Auth::user(), $data), 'Maintenance completed — ticket closed'));
+    }
+
+    public static function isMaintenance(Outage $record): bool
+    {
+        return $record->changeRequest !== null;
     }
 
     // ------------------------------------------------------------------ NOC reject → CX Tier II follow-up
@@ -303,7 +483,7 @@ final class OutageActions
     public static function reportRestored(): Action
     {
         return Action::make('reportRestored')
-            ->label('Report restored')
+            ->label(fn (Outage $record) => self::isMaintenance($record) ? 'Report work completed' : 'Report restored')
             ->icon(Heroicon::OutlinedWrenchScrewdriver)
             ->color('success')
             ->visible(fn (Outage $record) => Auth::user()?->can('reportRestored', $record))
@@ -322,18 +502,30 @@ final class OutageActions
     public static function confirmRestoration(): Action
     {
         return Action::make('confirmRestoration')
-            ->label('NOC Restore Confirmed')
+            ->label(fn (Outage $record) => self::isMaintenance($record) ? 'All customers up — send to CX' : 'NOC Restore Confirmed')
             ->icon(Heroicon::OutlinedShieldCheck)
             ->color('success')
             ->visible(fn (Outage $record) => Auth::user()?->can('confirmRestoration', $record))
-            ->schema([Textarea::make('note')->label('Verification note (optional)')->maxLength(2000)])
-            ->action(fn (Outage $record, array $data) => self::run($record, fn () => app(OutageWorkflow::class)->confirmRestoration($record, Auth::user(), $data['note'] ?? null), 'Restoration confirmed'));
+            ->modalDescription(fn (Outage $record) => self::isMaintenance($record)
+                ? 'Confirm every affected customer is back online. CX then notifies customers that the maintenance was completed.'
+                : null)
+            ->schema(fn (Outage $record) => self::isMaintenance($record)
+                ? [
+                    // CRF section 5 — post-maintenance outcome.
+                    Radio::make('final_status')->label('Final status')->options(ChangeRequest::FINAL_STATUSES)->required()->default('successful'),
+                    Textarea::make('outcome_details')->label('Success / activity details')->rows(3)->maxLength(5000)
+                        ->placeholder('Post-execution results, metrics or follow-up action items (e.g. ONUs powered off to be tracked)…'),
+                ]
+                : [Textarea::make('note')->label('Verification note (optional)')->maxLength(2000)])
+            ->action(fn (Outage $record, array $data) => self::run($record, fn () => app(OutageWorkflow::class)->confirmRestoration(
+                $record, Auth::user(), $data['note'] ?? ($data['outcome_details'] ?? null), Arr::only($data, ['final_status', 'outcome_details']),
+            ), self::isMaintenance($record) ? 'Verified — sent to CX to notify customers' : 'Restoration confirmed'));
     }
 
     public static function rejectRestoration(): Action
     {
         return Action::make('rejectRestoration')
-            ->label('Restoration not confirmed')
+            ->label(fn (Outage $record) => self::isMaintenance($record) ? 'Customers not all up — back to Infrastructure' : 'Restoration not confirmed')
             ->icon(Heroicon::OutlinedArrowUturnLeft)
             ->color('gray')
             ->visible(fn (Outage $record) => Auth::user()?->can('confirmRestoration', $record))

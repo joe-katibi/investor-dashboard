@@ -10,6 +10,7 @@ use App\Filament\Resources\Outages\Pages\ViewOutage;
 use App\Filament\Resources\Outages\RelationManagers\AssignmentHistoriesRelationManager;
 use App\Filament\Resources\Outages\RelationManagers\AssignmentsRelationManager;
 use App\Filament\Resources\Outages\RelationManagers\AuditLogsRelationManager;
+use App\Filament\Resources\Outages\RelationManagers\CrfSignaturesRelationManager;
 use App\Filament\Resources\Outages\RelationManagers\FlagEventsRelationManager;
 use App\Filament\Resources\Outages\RelationManagers\FollowUpsRelationManager;
 use App\Filament\Resources\Outages\RelationManagers\NotificationLogsRelationManager;
@@ -17,6 +18,7 @@ use App\Filament\Resources\Outages\RelationManagers\SlaEventsRelationManager;
 use App\Filament\Resources\Outages\RelationManagers\StatusHistoriesRelationManager;
 use App\Filament\Resources\Outages\RelationManagers\SupportRequestsRelationManager;
 use App\Filament\Resources\Outages\RelationManagers\UpdatesRelationManager;
+use App\Models\ChangeRequest;
 use App\Models\Outage;
 use BackedEnum;
 use Filament\Actions\ActionGroup;
@@ -78,7 +80,7 @@ class OutageResource extends Resource
         return $table
             ->modifyQueryUsing(fn (Builder $query) => $query->with([
                 'majorOutageType:id,name,code', 'outageType:id,name', 'vertical:id,name', 'priority:id,name,color',
-                'status:id,name,color', 'currentAssignee:id,name', 'olts:id,name', 'activeAssignments', 'openSupportRequest',
+                'status:id,name,color', 'currentAssignee:id,name', 'olts:id,name', 'activeAssignments', 'openSupportRequest', 'changeRequest',
             ]))
             ->defaultSort('start_time', 'desc')
             ->poll('60s')
@@ -193,6 +195,30 @@ class OutageResource extends Resource
                         TextEntry::make('openSupportRequest.requester.name')->label('Requested by')
                             ->helperText(fn (Outage $record) => $record->openSupportRequest?->created_at?->format('d M H:i')),
                     ])->columns(2)->visible(fn (Outage $record) => $record->openSupportRequest !== null),
+                    Section::make('Planned maintenance (CRF)')->icon(Heroicon::OutlinedCalendarDays)->schema([
+                        TextEntry::make('changeRequest.scheduled_start')->label('Window')->columnSpanFull()
+                            ->state(fn (Outage $record) => $record->changeRequest?->scheduled_start->format('d M Y H:i').' – '
+                                .$record->changeRequest?->scheduled_end->format($record->changeRequest->scheduled_end->isSameDay($record->changeRequest->scheduled_start) ? 'H:i' : 'd M Y H:i'))
+                            ->helperText(fn (Outage $record) => ($record->changeRequest?->scheduled_start->isFuture() ? 'Starts '.$record->changeRequest->scheduled_start->diffForHumans() : null)
+                                .($record->changeRequest?->reschedule_count ? ' · rescheduled '.$record->changeRequest->reschedule_count.'×' : '')),
+                        TextEntry::make('changeRequest.status')->label('CRF')->badge()
+                            ->formatStateUsing(fn (Outage $record) => $record->changeRequest?->statusLabel())
+                            ->color(fn (string $state) => match ($state) {
+                                ChangeRequest::APPROVED => 'success',
+                                ChangeRequest::PENDING_SIGNOFF => 'warning',
+                                ChangeRequest::CHANGES_REQUESTED, ChangeRequest::CANCELLED => 'danger',
+                                default => 'gray',
+                            }),
+                        TextEntry::make('signoff')->label('Signed')
+                            ->state(fn (Outage $record) => $record->changeRequest?->signatures->isNotEmpty()
+                                ? $record->changeRequest->signedCount().' of '.$record->changeRequest->signatures->count()
+                                : null)->placeholder('—'),
+                        TextEntry::make('changeRequest.risk_tier')->label('Risk')->formatStateUsing(fn (Outage $record) => $record->changeRequest?->riskLabel()),
+                        TextEntry::make('changeRequest.in_charge')->label('Lead')->placeholder('—'),
+                        TextEntry::make('changeRequest.final_status')->label('Final status')->placeholder('—')
+                            ->formatStateUsing(fn (?string $state) => ChangeRequest::FINAL_STATUSES[$state] ?? $state),
+                        TextEntry::make('changeRequest.customers_notified_at')->label('Customers notified')->dateTime('d M H:i')->placeholder('—'),
+                    ])->columns(2)->visible(fn (Outage $record) => $record->changeRequest !== null),
                     Section::make('Customer communication')->schema([
                         IconEntry::make('sms_sent')->label('SMS sent')->boolean(),
                         TextEntry::make('smsUpdatedBy.name')->label('by')->placeholder('—')
@@ -238,6 +264,7 @@ class OutageResource extends Resource
     {
         return [
             UpdatesRelationManager::class,
+            CrfSignaturesRelationManager::class,
             FollowUpsRelationManager::class,
             SupportRequestsRelationManager::class,
             StatusHistoriesRelationManager::class,

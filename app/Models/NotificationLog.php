@@ -8,13 +8,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
     'notification_rule_id', 'outage_id', 'email_template_id', 'event', 'channel', 'recipient_user_id',
-    'recipient', 'subject', 'body', 'status', 'attempts', 'failure_reason', 'trigger', 'sent_at',
+    'recipient', 'subject', 'body', 'meta', 'status', 'attempts', 'failure_reason', 'trigger', 'sent_at',
 ])]
 class NotificationLog extends Model
 {
     protected function casts(): array
     {
-        return ['sent_at' => 'datetime', 'attempts' => 'integer'];
+        return ['sent_at' => 'datetime', 'attempts' => 'integer', 'meta' => 'array'];
     }
 
     public function rule(): BelongsTo

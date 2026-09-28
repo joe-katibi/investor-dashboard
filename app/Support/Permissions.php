@@ -28,6 +28,13 @@ final class Permissions
             'outage.support_work' => 'Complete support technician work',
             'outage.it_review' => 'IT review: resolve, escalate to NOC and confirm system outages',
         ],
+        'Planned Maintenance' => [
+            'maintenance.request' => 'Request planned maintenance (raise a CRF)',
+            'maintenance.manage' => 'Complete the CRF, send for sign-off, resend, cancel',
+            'maintenance.reschedule' => 'Reschedule planned maintenance',
+            'maintenance.notify_customers' => 'Confirm customers were notified (close planned maintenance)',
+            'maintenance.configure' => 'Configure maintenance templates, reminders and signatories',
+        ],
         'FIFO Queues' => [
             'queue.view' => 'View FIFO queues',
             'queue.work_noc' => 'Receive NOC queue tickets',

@@ -47,6 +47,16 @@ class NotificationMessageFactory
             NotificationEvent::SupportCompleted => "Support technician work completed: {$ticket}",
             NotificationEvent::ItEscalation => "Assigned to IT for review: {$ticket}",
             NotificationEvent::ReturnedToIt => "NOC resolved — returned to IT to confirm: {$ticket}",
+            NotificationEvent::MaintenanceRequested => "Planned maintenance requested: {$ticket}",
+            NotificationEvent::CrfSignoffRequested => "CRF sent for sign-off: {$ticket}",
+            NotificationEvent::CrfSigned => "CRF signed ({$this->signProgress($context)}): {$ticket}",
+            NotificationEvent::CrfChangesRequested => "CRF changes requested: {$ticket}",
+            NotificationEvent::CrfApproved => "CRF fully signed — maintenance approved: {$ticket}",
+            NotificationEvent::MaintenanceReminder => 'Planned maintenance '.($context['time_left'] ?? 'soon').": {$ticket}",
+            NotificationEvent::MaintenanceStarted => "Planned maintenance has started: {$ticket}",
+            NotificationEvent::MaintenanceRescheduled => "Planned maintenance rescheduled: {$ticket}",
+            NotificationEvent::MaintenanceCompleted => "Planned maintenance completed: {$ticket}",
+            NotificationEvent::MaintenanceCancelled => "Planned maintenance cancelled: {$ticket}",
         };
 
         $owner = $outage->currentAssignee?->name
@@ -77,10 +87,19 @@ class NotificationMessageFactory
             isset($context['reason']) && $context['reason'] ? str($context['reason'])->squish()->limit(80)->toString() : null,
         ])->filter()->implode('. ');
 
+        if (isset($context['window'])) {
+            array_splice($lines, 1, 0, ['Maintenance window: '.$context['window']]);
+        }
+
         return [
             'title' => $title,
             'body' => implode("\n", $lines),
             'sms' => mb_strimwidth($sms, 0, max(70, (int) config('oms.sms.max_length', 306)), '…'),
         ];
+    }
+
+    private function signProgress(array $context): string
+    {
+        return ($context['signed'] ?? '?').' of '.($context['total'] ?? '?');
     }
 }

@@ -21,7 +21,8 @@ class SlaPolicySeeder extends Seeder
             ['Medium – 12h', 'medium', 720, 120, 20, null],
             ['Low – 24h', 'low', 1440, 180, 30, null],
         ] as [$name, $code, $resolution, $preBreach, $ack, $escalation]) {
-            SlaPolicy::query()->updateOrCreate(['name' => $name], [
+            // firstOrCreate: policies are edited under SLA Policies and must survive re-seeding on deploy.
+            SlaPolicy::query()->firstOrCreate(['name' => $name], [
                 'priority_id' => $priority[$code] ?? null,
                 'resolution_minutes' => $resolution,
                 'pre_breach_minutes' => $preBreach,
@@ -36,9 +37,11 @@ class SlaPolicySeeder extends Seeder
             ]);
         }
 
-        SlaPolicy::query()->updateOrCreate(['name' => 'Planned Maintenance – window'], [
+        // Planned maintenance: 6 hours from the scheduled start until CX has told customers it is done.
+        // Change it under Configuration → SLA Policies; re-seeding never overwrites an edited policy.
+        $planned = SlaPolicy::query()->firstOrCreate(['name' => 'Planned Maintenance – window'], [
             'outage_type_id' => OutageType::query()->where('code', 'planned')->value('id'),
-            'resolution_minutes' => 480,
+            'resolution_minutes' => 360,
             'pre_breach_minutes' => 60,
             'ack_timeout_minutes' => 60,
             'notify_credit' => false,
@@ -46,5 +49,10 @@ class SlaPolicySeeder extends Seeder
             'allow_pause' => true,
             'is_active' => true,
         ]);
+
+        // Existing installations still on the old untouched 8-hour default move to 6 hours.
+        if ((int) $planned->resolution_minutes === 480 && $planned->updated_by === null) {
+            $planned->forceFill(['resolution_minutes' => 360])->save();
+        }
     }
 }

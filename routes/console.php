@@ -17,6 +17,7 @@ Schedule::command('oms:sla-check')->everyMinute()->onOneServer()->withoutOverlap
 Schedule::command('oms:fifo-timeouts')->everyMinute()->onOneServer()->withoutOverlapping(5);
 Schedule::command('oms:fifo-sweep')->everyMinute()->onOneServer()->withoutOverlapping(5);
 Schedule::command('oms:send-scheduled-reports')->everyMinute()->onOneServer()->withoutOverlapping(10);
+Schedule::command('oms:maintenance-tick')->everyMinute()->onOneServer()->withoutOverlapping(5);
 
 // The database cache driver never deletes expired rows on its own (Redis does); keep the table small.
 Schedule::call(function (): void {

@@ -32,6 +32,10 @@ class OutageStatusSeeder extends Seeder
             [StatusCode::ItReview, 'IT Review', 'gray', false, false, false, false, false, 16],
             [StatusCode::EscalatedToNoc, 'Escalated to NOC by IT', 'info', false, false, false, false, false, 17],
             [StatusCode::AwaitingItConfirmation, 'NOC Resolved – Awaiting IT Confirmation', 'success', false, false, false, false, false, 18],
+            [StatusCode::MaintenanceRequested, 'Maintenance Requested – NOC Review', 'gray', false, false, false, false, false, 19],
+            [StatusCode::CrfPendingSignoff, 'CRF – Awaiting Sign-off', 'warning', false, false, false, false, false, 20],
+            [StatusCode::CxCustomerNotification, 'Maintenance Done – CX Notifying Customers', 'success', false, false, false, false, false, 21],
+            [StatusCode::MaintenanceCancelled, 'Maintenance Cancelled', 'gray', true, true, false, false, false, 22],
         ] as [$code, $name, $color, $prompt, $closed, $resolved, $pauses, $manual, $sort]) {
             OutageStatus::query()->updateOrCreate(['code' => $code->value], [
                 'name' => $name, 'color' => $color, 'prompt_final_reason' => $prompt, 'is_closed' => $closed,

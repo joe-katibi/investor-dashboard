@@ -147,7 +147,6 @@ class DemoDataSeeder extends Seeder
             ['Area 47 customer reports no service', 'regular', $ftth, 1, 'Area 47', [$olts['Area 47']->id], [], 'reject'],
             ['CRM login failures across branches', 'system', $ftth, 0, 'Head office', [], [], 'it_escalate'],
             ['Area 47 splitter degradation', 'regular', $ftth, 35, 'Area 47', [$olts['Area 47']->id], [], 'confirm'],
-            ['Njewa scheduled OLT firmware upgrade', 'planned', $ftth, 60, 'Njewa', [$olts['Njewa']->id], [], 'none'],
             ['Lilongwe CBD 4G cluster down', 'regular', $mobility, 420, 'Lilongwe CBD', [], [], 'confirm', ['sites_down' => 1, 'cells_down' => 9, 'power_faults' => 1]],
             ['SEACOM international transit degradation', 'core', $ftth, 1500, 'Core network', [], [], 'confirm'],
             ['Dialer platform unavailable', 'system', $ftth, 0, 'Contact centre', [], [], 'none'],
@@ -219,6 +218,35 @@ class DemoDataSeeder extends Seeder
                 $this->as($cxAgent, fn () => $workflow->setFlag($outage, 'sms_sent', true, $cxAgent));
             }
         }
+
+        // Planned maintenance: requested by Infrastructure, CRF issued by NOC and waiting for signatures.
+        $maintenance = $this->as($infraLead, fn () => $workflow->requestMaintenance([
+            'title' => 'Njewa OLT firmware upgrade',
+            'vertical_id' => $ftth,
+            'location' => 'Njewa',
+            'olt_ids' => [$olts['Njewa']->id],
+            'customers_affected' => 60,
+            'scheduled_start' => now()->addDay()->startOfDay(),
+            'scheduled_end' => now()->addDay()->startOfDay()->addHours(4),
+            'in_charge' => 'Ivy Infra Lead',
+            'emergency_contact' => '+265991000000',
+            'risk_tier' => 'high',
+            'work_description' => 'Upgrade Njewa OLT firmware and re-provision affected ONUs.',
+            'fallback_plan' => 'Roll back to the previous firmware image.',
+            'prior_tests' => 'Upgrade tested on the lab OLT.',
+            'risks_mitigation' => 'ONUs failing to register — technician on site to re-provision.',
+        ], $infraLead));
+        $this->as($nocLead, fn () => $workflow->sendCrfForSignoff($maintenance, $nocLead, [
+            'customers_affected' => 64,
+            'risk_tier' => 'high',
+            'checklist' => ['customers_identified' => true, 'pre_alerts_broadcast' => true],
+            'signatories' => [
+                ['role' => 'NOC', 'user_id' => $nocManager->id],
+                ['role' => 'CE Manager', 'user_id' => $cxLead->id],
+                ['role' => 'Department Head', 'user_id' => $infraManager->id],
+                ['role' => 'Chief Technology Officer (CTO)', 'email' => 'cto@oms.test'],
+            ],
+        ]));
 
         Auth::logout();
     }

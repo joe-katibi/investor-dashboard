@@ -6,6 +6,7 @@ use App\Enums\AssignmentStatus;
 use App\Enums\QueueType;
 use App\Enums\SlaState;
 use App\Models\AuditLog;
+use App\Models\ChangeRequest;
 use App\Models\MajorOutageType;
 use App\Models\Outage;
 use App\Models\OutageAssignment;
@@ -61,7 +62,7 @@ class ReportRegistry
             'mobility_4g' => $this->mobility($filters),
             'system_outage' => $this->outageList(self::REPORTS[$key], $filters + ['_major' => MajorOutageType::SYSTEM], $this->registerColumns()),
             'recurring' => $this->recurring($filters),
-            'planned_maintenance' => $this->outageList(self::REPORTS[$key], $filters + ['_planned' => true], $this->registerColumns()),
+            'planned_maintenance' => $this->plannedMaintenance($filters),
             'assignment_history' => $this->assignmentHistory($filters),
             'audit_trail' => $this->auditTrail($filters),
             default => throw new InvalidArgumentException("Unknown report [{$key}]."),
@@ -232,6 +233,52 @@ class ReportRegistry
             'sms_at' => $o->sms_updated_at?->format('Y-m-d H:i'),
             'credit_by' => $o->creditUpdatedBy?->name,
             'credit_at' => $o->credit_updated_at?->format('Y-m-d H:i'),
+        ]);
+    }
+
+    /** Planned maintenance with its CRF: window, reschedules, sign-off, outcome, customer notification and SLA. */
+    private function plannedMaintenance(array $filters): ReportResult
+    {
+        $scope = fn (Builder $q) => $q->whereHas('outageType', fn (Builder $t) => $t->where('is_planned', true))
+            ->with(['changeRequest.signatures', 'changeRequest.customersNotifiedBy:id,name']);
+        $base = $scope($this->scoped($filters));
+
+        return $this->simpleOutageReport(self::REPORTS['planned_maintenance'], $filters, $scope, [
+            'ticket' => 'Ticket', 'title' => 'Title', 'scheduled_start' => 'Scheduled Start', 'scheduled_end' => 'Scheduled End',
+            'downtime' => 'Expected Downtime', 'reschedules' => 'Reschedules', 'risk' => 'Risk', 'in_charge' => 'In-Charge / Lead',
+            'topology' => 'OLT/FDT/Slot/Port', 'customers' => 'Affected Clients', 'crf_status' => 'CRF Status',
+            'signed' => 'Signed', 'signatories' => 'Signatories', 'approved_at' => 'CRF Approved', 'team' => 'Team',
+            'technician' => 'Technician', 'completed_at' => 'Work Completed', 'final_status' => 'Final Status',
+            'outcome' => 'Outcome Details', 'customers_notified' => 'Customers Notified', 'notified_by' => 'Notified By',
+            'sla' => 'SLA', 'status' => 'Status',
+        ], function (Outage $o): array {
+            $cr = $o->changeRequest;
+
+            return [
+                'scheduled_start' => $cr?->scheduled_start?->format('Y-m-d H:i'),
+                'scheduled_end' => $cr?->scheduled_end?->format('Y-m-d H:i'),
+                'downtime' => $cr?->expectedDowntime(),
+                'reschedules' => $cr?->reschedule_count,
+                'risk' => $cr?->riskLabel(),
+                'in_charge' => $cr?->in_charge,
+                'crf_status' => $cr?->statusLabel(),
+                'signed' => $cr ? $cr->signedCount().' / '.$cr->signatures->count() : null,
+                'signatories' => $cr?->signatures->map(fn ($s) => $s->role_label.': '.($s->signed_name ?: $s->displayName()).' ('.$s->statusLabel().')')->implode('; '),
+                'approved_at' => $cr?->approved_at?->format('Y-m-d H:i'),
+                'team' => collect([$o->team?->name, $o->subTeam?->name])->filter()->implode(' / '),
+                'technician' => $o->technician?->name,
+                'completed_at' => $o->restored_at?->format('Y-m-d H:i'),
+                'final_status' => ChangeRequest::FINAL_STATUSES[$cr?->final_status] ?? null,
+                'outcome' => $cr?->outcome_details,
+                'customers_notified' => $cr?->customers_notified_at?->format('Y-m-d H:i'),
+                'notified_by' => $cr?->customersNotifiedBy?->name,
+                'sla' => $o->sla_state?->getLabel(),
+            ];
+        }, summary: [
+            'Planned maintenance' => (clone $base)->count(),
+            'Awaiting sign-off' => (clone $base)->whereHas('changeRequest', fn (Builder $c) => $c->where('status', ChangeRequest::PENDING_SIGNOFF))->count(),
+            'Completed' => (clone $base)->whereHas('changeRequest', fn (Builder $c) => $c->whereNotNull('customers_notified_at'))->count(),
+            'Rescheduled' => (clone $base)->whereHas('changeRequest', fn (Builder $c) => $c->where('reschedule_count', '>', 0))->count(),
         ]);
     }
 

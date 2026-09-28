@@ -11,6 +11,7 @@ use App\Models\OutageFlagEvent;
 use App\Models\OutageStatus;
 use App\Models\OutageType;
 use App\Models\Priority;
+use App\Models\Vertical;
 use App\Services\Outages\OutageWorkflow;
 use App\Services\Sla\SlaService;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -38,7 +39,12 @@ class OutageWorkflowTest extends TestCase
         $a = $this->reportOutage($agent);
         $b = $this->reportOutage($agent);
         $c = $this->reportOutage($agent, ['outage_type_id' => OutageType::query()->where('code', 'emergency')->value('id')]);
-        $d = $this->reportOutage($agent, ['outage_type_id' => OutageType::query()->where('code', 'planned')->value('id')]);
+        // Planned maintenance is raised by Infrastructure through its own request flow.
+        $infra = $this->makeUser('Infrastructure Team Leader', 'INFRA', attributes: ['availability_status' => 'offline']);
+        $d = app(OutageWorkflow::class)->requestMaintenance([
+            'title' => 'OLT upgrade', 'vertical_id' => Vertical::query()->where('code', Vertical::FTTH)->value('id'),
+            'scheduled_start' => now()->addDay(), 'scheduled_end' => now()->addDay()->addHours(4), 'work_description' => 'Firmware upgrade',
+        ], $infra);
 
         $this->assertSame('OUT-00000000001', $a->ticket_number);
         $this->assertSame('OUT-00000000002', $b->ticket_number);

@@ -3,6 +3,7 @@
 namespace App\Policies;
 
 use App\Enums\StatusCode;
+use App\Models\ChangeRequest;
 use App\Models\MajorOutageType;
 use App\Models\Outage;
 use App\Models\OutageStatus;
@@ -59,7 +60,9 @@ class OutagePolicy
             && ! $outage->is_closed
             && $outage->noc_confirmed_at !== null
             && MajorOutageType::flags($outage->major_outage_type_id)['requires_infrastructure']
-            && ! $this->statusIs($outage, StatusCode::RestoreReported, StatusCode::NocRestoreConfirmed);
+            // Planned maintenance is only dispatched once the CRF is fully signed.
+            && ! $this->statusIs($outage, StatusCode::RestoreReported, StatusCode::NocRestoreConfirmed, StatusCode::MaintenanceRequested,
+                StatusCode::CrfPendingSignoff, StatusCode::CxCustomerNotification);
     }
 
     public function addUpdate(User $user, Outage $outage): bool
@@ -76,7 +79,8 @@ class OutagePolicy
         return $user->can('outage.update_restoration')
             && ! $outage->is_closed
             && $ready
-            && ! $this->statusIs($outage, StatusCode::RestoreReported, StatusCode::NocRestoreConfirmed, StatusCode::SupportUnconfirmed);
+            && ! $this->statusIs($outage, StatusCode::RestoreReported, StatusCode::NocRestoreConfirmed, StatusCode::SupportUnconfirmed,
+                StatusCode::MaintenanceRequested, StatusCode::CrfPendingSignoff, StatusCode::CxCustomerNotification);
     }
 
     public function confirmRestoration(User $user, Outage $outage): bool
@@ -126,7 +130,7 @@ class OutagePolicy
         return $user->can('outage.request_support')
             && ! $outage->is_closed
             && $outage->dispatched_at !== null
-            && ! $this->statusIs($outage, StatusCode::RestoreReported, StatusCode::NocRestoreConfirmed)
+            && ! $this->statusIs($outage, StatusCode::RestoreReported, StatusCode::NocRestoreConfirmed, StatusCode::CxCustomerNotification)
             && ! $this->hasOpenSupportRequest($outage);
     }
 
@@ -168,6 +172,67 @@ class OutagePolicy
         return $user->can('outage.confirm')
             && ! $outage->is_closed
             && $this->statusIs($outage, StatusCode::EscalatedToNoc);
+    }
+
+    // ------------------------------------------------------------------ planned maintenance
+
+    public function requestMaintenance(User $user): bool
+    {
+        return $user->can('maintenance.request');
+    }
+
+    /** NOC completes the CRF and sends it for sign-off (also re-issues after "changes requested"). */
+    public function prepareCrf(User $user, Outage $outage): bool
+    {
+        return $user->can('maintenance.manage')
+            && ! $outage->is_closed
+            && $this->statusIs($outage, StatusCode::MaintenanceRequested);
+    }
+
+    public function resendSignoff(User $user, Outage $outage): bool
+    {
+        return $user->can('maintenance.manage')
+            && ! $outage->is_closed
+            && $this->statusIs($outage, StatusCode::CrfPendingSignoff);
+    }
+
+    /** Until the field work is reported done, the window can move (on the day or before). */
+    public function rescheduleMaintenance(User $user, Outage $outage): bool
+    {
+        return ($user->can('maintenance.reschedule') || $user->can('maintenance.manage'))
+            && ! $outage->is_closed
+            && $outage->restored_at === null
+            && $this->isMaintenance($outage);
+    }
+
+    public function cancelMaintenance(User $user, Outage $outage): bool
+    {
+        return $user->can('maintenance.manage')
+            && ! $outage->is_closed
+            && $outage->restored_at === null
+            && $this->isMaintenance($outage);
+    }
+
+    /** CX confirms customers were told the maintenance is complete (closes the ticket). */
+    public function notifyCustomers(User $user, Outage $outage): bool
+    {
+        return $user->can('maintenance.notify_customers')
+            && ! $outage->is_closed
+            && $this->statusIs($outage, StatusCode::CxCustomerNotification);
+    }
+
+    public function viewCrf(User $user, Outage $outage): bool
+    {
+        return $user->can('outage.view') && $this->isMaintenance($outage);
+    }
+
+    private function isMaintenance(Outage $outage): bool
+    {
+        if ($outage->relationLoaded('changeRequest')) {
+            return $outage->changeRequest !== null;
+        }
+
+        return ChangeRequest::query()->where('outage_id', $outage->id)->exists();
     }
 
     private function hasOpenSupportRequest(Outage $outage): bool

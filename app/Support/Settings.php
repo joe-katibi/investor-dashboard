@@ -58,6 +58,23 @@ class Settings
             'returned_to_it', 'update_posted', 'restore_reported', 'restore_confirmed', 'resolved', 'sla_breach',
         ],
         'alerts.sms_assignee' => true,     // SMS the person a ticket is assigned to (if they have a phone)
+
+        // Planned maintenance (Configuration → Maintenance Settings)
+        'maintenance.reminder_offsets' => [1440, 720, 360, 180, 60, 30, 15, 5], // minutes before the start
+        'maintenance.stakeholder_emails' => [],
+        'maintenance.stakeholder_roles' => [
+            'NOC Manager', 'NOC Team Leader', 'Infrastructure Manager', 'Infrastructure Team Leader',
+            'Infrastructure Dispatcher', 'CX Manager', 'CX Team Leader',
+        ],
+        // Default CRF signatories (NOC can change them per CRF): role label + a user or an e-mail.
+        'maintenance.default_signatories' => [
+            ['role' => 'NOC', 'user_id' => null, 'email' => null],
+            ['role' => 'CE Manager', 'user_id' => null, 'email' => null],
+            ['role' => 'Department Head', 'user_id' => null, 'email' => null],
+            ['role' => 'Chief Technology Officer (CTO)', 'user_id' => null, 'email' => null],
+        ],
+        'maintenance.reapprove_on_reschedule' => false, // re-collect signatures when the window moves
+        'maintenance.sign_link_days' => 14,
     ];
 
     /** @var array<string, mixed>|null */

@@ -30,4 +30,10 @@ enum StatusCode: string
     case ItReview = 'it_review';
     case EscalatedToNoc = 'escalated_to_noc';
     case AwaitingItConfirmation = 'awaiting_it_confirmation';
+
+    // Planned maintenance: Infrastructure request → NOC CRF → sign-off → normal field work → CX tells customers.
+    case MaintenanceRequested = 'maintenance_requested';
+    case CrfPendingSignoff = 'crf_pending_signoff';
+    case CxCustomerNotification = 'cx_customer_notification';
+    case MaintenanceCancelled = 'maintenance_cancelled';
 }
