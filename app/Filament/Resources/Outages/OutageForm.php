@@ -68,7 +68,7 @@ final class OutageForm
                 ->description('OLT → FDT → Slot → Port. Each level only lists children of what you selected above it. Pick "ALL" to select every item at that level.')
                 ->visible(fn (Get $get) => self::usesTopology($get('major_outage_type_id')))
                 ->schema([
-                    self::topologySelect('olt_ids', 'OLT(s)', 'ALL OLTs', fn (Get $get) => self::oltOptions($get('olt_ids') ?? []))
+                    self::topologySelect('olt_ids', 'OLT(s)', 'ALL OLTs', fn (Get $get) => self::oltOptions(self::ids($get('olt_ids'))))
                         ->afterStateUpdated(fn (Get $get, Set $set) => self::pruneChildren($get, $set, 'olt')),
                     self::topologySelect('fdt_ids', 'FDT(s)', 'ALL FDTs of the selected OLT(s)', fn (Get $get) => self::fdtOptions(self::ids($get('olt_ids')), self::ids($get('fdt_ids'))))
                         ->disabled(fn (Get $get) => self::ids($get('olt_ids')) === [])
@@ -185,14 +185,21 @@ final class OutageForm
         return array_values(array_map('intval', array_filter((array) $state, fn ($id) => is_int($id) || ctype_digit((string) $id))));
     }
 
+    // The option helpers clean their own inputs: form state can hold the "ALL" sentinel, and
+    // PostgreSQL rejects non-numeric values in an id comparison (MySQL / SQLite silently cast them).
+
     public static function oltOptions(array $selected = []): array
     {
+        $selected = self::ids($selected);
+
         return Olt::query()->where(fn ($q) => $q->where('is_active', true)->orWhereIn('id', $selected ?: [0]))
             ->orderBy('name')->pluck('name', 'id')->all();
     }
 
     public static function fdtOptions(array $oltIds, array $selected = []): array
     {
+        [$oltIds, $selected] = [self::ids($oltIds), self::ids($selected)];
+
         if ($oltIds === []) {
             return [];
         }
@@ -205,6 +212,8 @@ final class OutageForm
 
     public static function slotOptions(array $fdtIds, array $selected = []): array
     {
+        [$fdtIds, $selected] = [self::ids($fdtIds), self::ids($selected)];
+
         if ($fdtIds === []) {
             return [];
         }
@@ -217,6 +226,8 @@ final class OutageForm
 
     public static function portOptions(array $slotIds, array $selected = []): array
     {
+        [$slotIds, $selected] = [self::ids($slotIds), self::ids($selected)];
+
         if ($slotIds === []) {
             return [];
         }

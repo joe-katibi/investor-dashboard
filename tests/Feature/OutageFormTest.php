@@ -17,8 +17,10 @@ use App\Models\Slot;
 use App\Models\Vertical;
 use App\Services\Outages\OutageWorkflow;
 use Filament\Actions\Testing\TestAction;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Livewire\Livewire;
 use Tests\Concerns\BuildsOmsFixtures;
@@ -62,6 +64,14 @@ class OutageFormTest extends TestCase
 
         $activeOlts = Olt::query()->where('is_active', true)->pluck('id')->all();
 
+        // PostgreSQL rejects "all" in an id comparison (SQLite / MySQL cast it), so check the bindings directly.
+        $leaked = [];
+        DB::listen(function (QueryExecuted $query) use (&$leaked): void {
+            if (in_array(OutageForm::ALL, $query->bindings, true)) {
+                $leaked[] = $query->sql;
+            }
+        });
+
         Livewire::test(CreateOutage::class)
             ->fillForm([
                 'title' => 'Area-wide fibre outage',
@@ -83,6 +93,8 @@ class OutageFormTest extends TestCase
             ->assertSchemaStateSet(['port_ids' => Port::query()->pluck('id')->all()])
             ->call('create')
             ->assertHasNoFormErrors();
+
+        $this->assertSame([], $leaked, 'the ALL sentinel must never reach a query');
 
         $outage = Outage::query()->latest('id')->firstOrFail();
         $this->assertEqualsCanonicalizing($activeOlts, $outage->olts()->pluck('olts.id')->all(), 'inactive OLTs are not included');
