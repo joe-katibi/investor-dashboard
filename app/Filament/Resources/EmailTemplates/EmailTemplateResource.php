@@ -81,6 +81,8 @@ class EmailTemplateResource extends Resource
                 TextInput::make('subject')->required()->maxLength(255)->columnSpanFull(),
                 Textarea::make('body')->label('Body template')->required()->rows(18)->columnSpanFull()
                     ->helperText(new HtmlString(
+                        '<strong>Bold:</strong> wrap text in double asterisks on one line, e.g. <code>**LIVE NETWORK OUTAGES**</code> or '.
+                        '<code>**{{ticket}} | {{location}}**</code> inside a loop. Use <em>Preview</em> to check the result.<br>'.
                         'Placeholders: <code>{{ key }}</code>. Loops: <code>{{#for each active network outage}} … {{/for}}</code> '.
                         '(also major incident, core outage, system outage, 4G outage, closed outage) with item keys '.
                         '<code>ticket, title, location, olt_fdt, start_time, customers, noc_time, maintenance_time, sms_status, credit_status, sla_status, status, owner, latest_action, final_reason</code>.<br>'.

@@ -17,6 +17,7 @@ use App\Services\Reports\ReportExporter;
 use App\Services\Reports\ReportRegistry;
 use App\Services\Reports\ScheduledReportService;
 use App\Services\Reports\TemplateRenderer;
+use Database\Seeders\EmailTemplateSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
@@ -69,6 +70,45 @@ class ReportsAndPanelTest extends TestCase
         $this->assertStringContainsString('OUT-2 B', $html);
         $this->assertStringContainsString('<table><tr><td>ok</td></tr></table>', $html);
         $this->assertStringNotContainsString('<script>', $html);
+    }
+
+    public function test_double_asterisks_make_text_bold_safely(): void
+    {
+        $renderer = app(TemplateRenderer::class);
+
+        $html = $renderer->render(
+            "**LIVE NETWORK OUTAGES**\n{{#for each active network outage}}\n**{{ticket}} | {{title}}**\nStatus: {{status}}\n{{/for}}**unclosed\nplain ** spaced **",
+            ['network_outages' => [
+                ['ticket' => 'OUT-1', 'title' => '<b>x</b> **not bold**', 'status' => "\x02sneaky\x03"],
+            ]],
+        );
+
+        $this->assertStringContainsString('<strong>LIVE NETWORK OUTAGES</strong>', $html);
+        $this->assertStringContainsString('<strong>OUT-1 | &lt;b&gt;x&lt;/b&gt; **not bold**</strong>', $html, 'values are escaped and never bolded');
+        $this->assertStringContainsString('Status: sneaky', $html, 'marker characters in data are stripped');
+        $this->assertStringContainsString('**unclosed', $html, 'an unmatched marker stays literal');
+        $this->assertStringContainsString('plain ** spaced **', $html);
+        $this->assertSame(substr_count($html, '<strong>'), substr_count($html, '</strong>'));
+
+        $this->assertSame('Update OUT-1', $renderer->renderText('**Update** {{t}}', ['t' => 'OUT-1']), 'subjects drop bold markers');
+    }
+
+    public function test_reseeding_never_overwrites_edited_templates_but_upgrades_untouched_defaults(): void
+    {
+        $edited = EmailTemplate::query()->where('code', 'two_hour_update')->first();
+        $edited->update(['body' => 'Our own wording', 'to' => ['ops@example.com'], 'is_active' => true]);
+
+        // An installation still on the old default (same text, no bold markers).
+        $untouched = EmailTemplate::query()->where('code', 'executive_summary')->first();
+        $untouched->update(['body' => str_replace('**', '', EmailTemplateSeeder::EXECUTIVE_BODY)]);
+
+        $this->seed(EmailTemplateSeeder::class);
+
+        $edited->refresh();
+        $this->assertSame('Our own wording', $edited->body);
+        $this->assertSame(['ops@example.com'], $edited->to);
+        $this->assertTrue($edited->is_active, 'activation survives a re-seed');
+        $this->assertSame(EmailTemplateSeeder::EXECUTIVE_BODY, $untouched->refresh()->body, 'untouched default gets the bold headers');
     }
 
     public function test_scheduled_reports_are_claimed_once_and_sent(): void

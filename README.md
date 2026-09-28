@@ -507,7 +507,15 @@ Loops: `{{#for each active network outage}} … {{/for}}` (also *major incident*
 location, olt_fdt, start_time, end_time, customers, priority, noc_time, maintenance_time, sms_status,
 credit_status, sla_status, status, owner, latest_action, final_reason, sites_down, cells_down, power_faults, services`.
 
+**Bold:** wrap text in double asterisks on one line — `**LIVE NETWORK OUTAGES – FTTH**`, or inside a loop
+`**{{ticket}} | {{location}}**` to bold each outage's heading line. Values from the data are always escaped and can
+never turn bold or inject HTML; an unmatched `**` stays as typed; subjects simply drop the markers. The seeded
+templates use bold for section headers and each outage's ticket line.
+
 Each schedule slot is claimed atomically, so a report is never sent twice even with several servers.
+
+Templates are seeded only when missing: re-running the seeders never overwrites a template's recipients, schedule,
+activation or wording. An untouched default body is upgraded to the latest default (e.g. the bold headers).
 
 ## Real-time updates (Reverb)
 

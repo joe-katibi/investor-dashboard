@@ -6,7 +6,7 @@ use App\Models\EmailTemplate;
 use Illuminate\Database\Seeder;
 
 /**
- * Scheduled e-mail templates (spec §13–§17). Seeded INACTIVE: set recipients and activate
+ * Scheduled e-mail templates (spec §13–§17). Created INACTIVE: set recipients and activate
  * under Configuration → Email Templates & Schedules.
  */
 class EmailTemplateSeeder extends Seeder
@@ -15,7 +15,7 @@ class EmailTemplateSeeder extends Seeder
     {
         $recipients = [config('mail.from.address') ?: 'noc@example.com'];
 
-        EmailTemplate::query()->updateOrCreate(['code' => 'two_hour_update'], [
+        $this->seedTemplate('two_hour_update', [
             'name' => 'Two-Hour Outage Update',
             'report_type' => 'two_hour',
             'schedule_type' => 'interval',
@@ -28,7 +28,7 @@ class EmailTemplateSeeder extends Seeder
             'description' => 'Current live outage status and actions (spec §15). Activate after setting recipients.',
         ]);
 
-        EmailTemplate::query()->updateOrCreate(['code' => 'executive_summary'], [
+        $this->seedTemplate('executive_summary', [
             'name' => 'Executive Summary',
             'report_type' => 'executive',
             'schedule_type' => 'daily_times',
@@ -41,7 +41,7 @@ class EmailTemplateSeeder extends Seeder
             'description' => 'Executive command-centre summary (spec §14 / §16).',
         ]);
 
-        EmailTemplate::query()->updateOrCreate(['code' => 'summary_report'], [
+        $this->seedTemplate('summary_report', [
             'name' => 'Summary Report',
             'report_type' => 'summary',
             'schedule_type' => 'daily_times',
@@ -56,12 +56,35 @@ class EmailTemplateSeeder extends Seeder
         ]);
     }
 
+    /**
+     * Create the template if it is missing. An existing template belongs to the administrator
+     * (recipients, schedule, activation, wording) and is never overwritten — the body is only
+     * upgraded when it is still the untouched previous default (the same text without the
+     * **bold** markers added later).
+     */
+    private function seedTemplate(string $code, array $attributes): void
+    {
+        $template = EmailTemplate::query()->where('code', $code)->first();
+
+        if (! $template) {
+            EmailTemplate::query()->create(['code' => $code] + $attributes);
+
+            return;
+        }
+
+        $normalise = fn (?string $text) => trim(str_replace("\r\n", "\n", (string) $text));
+
+        if ($normalise($template->body) === $normalise(str_replace('**', '', $attributes['body']))) {
+            $template->forceFill(['body' => $attributes['body']])->save();
+        }
+    }
+
     public const TWO_HOUR_BODY = <<<'TXT'
 Hello Team,
 
 Outage updates as at {{report_time}} {{report_date}}
 
-EXECUTIVE SNAPSHOT
+**EXECUTIVE SNAPSHOT**
 • Active outages: {{active_outages}}
 • Critical outages: {{critical_outages}}
 • Customers affected: {{customers_affected}}
@@ -70,9 +93,9 @@ EXECUTIVE SNAPSHOT
 • SMS sent: {{sms_sent}}
 • Credits shared: {{credits_shared}}
 
-LIVE NETWORK OUTAGES – FTTH
+**LIVE NETWORK OUTAGES – FTTH**
 {{#for each active network outage}}
-{{ticket}} | {{location}} | {{olt_fdt}} | Start: {{start_time}}
+**{{ticket}} | {{location}} | {{olt_fdt}} | Start: {{start_time}}**
 Initial impact: {{customers}} clients
 Escalated to NOC: {{noc_time}}
 Escalated to Maintenance/Infrastructure: {{maintenance_time}}
@@ -84,16 +107,16 @@ Action / Latest Update:
 {{latest_action}}
 
 {{/for}}
-4G MOBILITY
+**4G MOBILITY**
 • Total sites affected: {{sites_down}}
 • Total cells down: {{cells_down}}
 • Power faults: {{power_faults}}
 • Other major 4G incidents: {{other_4g}}
 
-CORE OUTAGES
+**CORE OUTAGES**
 {{core_summary_or_no_core_outages}}
 
-SYSTEM OUTAGES
+**SYSTEM OUTAGES**
 {{system_summary_or_no_system_outages}}
 
 Regards,
@@ -101,47 +124,47 @@ NOC / Outage Management System
 TXT;
 
     public const EXECUTIVE_BODY = <<<'TXT'
-OUTAGE MANAGEMENT EXECUTIVE SUMMARY
+**OUTAGE MANAGEMENT EXECUTIVE SUMMARY**
 Reporting time: {{report_time}} | {{report_date}}
 
-1. EXECUTIVE SNAPSHOT
+**1. EXECUTIVE SNAPSHOT**
 Active: {{active_outages}} | New: {{new_outages}} | Resolved: {{resolved_outages}} | Critical: {{critical_outages}} | Customers affected: {{customers_affected}} | SLA breached: {{sla_breached}} | SLA at risk: {{sla_at_risk}}
 
-2. MAJOR ACTIVE INCIDENTS
+**2. MAJOR ACTIVE INCIDENTS**
 {{#for each major incident}}
-{{ticket}} | {{location}} | OLT/FDT: {{olt_fdt}}
+**{{ticket}} | {{location}} | OLT/FDT: {{olt_fdt}}**
 Start: {{start_time}} | Initial impact: {{customers}} clients
 NOC escalation: {{noc_time}} | Infrastructure escalation: {{maintenance_time}}
 SMS: {{sms_status}} | Credit: {{credit_status}} | Status: {{status}} | Owner: {{owner}}
 Latest action: {{latest_action}}
 
 {{/for}}
-3. 4G MOBILITY
+**3. 4G MOBILITY**
 Sites affected: {{sites_down}} | Cells down: {{cells_down}} | Power faults: {{power_faults}}
 
-4. CORE OUTAGES
+**4. CORE OUTAGES**
 {{core_summary_or_no_core_outages}}
 
-5. SYSTEM OUTAGES
+**5. SYSTEM OUTAGES**
 {{system_summary_or_no_system_outages}}
 
-6. SLA / CUSTOMER EXPERIENCE
+**6. SLA / CUSTOMER EXPERIENCE**
 At risk: {{sla_at_risk}} | Breached: {{sla_breached}} | Credits shared: {{credits_shared}} | SMS sent: {{sms_sent}} | Oldest active: {{oldest_active}}
 
-7. MANAGEMENT ATTENTION REQUIRED
+**7. MANAGEMENT ATTENTION REQUIRED**
 {{major_incidents_text}}
 
-8. 7-DAY TREND
+**8. 7-DAY TREND**
 {{trend_table}}
 
-9. TOP RISK AREAS
+**9. TOP RISK AREAS**
 {{top_olts_table}}
 {{top_services_table}}
 
-10. RESTORED / CLOSED
+**10. RESTORED / CLOSED**
 {{closed_summary}}
 {{#for each closed outage}}
-{{ticket}} | {{title}} | Restored {{end_time}} | RFO: {{final_reason}}
+**{{ticket}}** | {{title}} | Restored {{end_time}} | RFO: {{final_reason}}
 {{/for}}
 TXT;
 
@@ -150,7 +173,7 @@ Hello Team,
 
 Please find the outage summary for {{period_start}} to {{period_end}} below (Excel copy attached).
 
-Outages reported: {{new_outages}} | Resolved: {{resolved_outages}} | Currently active: {{active_outages}} | Customers affected (active): {{customers_affected}}
+**Outages reported: {{new_outages}} | Resolved: {{resolved_outages}} | Currently active: {{active_outages}} | Customers affected (active): {{customers_affected}}**
 
 {{summary_table}}
 

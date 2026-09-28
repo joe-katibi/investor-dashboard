@@ -14,7 +14,7 @@
     </tr>
     <tr>
         <td style="padding:20px 24px;font-size:14px;line-height:1.55;">
-            {{-- Rendered by TemplateRenderer: template text and values are escaped; only OMS-generated tables are raw. --}}
+            {{-- Rendered by TemplateRenderer: template text and values are escaped; only **bold** markers and OMS-generated tables become HTML. --}}
             {!! $html !!}
         </td>
     </tr>
