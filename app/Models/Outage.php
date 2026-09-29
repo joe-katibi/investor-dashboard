@@ -66,6 +66,9 @@ class Outage extends Model
             'it_escalated_to_noc_at' => 'datetime',
             'noc_returned_to_it_at' => 'datetime',
             'it_confirmed_at' => 'datetime',
+            'downtime_start' => 'datetime',
+            'downtime_end' => 'datetime',
+            'pm_approved_at' => 'datetime',
         ];
     }
 
@@ -232,6 +235,22 @@ class Outage extends Model
     public function crfSignatures(): HasManyThrough
     {
         return $this->hasManyThrough(ChangeRequestSignature::class, ChangeRequest::class)->orderBy('change_request_signatures.sort');
+    }
+
+    public function photos(): HasMany
+    {
+        return $this->hasMany(OutagePhoto::class)->orderBy('id');
+    }
+
+    public function maintenanceApprovals(): HasMany
+    {
+        return $this->hasMany(MaintenanceApproval::class)->orderBy('id');
+    }
+
+    /** "Preventive Maintenance" / "Corrective Maintenance" / null. */
+    public function maintenanceKindLabel(): ?string
+    {
+        return $this->maintenance_kind ? ucfirst($this->maintenance_kind).' Maintenance' : null;
     }
 
     public function followUps(): HasMany

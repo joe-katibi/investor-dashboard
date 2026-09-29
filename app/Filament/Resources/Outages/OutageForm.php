@@ -56,13 +56,13 @@ final class OutageForm
                         ->options(fn (Get $get, string $operation) => OutageType::query()->active()
                             ->when($get('major_outage_type_id'), fn ($q, $major) => $q->where('major_outage_type_id', $major))
                             // Planned maintenance is raised with "Request planned maintenance" (CRF + sign-off).
-                            ->when($operation === 'create', fn ($q) => $q->where('is_planned', false))
+                            ->when($operation === 'create', fn ($q) => $q->reportable())
                             ->orderBy('sort_order')->get()->mapWithKeys(fn (OutageType $t) => [$t->id => "{$t->name} ({$t->prefix})"]))
                         ->disabledOn('edit'),
                     Select::make('vertical_id')->label('Vertical')->required()->live()
                         ->options(fn () => Vertical::query()->active()->orderBy('name')->pluck('name', 'id'))
                         ->afterStateUpdated(fn (Set $set) => $set('service_ids', [])),
-                    DateTimePicker::make('start_time')->label('Start time')->required()->seconds(false)->default(now())->maxDate(now()->addDay()),
+                    DateTimePicker::make('start_time')->label('Start time')->required()->seconds(false)->default(fn () => now()->startOfMinute())->maxDate(fn () => now()->addDay()->startOfMinute()),
                 ])->columns(2),
 
             Section::make('Affected topology')

@@ -56,7 +56,7 @@ class TeamResource extends Resource
             Select::make('manager_id')->label('Manager')->options(fn () => User::query()->active()->orderBy('name')->pluck('name', 'id'))->searchable(),
             Select::make('members')->relationship('members', 'name', fn (Builder $query) => $query->where('is_active', true))
                 ->multiple()->searchable()->preload()->columnSpanFull(),
-            Select::make('olts')->label('OLT coverage (optional)')->relationship('olts', 'name')->multiple()->preload()->columnSpanFull()
+            Select::make('olts')->label('OLT coverage (optional — used only when "Restrict technicians to their teams’ OLT coverage" is on in FIFO & SLA Settings)')->relationship('olts', 'name')->multiple()->preload()->columnSpanFull()
                 ->helperText('When set, FIFO only offers outages on these OLTs to this team\'s members.'),
             AuditFields::description(),
             AuditFields::activeToggle(),

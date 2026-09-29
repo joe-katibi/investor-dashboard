@@ -36,6 +36,8 @@ class OutageStatusSeeder extends Seeder
             [StatusCode::CrfPendingSignoff, 'CRF – Awaiting Sign-off', 'warning', false, false, false, false, false, 20],
             [StatusCode::CxCustomerNotification, 'Maintenance Done – CX Notifying Customers', 'success', false, false, false, false, false, 21],
             [StatusCode::MaintenanceCancelled, 'Maintenance Cancelled', 'gray', true, true, false, false, false, 22],
+            [StatusCode::PmPendingApproval, 'Preventive Maintenance – Awaiting Approval', 'warning', false, false, false, false, false, 23],
+            [StatusCode::PmRejected, 'Preventive Maintenance – Rejected', 'gray', true, true, false, false, false, 24],
         ] as [$code, $name, $color, $prompt, $closed, $resolved, $pauses, $manual, $sort]) {
             OutageStatus::query()->updateOrCreate(['code' => $code->value], [
                 'name' => $name, 'color' => $color, 'prompt_final_reason' => $prompt, 'is_closed' => $closed,

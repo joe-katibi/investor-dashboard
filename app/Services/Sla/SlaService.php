@@ -118,7 +118,9 @@ class SlaService
     {
         $outage->loadMissing('status');
 
-        if ($outage->status?->isCode(StatusCode::NocReject)) {
+        // Work that never went ahead (not an outage / not approved / cancelled) has no SLA outcome.
+        if ($outage->status?->isCode(StatusCode::NocReject) || $outage->status?->isCode(StatusCode::PmRejected)
+            || $outage->status?->isCode(StatusCode::MaintenanceCancelled)) {
             $state = SlaState::NotApplicable;
         } else {
             $end = $outage->end_time ?? $outage->restored_at ?? now();

@@ -34,6 +34,9 @@ final class Permissions
             'maintenance.reschedule' => 'Reschedule planned maintenance',
             'maintenance.notify_customers' => 'Confirm customers were notified (close planned maintenance)',
             'maintenance.configure' => 'Configure maintenance templates, reminders and signatories',
+            'field_maintenance.raise' => 'Raise preventive / corrective maintenance on site (with photos)',
+            'preventive.approve_dispatch' => 'Approve preventive maintenance downtime as Dispatcher',
+            'preventive.approve_manager' => 'Approve preventive maintenance downtime as Infrastructure Manager',
         ],
         'FIFO Queues' => [
             'queue.view' => 'View FIFO queues',

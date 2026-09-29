@@ -23,6 +23,7 @@ use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 use UnitEnum;
@@ -75,9 +76,13 @@ class RequestMaintenance extends Page
             Section::make('1. General maintenance details')->icon(Heroicon::OutlinedCalendarDays)->schema([
                 TextInput::make('title')->label('Title / subject')->required()->maxLength(255)
                     ->placeholder('e.g. Kabowa FDT 17 migration to Seguku')->columnSpanFull(),
-                DateTimePicker::make('scheduled_start')->label('Scheduled start')->required()->seconds(false)->minDate(now()->subMinutes(5))->live(),
+                // Whole-minute minimums: a minimum with seconds (e.g. 17:19:45) makes the browser reject every
+                // normal time ("nearest valid values are …:45"), because the input steps in minutes from it.
+                DateTimePicker::make('scheduled_start')->label('Scheduled start')->required()->seconds(false)
+                    ->minDate(fn () => now()->subMinutes(5)->startOfMinute())->live(),
                 DateTimePicker::make('scheduled_end')->label('Scheduled end')->required()->seconds(false)
-                    ->after('scheduled_start')->minDate(fn (Get $get) => $get('scheduled_start')),
+                    ->after('scheduled_start')
+                    ->minDate(fn (Get $get) => filled($get('scheduled_start')) ? Carbon::parse($get('scheduled_start'))->startOfMinute() : null),
                 TextInput::make('initiator')->maxLength(150),
                 TextInput::make('department')->maxLength(150),
                 TextInput::make('in_charge')->label('In-charge / lead')->maxLength(150),

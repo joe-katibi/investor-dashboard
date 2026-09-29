@@ -292,7 +292,15 @@ class PlannedMaintenanceTest extends TestCase
         }
 
         $this->actingAs($agent)->get(RequestMaintenance::getUrl())->assertForbidden();
-        $this->actingAs($infraLead)->get(RequestMaintenance::getUrl())->assertOk()->assertSee('Send request to NOC');
+        $this->travelTo(now()->setTime(17, 24, 45)); // a moment with seconds
+        $page = $this->actingAs($infraLead)->get(RequestMaintenance::getUrl())->assertOk()->assertSee('Send request to NOC');
+        // Browsers only accept times on the minute step from `min`; a min with seconds rejects every normal time.
+        preg_match_all('/\bmin="([^"]*:[^"]*)"/', $page->getContent(), $mins); // date/time minimums only
+        $this->assertNotEmpty($mins[1]);
+        foreach ($mins[1] as $min) {
+            $this->assertMatchesRegularExpression('/(T|\s)\d{2}:\d{2}(:00)?$/', $min, "min {$min} must be on a whole minute");
+        }
+        $this->travelBack();
 
         $outage = $this->request($infraLead);
         $this->actingAs($noc)->get(OutageResource::getUrl('view', ['record' => $outage]))->assertOk()->assertSee('Complete CRF &amp; send for sign-off', false);

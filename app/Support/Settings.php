@@ -27,6 +27,7 @@ class Settings
         'fifo.respect_shift' => true,
         'fifo.require_availability' => true,
         'fifo.skill_based' => false,
+        'fifo.olt_coverage' => false,              // restrict technicians to OLTs their teams cover
         'fifo.manual_override' => true,
         'fifo.critical_bypass' => true,            // Critical tickets ignore the workload cap
         'fifo.requeue_on_unavailable' => 'unaccepted', // none | unaccepted | all

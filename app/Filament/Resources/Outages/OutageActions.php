@@ -8,9 +8,11 @@ use App\Enums\StatusCode;
 use App\Enums\TeamType;
 use App\Models\ChangeRequest;
 use App\Models\Department;
+use App\Models\MaintenanceApproval;
 use App\Models\Outage;
 use App\Models\OutageAssignment;
 use App\Models\OutageFollowUp;
+use App\Models\OutagePhoto;
 use App\Models\OutageStatus;
 use App\Models\OutageUpdate;
 use App\Models\Team;
@@ -21,6 +23,7 @@ use App\Support\Settings;
 use Filament\Actions\Action;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\DateTimePicker;
+use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
@@ -52,7 +55,7 @@ final class OutageActions
         return [
             self::accept(), self::rejectAssignment(), self::nocConfirm(), self::nocReject(), self::cxFollowUp(),
             self::itEscalateToNoc(), self::itResolve(), self::nocReturnToIt(), self::itReturnToNoc(),
-            self::prepareCrf(), self::viewCrf(),
+            self::prepareCrf(), self::viewCrf(), self::approvePreventive(), self::rejectPreventive(),
             self::dispatch(), self::requestSupport(), self::completeSupport(),
             self::reportRestored(), self::confirmRestoration(), self::rejectRestoration(), self::notifyCustomers(), self::resolve(),
         ];
@@ -249,13 +252,13 @@ final class OutageActions
             ->modalWidth('2xl')
             ->schema([
                 Grid::make(['default' => 1, 'sm' => 2])->schema([
-                    DateTimePicker::make('called_at')->label('Called at')->default(now())->seconds(false)->maxDate(now()->addMinutes(5))->required(),
+                    DateTimePicker::make('called_at')->label('Called at')->default(fn () => now()->startOfMinute())->seconds(false)->maxDate(fn () => now()->addMinutes(5)->startOfMinute())->required(),
                     Select::make('call_outcome')->label('Call outcome')->options(OutageFollowUp::OUTCOMES)->required(),
                 ]),
                 Textarea::make('callback_notes')->label('Callback notes')->required()->rows(3)->maxLength(5000),
                 Toggle::make('site_visit_required')->label('Raise a site visit')->live(),
                 Grid::make(['default' => 1, 'sm' => 2])->schema([
-                    DateTimePicker::make('site_visit_at')->label('Site visit scheduled for')->seconds(false)->required()->minDate(now()->subDay()),
+                    DateTimePicker::make('site_visit_at')->label('Site visit scheduled for')->seconds(false)->required()->minDate(fn () => now()->subDay()->startOfMinute()),
                     TextInput::make('site_visit_reference')->label('Site visit reference / job no.')->maxLength(100),
                     Textarea::make('site_visit_notes')->label('Site visit action raised')->rows(2)->maxLength(2000)->columnSpanFull(),
                 ])->visible(fn (Get $get) => (bool) $get('site_visit_required')),
@@ -483,7 +486,7 @@ final class OutageActions
     public static function reportRestored(): Action
     {
         return Action::make('reportRestored')
-            ->label(fn (Outage $record) => self::isMaintenance($record) ? 'Report work completed' : 'Report restored')
+            ->label(fn (Outage $record) => self::isMaintenance($record) || $record->maintenance_kind ? 'Report work completed' : 'Report restored')
             ->icon(Heroicon::OutlinedWrenchScrewdriver)
             ->color('success')
             ->visible(fn (Outage $record) => Auth::user()?->can('reportRestored', $record))
@@ -492,11 +495,64 @@ final class OutageActions
             ->tooltip(fn (Outage $record) => $record->openSupportRequest !== null
                 ? 'Waiting for the support technician to finish the drop cable / premises work (or cancel the request).'
                 : null)
-            ->schema([
-                DateTimePicker::make('restored_at')->label('Restored at')->default(now())->seconds(false)->maxDate(now()->addMinutes(5)),
-                Textarea::make('note')->label('Restoration details')->required()->maxLength(5000),
+            ->schema(fn (Outage $record) => [
+                DateTimePicker::make('restored_at')->label('Restored at')->default(fn () => now()->startOfMinute())->seconds(false)->maxDate(fn () => now()->addMinutes(5)->startOfMinute()),
+                Textarea::make('note')->label($record->maintenance_kind ? 'Work done' : 'Restoration details')->required()->maxLength(5000),
+                // Field maintenance closes with two photos of the finished work.
+                ...($record->maintenance_kind ? [
+                    Grid::make(['default' => 1, 'sm' => 2])->schema([
+                        self::photoUpload('after_outside', 'After — outside', OutagePhoto::POSITIONS['outside']),
+                        self::photoUpload('after_inside', 'After — inside', OutagePhoto::POSITIONS['inside']),
+                    ]),
+                ] : []),
             ])
-            ->action(fn (Outage $record, array $data) => self::run($record, fn () => app(OutageWorkflow::class)->reportRestored($record, Auth::user(), $data['note'], $data['restored_at'] ?? null), 'Restoration reported — awaiting NOC confirmation'));
+            ->action(fn (Outage $record, array $data) => self::run($record, fn () => app(OutageWorkflow::class)->reportRestored(
+                $record, Auth::user(), $data['note'], $data['restored_at'] ?? null,
+                $record->maintenance_kind ? [
+                    'outside' => $data['after_outside'] ?? null, 'inside' => $data['after_inside'] ?? null,
+                    'outside_name' => $data['after_outside_name'] ?? null, 'inside_name' => $data['after_inside_name'] ?? null,
+                ] : [],
+            ), 'Work reported — awaiting NOC confirmation'));
+    }
+
+    // ------------------------------------------------------------------ field maintenance
+
+    public static function approvePreventive(): Action
+    {
+        return Action::make('approvePreventive')
+            ->label(fn (Outage $record) => 'Approve downtime'.(($slot = self::approvalSlot($record)) ? ' ('.MaintenanceApproval::SLOTS[$slot][0].')' : ''))
+            ->icon(Heroicon::OutlinedCheckBadge)
+            ->color('success')
+            ->visible(fn (Outage $record) => Auth::user()?->can('approvePreventive', $record))
+            ->modalDescription(fn (Outage $record) => 'Downtime '.($record->downtime_start?->format('d M Y H:i') ?? '—').' – '.($record->downtime_end?->format('d M Y H:i') ?? '—')
+                .' at '.($record->site_label ?? '—').'. When the Dispatcher and the Infrastructure Manager have both approved, everyone is notified and the technician starts the work.')
+            ->schema([Textarea::make('comment')->label('Comment (optional)')->maxLength(2000)])
+            ->action(fn (Outage $record, array $data) => self::run($record, fn () => app(OutageWorkflow::class)->approvePreventive($record, Auth::user(), $data['comment'] ?? null), 'Downtime approved'));
+    }
+
+    public static function rejectPreventive(): Action
+    {
+        return Action::make('rejectPreventive')
+            ->label('Reject')
+            ->icon(Heroicon::OutlinedXCircle)
+            ->color('danger')
+            ->visible(fn (Outage $record) => Auth::user()?->can('rejectPreventive', $record))
+            ->schema([Textarea::make('reason')->label('Reason')->required()->maxLength(2000)])
+            ->action(fn (Outage $record, array $data) => self::run($record, fn () => app(OutageWorkflow::class)->rejectPreventive($record, Auth::user(), $data['reason']), 'Preventive maintenance rejected'));
+    }
+
+    private static function approvalSlot(Outage $record): ?string
+    {
+        return ($user = Auth::user()) ? MaintenanceApproval::openSlotFor($record, $user) : null;
+    }
+
+    public static function photoUpload(string $name, string $label, string $hint): FileUpload
+    {
+        return FileUpload::make($name)->label($label)->helperText($hint)
+            ->image()->required()
+            ->disk('local')->directory('outage-photos/'.now()->format('Y/m'))->visibility('private')
+            ->maxSize(12288)
+            ->storeFileNamesIn($name.'_name');
     }
 
     public static function confirmRestoration(): Action

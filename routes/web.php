@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\CrfDocumentController;
 use App\Http\Controllers\CrfSignController;
+use App\Http\Controllers\OutagePhotoController;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/admin');
@@ -16,3 +17,6 @@ Route::middleware(['signed', 'throttle:30,1'])->prefix('crf/sign/{signatory}')->
 
 // View / download a ticket's CRF (signed-in users).
 Route::middleware(['auth', 'throttle:60,1'])->get('/crf/{outage}/pdf', CrfDocumentController::class)->name('crf.pdf');
+
+// Field maintenance site photos (signed-in users who can view the ticket).
+Route::middleware(['auth', 'throttle:240,1'])->get('/photos/{photo}', OutagePhotoController::class)->name('outage-photos.show');

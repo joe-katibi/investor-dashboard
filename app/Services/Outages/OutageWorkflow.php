@@ -15,6 +15,7 @@ use App\Models\Olt;
 use App\Models\Outage;
 use App\Models\OutageFlagEvent;
 use App\Models\OutageFollowUp;
+use App\Models\OutagePhoto;
 use App\Models\OutageStatus;
 use App\Models\OutageStatusHistory;
 use App\Models\OutageType;
@@ -26,6 +27,7 @@ use App\Models\SupportRequest;
 use App\Models\User;
 use App\Services\Fifo\FifoAssignmentEngine;
 use App\Services\Notifications\NotificationDispatcher;
+use App\Services\Outages\Concerns\ManagesFieldMaintenance;
 use App\Services\Outages\Concerns\ManagesPlannedMaintenance;
 use App\Services\Sla\SlaService;
 use App\Support\AuditContext;
@@ -48,7 +50,7 @@ use Illuminate\Validation\ValidationException;
  */
 class OutageWorkflow
 {
-    use ManagesPlannedMaintenance;
+    use ManagesFieldMaintenance, ManagesPlannedMaintenance;
 
     public function __construct(
         private readonly TicketNumberGenerator $tickets,
@@ -71,6 +73,10 @@ class OutageWorkflow
             // Planned maintenance has its own request → CRF → sign-off flow.
             if ($type->is_planned) {
                 throw ValidationException::withMessages(['outage_type_id' => 'Planned maintenance is raised with “Request planned maintenance”.']);
+            }
+
+            if ($type->maintenance_kind) {
+                throw ValidationException::withMessages(['outage_type_id' => 'Preventive / corrective maintenance is raised by the technician with “Raise field maintenance”.']);
             }
 
             // System outages go to IT first; everything else starts unconfirmed for NOC.
@@ -310,11 +316,14 @@ class OutageWorkflow
         });
     }
 
-    public function reportRestored(Outage $outage, User $by, string $note, ?string $restoredAt = null): Outage
+    /**
+     * @param  array{outside?: string, inside?: string}  $afterPhotos  field maintenance: photos of the finished work
+     */
+    public function reportRestored(Outage $outage, User $by, string $note, ?string $restoredAt = null, array $afterPhotos = []): Outage
     {
         $this->requireText($note, 'note', 'Describe the restoration performed.');
 
-        $result = DB::transaction(function () use ($outage, $by, $note, $restoredAt): Outage {
+        $result = DB::transaction(function () use ($outage, $by, $note, $restoredAt, $afterPhotos): Outage {
             $outage = $this->lock($outage);
             Gate::forUser($by)->authorize('reportRestored', $outage);
 
@@ -325,6 +334,17 @@ class OutageWorkflow
 
             if ($outage->majorOutageType?->requires_infrastructure) {
                 $this->fifo->authorizeWork($outage, QueueType::Technician, $by);
+            }
+
+            // Preventive / corrective maintenance closes with two "after" photos (outside with the label, inside).
+            if ($outage->maintenance_kind) {
+                if ($afterPhotos !== []) {
+                    $this->storeSitePhotos($outage, $by, OutagePhoto::AFTER, $afterPhotos);
+                }
+
+                if (! $this->hasAfterPhotos($outage)) {
+                    throw ValidationException::withMessages(['photos' => 'Add the two “after” photos (outside the FAT / FDT with the label, and inside) showing the finished work.']);
+                }
             }
 
             $outage->forceFill([

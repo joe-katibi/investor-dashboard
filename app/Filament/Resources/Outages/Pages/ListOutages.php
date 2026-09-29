@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Outages\Pages;
 
 use App\Enums\SlaState;
 use App\Filament\Concerns\RefreshesOnOmsEvents;
+use App\Filament\Pages\RaiseFieldMaintenance;
 use App\Filament\Pages\RequestMaintenance;
 use App\Filament\Resources\Outages\OutageResource;
 use App\Models\MajorOutageType;
@@ -37,6 +38,12 @@ class ListOutages extends ListRecords
                 ->color('gray')
                 ->visible(fn () => Auth::user()?->can('reports.export'))
                 ->action(fn () => $this->exportFiltered()),
+            Action::make('raiseFieldMaintenance')
+                ->label('Raise field maintenance')
+                ->icon(Heroicon::OutlinedCamera)
+                ->color('gray')
+                ->visible(fn () => RaiseFieldMaintenance::canAccess())
+                ->url(fn () => RaiseFieldMaintenance::getUrl()),
             Action::make('requestMaintenance')
                 ->label('Request maintenance')
                 ->icon(Heroicon::OutlinedCalendarDays)
@@ -58,6 +65,8 @@ class ListOutages extends ListRecords
             'system' => Tab::make('System')->modifyQueryUsing(fn (Builder $query) => $query->where('is_closed', false)->ofMajorType(MajorOutageType::SYSTEM)),
             'maintenance' => Tab::make('Planned maintenance')->icon(Heroicon::OutlinedCalendarDays)
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('is_closed', false)->whereHas('changeRequest')),
+            'field' => Tab::make('Preventive / corrective')->icon(Heroicon::OutlinedCamera)
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('is_closed', false)->whereNotNull('maintenance_kind')),
             'critical' => Tab::make('Critical')->modifyQueryUsing(fn (Builder $query) => $query->where('is_closed', false)->whereHas('priority', fn ($p) => $p->where('code', Priority::CRITICAL))),
             'breached' => Tab::make('SLA breached / at risk')->modifyQueryUsing(fn (Builder $query) => $query->where('is_closed', false)->whereIn('sla_state', [SlaState::Breached->value, SlaState::AtRisk->value])),
             'closed' => Tab::make('Closed')->modifyQueryUsing(fn (Builder $query) => $query->where('is_closed', true)),

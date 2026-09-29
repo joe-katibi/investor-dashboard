@@ -45,10 +45,18 @@ enum NotificationEvent: string implements HasLabel
     case MaintenanceRescheduled = 'maintenance_rescheduled';
     case MaintenanceCompleted = 'maintenance_completed';
     case MaintenanceCancelled = 'maintenance_cancelled';
+    case PreventiveRequested = 'preventive_requested';
+    case PreventiveApproved = 'preventive_approved';
+    case PreventiveRejected = 'preventive_rejected';
+    case CorrectiveRaised = 'corrective_raised';
 
     public function getLabel(): string
     {
         return match ($this) {
+            self::PreventiveRequested => 'Preventive Maintenance Awaiting Approval',
+            self::PreventiveApproved => 'Preventive Maintenance Downtime Approved',
+            self::PreventiveRejected => 'Preventive Maintenance Rejected',
+            self::CorrectiveRaised => 'Corrective Maintenance Raised',
             self::MaintenanceRequested => 'Planned Maintenance Requested',
             self::CrfSignoffRequested => 'CRF Sent for Sign-off',
             self::CrfSigned => 'CRF Signed by a Signatory',

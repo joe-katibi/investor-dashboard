@@ -19,11 +19,15 @@ use App\Filament\Resources\Outages\RelationManagers\StatusHistoriesRelationManag
 use App\Filament\Resources\Outages\RelationManagers\SupportRequestsRelationManager;
 use App\Filament\Resources\Outages\RelationManagers\UpdatesRelationManager;
 use App\Models\ChangeRequest;
+use App\Models\MaintenanceApproval;
 use App\Models\Outage;
+use App\Models\OutagePhoto;
+use App\Models\OutageType;
 use BackedEnum;
 use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\DatePicker;
 use Filament\Infolists\Components\IconEntry;
+use Filament\Infolists\Components\ImageEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Grid;
@@ -229,6 +233,35 @@ class OutageResource extends Resource
                     ])->columns(2),
                 ])->columnSpan(['default' => 'full', 'lg' => 1]),
             ])->columnSpanFull(),
+
+            Section::make(fn (Outage $record) => $record->maintenanceKindLabel() ?? 'Field maintenance')->icon(Heroicon::OutlinedCamera)->schema([
+                TextEntry::make('site_label')->label('FAT / FDT label')->placeholder('—'),
+                TextEntry::make('downtime')->label('Approved downtime')
+                    ->state(fn (Outage $record) => $record->downtime_start
+                        ? $record->downtime_start->format('d M Y H:i').' – '.$record->downtime_end?->format($record->downtime_end->isSameDay($record->downtime_start) ? 'H:i' : 'd M Y H:i')
+                        : null)
+                    ->placeholder('Starts immediately (corrective)')
+                    ->helperText(fn (Outage $record) => $record->pm_approved_at ? 'Approved '.$record->pm_approved_at->format('d M H:i') : null),
+                ...collect(MaintenanceApproval::SLOTS)->map(fn (array $slot, string $key) => TextEntry::make("approval_{$key}")->label($slot[0].' approval')
+                    ->visible(fn (Outage $record) => $record->maintenance_kind === OutageType::PREVENTIVE)
+                    ->state(function (Outage $record) use ($key): ?string {
+                        $approval = $record->maintenanceApprovals->firstWhere('slot', $key);
+
+                        return $approval ? ucfirst($approval->decision).' by '.$approval->user?->name.' · '.$approval->created_at->format('d M H:i') : null;
+                    })
+                    ->placeholder('Awaiting')
+                    ->helperText(fn (Outage $record) => $record->maintenanceApprovals->firstWhere('slot', $key)?->comment))->values()->all(),
+                Grid::make(['default' => 2, 'lg' => 4])->schema(collect([OutagePhoto::BEFORE, OutagePhoto::AFTER])
+                    ->crossJoin(array_keys(OutagePhoto::POSITIONS))
+                    ->map(fn (array $pair) => ImageEntry::make("photo_{$pair[0]}_{$pair[1]}")
+                        ->label(ucfirst($pair[0]).' — '.$pair[1])
+                        ->state(fn (Outage $record) => $record->photos->where('stage', $pair[0])->where('position', $pair[1])->last()?->url())
+                        ->url(fn (Outage $record) => $record->photos->where('stage', $pair[0])->where('position', $pair[1])->last()?->url(), shouldOpenInNewTab: true)
+                        ->imageHeight(150)
+                        ->placeholder($pair[0] === OutagePhoto::AFTER ? 'Added when the work is reported done' : '—'))
+                    ->all())->columnSpanFull(),
+            ])->columns(['default' => 1, 'md' => 2, 'xl' => 4])->columnSpanFull()
+                ->visible(fn (Outage $record) => $record->maintenance_kind !== null),
 
             Section::make('Lifecycle')->schema([
                 TextEntry::make('start_time')->label('Start')->dateTime('d M Y H:i'),

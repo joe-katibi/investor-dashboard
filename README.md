@@ -353,6 +353,34 @@ INFRASTRUCTURE: REQUEST PLANNED MAINTENANCE → MAINTENANCE REQUESTED – NOC RE
   x / y and signatories, approval time, team, technician, completion, final status, outcome, customer notification
   and SLA (on screen, CSV, Excel, PDF).
 
+### Preventive & corrective maintenance (raised on site, with photos)
+
+```
+PREVENTIVE: technician RAISES (issue, FAT / FDT label, proposed downtime, 2 photos) → AWAITING APPROVAL
+   ├─ Dispatcher approves + Infrastructure Manager approves (two different people)
+   │     → everyone notified of the approved downtime (in-app + e-mail, photos attached) → TEAM DISPATCHED to the technician
+   └─ either rejects → PREVENTIVE MAINTENANCE – REJECTED (closed, SLA N/A, technician told)
+CORRECTIVE (fallen pole, dropped cable…): technician RAISES (2 photos) → TEAM DISPATCHED at once, everyone notified
+   └─ optional "Request a support technician" (drop cable → premises) in the same form, worked in parallel
+BOTH: REPORT WORK COMPLETED with 2 "after" photos → NOC restore confirmation → resolved
+```
+
+* **Raise field maintenance** — *Operations → Raise field maintenance* (or the button on the outage list), permission
+  `field_maintenance.raise` (Outage Technician, Infrastructure Team Leader / Manager). Works on a phone: the photo
+  fields open the camera or gallery. Required: title, what was found / happened, FAT / FDT label, and two photos —
+  **outside the FAT / FDT with the label** and **inside**. Preventive also needs the proposed downtime window.
+  Tickets are `PVM-…` (preventive) and `CRM-…` (corrective); these types can't be raised through *Report outage*.
+* **Approval** (preventive) — **Approve downtime** / **Reject** on the ticket. The Dispatcher approval needs
+  `preventive.approve_dispatch` (Dispatchers, Dispatch / Infrastructure Dispatcher roles) and the manager approval
+  `preventive.approve_manager` (Infrastructure Manager); one person gives at most one approval. Approvers are told
+  (in-app + e-mail with the photos) when a request is raised.
+* **Everyone** — the stakeholder roles and e-mails in *Maintenance Settings* (NOC, CX, Infrastructure leaders by
+  default) plus the technician and approvers, in-app and by e-mail, and any notification rules for the events
+  `preventive_approved` / `corrective_raised`.
+* **Closing** — *Report work completed* asks for the two "after" photos (outside with the label, inside) and cannot
+  be submitted without them. The ticket page shows all four photos (before / after); photos are stored privately and
+  only signed-in users who can see the ticket can open them.
+
 Rules enforced everywhere (UI, future APIs, integrations) by `App\Services\Outages\OutageWorkflow` +
 `App\Policies\OutagePolicy`:
 
@@ -391,7 +419,7 @@ each priority using microsecond queue timestamps with the id as final tie-break.
 | Shift | Inside an active scheduled shift |
 | Leave | Not on approved leave |
 | Skill (optional) | Skill for an affected service or the vertical |
-| OLT coverage | Team covers the affected OLT (when coverage is configured) — Infrastructure, Technician and Support Technician queues |
+| OLT coverage | **Off by default** (every technician can take any OLT). When "Restrict technicians to their teams’ OLT coverage" is on: a team of the user covers the affected OLT — Infrastructure, Technician and Support Technician queues |
 | Workload | Below the maximum active tickets (per user or global); optional Critical bypass |
 | Previous attempts | Has not already rejected / timed out on this ticket |
 
@@ -590,7 +618,7 @@ deleted from the UI. Super Admin holds every permission but still obeys workflow
 | Group | Permissions |
 |---|---|
 | Outages | `outage.view`, `outage.create`, `outage.edit`, `outage.delete`, `outage.confirm`, `outage.dispatch`, `outage.update_progress`, `outage.update_restoration`, `outage.confirm_restoration`, `outage.close`, `outage.change_status`, `outage.update_credit_sms`, `outage.override_priority`, `outage.cx_follow_up`, `outage.request_support`, `outage.support_work`, `outage.it_review` |
-| Planned Maintenance | `maintenance.request`, `maintenance.manage`, `maintenance.reschedule`, `maintenance.notify_customers`, `maintenance.configure` |
+| Maintenance | `maintenance.request`, `maintenance.manage`, `maintenance.reschedule`, `maintenance.notify_customers`, `maintenance.configure`, `field_maintenance.raise`, `preventive.approve_dispatch`, `preventive.approve_manager` |
 | FIFO Queues | `queue.view`, `queue.work_noc`, `queue.work_infrastructure`, `queue.work_technician`, `queue.work_cx`, `queue.work_support`, `queue.work_it`, `queue.override` |
 | Configuration | `topology.manage`, `sla.manage`, `templates.manage`, `notifications.manage`, `master_data.manage`, `config.admin` |
 | People | `users.manage`, `teams.manage`, `roles.manage`, `workforce.manage` |
@@ -624,7 +652,7 @@ users and outages are added only outside production. Each seeder can also be run
 | `VerticalSeeder` | FTTH, 4G Mobility |
 | `ServiceSeeder` | FTTH: Internet, Voice (VoIP), IPTV, Enterprise Fibre · 4G: Mobile Data, Voice, SMS, Fixed Wireless (MiFi) · Cross-vertical: CRM, Call Center, Dialer, Billing (Savbill), International Transit (SEACOM) |
 | `MajorOutageTypeSeeder` | Network (topology, NOC + Infrastructure), Core (NOC + Infrastructure), System (IT first, NOC on escalation) |
-| `OutageTypeSeeder` | Regular `OUT`, Emergency `EMO`, Planned Maintenance `PLM`, SEACOM / Core `CORE`, System `SYS` |
+| `OutageTypeSeeder` | Regular `OUT`, Emergency `EMO`, Planned Maintenance `PLM`, SEACOM / Core `CORE`, System `SYS`, Preventive Maintenance `PVM`, Corrective Maintenance `CRM` |
 | `OutageStatusSeeder` | Support Unconfirmed, NOC Confirmed, NOC Reject, Assigned to Infrastructure, Infrastructure Confirmed, Team Dispatched, Awaiting Field Access, Vendor Escalated, Partial Restore, Restore Reported – Awaiting NOC, NOC Restore Confirmed, Awaiting Customer Confirmation, Outage Resolved, Scheduled Maintenance, NOC Rejected – CX Follow-up (pauses SLA), IT Review, Escalated to NOC by IT, NOC Resolved – Awaiting IT Confirmation |
 | `PrioritySeeder` | Low 0–9, Medium 10–49, High 50–199, Critical 200+ customers; FIFO rank Critical 1 → Low 4 |
 | `SlaPolicySeeder` | Critical 4h, High 8h, Medium 12h, Low 24h (pre-breach, ack timeout, escalation), Planned Maintenance window |

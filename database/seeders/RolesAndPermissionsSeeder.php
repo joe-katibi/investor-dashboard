@@ -58,12 +58,13 @@ class RolesAndPermissionsSeeder extends Seeder
         // Dispatch
         'Dispatch Manager' => [
             'outage.view', 'outage.dispatch', 'outage.update_progress', 'outage.support_work', 'queue.view', 'queue.work_infrastructure', 'queue.override',
-            'reports.view', 'reports.export', 'workforce.manage',
+            'reports.view', 'reports.export', 'workforce.manage', 'preventive.approve_dispatch',
         ],
         'Dispatch Team Leader' => [
             'outage.view', 'outage.dispatch', 'outage.update_progress', 'outage.support_work', 'queue.view', 'queue.work_infrastructure', 'queue.override', 'reports.view',
+            'preventive.approve_dispatch',
         ],
-        'Dispatcher' => ['outage.view', 'outage.dispatch', 'outage.update_progress', 'queue.view', 'queue.work_infrastructure'],
+        'Dispatcher' => ['outage.view', 'outage.dispatch', 'outage.update_progress', 'queue.view', 'queue.work_infrastructure', 'preventive.approve_dispatch'],
         // Drop cable → customer premises. Works support requests in parallel with the outage technician.
         'Support/Installation Technician' => [
             'outage.view', 'outage.update_progress', 'outage.support_work', 'queue.work_support',
@@ -73,19 +74,20 @@ class RolesAndPermissionsSeeder extends Seeder
         'Infrastructure Manager' => [
             'outage.view', 'outage.edit', 'outage.dispatch', 'outage.update_progress', 'outage.update_restoration', 'outage.change_status',
             'outage.request_support', 'queue.view', 'queue.work_infrastructure', 'queue.override', 'topology.manage', 'reports.view', 'reports.export', 'workforce.manage',
-            'maintenance.request', 'maintenance.reschedule',
+            'maintenance.request', 'maintenance.reschedule', 'field_maintenance.raise', 'preventive.approve_manager',
         ],
         'Infrastructure Team Leader' => [
             'outage.view', 'outage.dispatch', 'outage.update_progress', 'outage.update_restoration', 'outage.change_status',
             'outage.request_support', 'queue.view', 'queue.work_infrastructure', 'queue.override', 'topology.manage', 'reports.view', 'workforce.manage',
-            'maintenance.request', 'maintenance.reschedule',
+            'maintenance.request', 'maintenance.reschedule', 'field_maintenance.raise',
         ],
         'Infrastructure Dispatcher' => [
             'outage.view', 'outage.dispatch', 'outage.update_progress', 'outage.request_support', 'queue.view', 'queue.work_infrastructure',
-            'maintenance.request',
+            'maintenance.request', 'preventive.approve_dispatch',
         ],
         'Outage Technician' => [
             'outage.view', 'outage.update_progress', 'outage.update_restoration', 'outage.change_status', 'outage.request_support', 'queue.work_technician',
+            'field_maintenance.raise',
         ],
 
         // IT: first line for system outages; escalates core / network causes to NOC and confirms the fix.

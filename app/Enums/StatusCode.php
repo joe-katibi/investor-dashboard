@@ -36,4 +36,8 @@ enum StatusCode: string
     case CrfPendingSignoff = 'crf_pending_signoff';
     case CxCustomerNotification = 'cx_customer_notification';
     case MaintenanceCancelled = 'maintenance_cancelled';
+
+    // Preventive maintenance raised on site: Dispatcher + Infrastructure Manager approve the downtime.
+    case PmPendingApproval = 'pm_pending_approval';
+    case PmRejected = 'pm_rejected';
 }

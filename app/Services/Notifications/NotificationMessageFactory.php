@@ -57,6 +57,10 @@ class NotificationMessageFactory
             NotificationEvent::MaintenanceRescheduled => "Planned maintenance rescheduled: {$ticket}",
             NotificationEvent::MaintenanceCompleted => "Planned maintenance completed: {$ticket}",
             NotificationEvent::MaintenanceCancelled => "Planned maintenance cancelled: {$ticket}",
+            NotificationEvent::PreventiveRequested => "Preventive maintenance needs your approval: {$ticket}",
+            NotificationEvent::PreventiveApproved => "Preventive maintenance downtime approved: {$ticket}",
+            NotificationEvent::PreventiveRejected => "Preventive maintenance rejected: {$ticket}",
+            NotificationEvent::CorrectiveRaised => "Corrective maintenance in progress: {$ticket}",
         };
 
         $owner = $outage->currentAssignee?->name

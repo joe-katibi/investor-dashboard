@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['name', 'code', 'major_outage_type_id', 'prefix', 'is_planned', 'is_emergency', 'description', 'sort_order', 'is_active'])]
+#[Fillable(['name', 'code', 'major_outage_type_id', 'prefix', 'is_planned', 'is_emergency', 'maintenance_kind', 'description', 'sort_order', 'is_active'])]
 class OutageType extends Model
 {
     use Auditable, HasAuditColumns;
@@ -36,5 +36,15 @@ class OutageType extends Model
     public function scopeActive(Builder $query): void
     {
         $query->where('is_active', true);
+    }
+
+    public const PREVENTIVE = 'preventive';
+
+    public const CORRECTIVE = 'corrective';
+
+    /** Types reported through the normal "Report outage" form (planned / field maintenance have their own flows). */
+    public function scopeReportable(Builder $query): void
+    {
+        $query->where('is_planned', false)->whereNull('maintenance_kind');
     }
 }

@@ -211,6 +211,10 @@ class NotificationDispatcher
                     'recipient' => $channel === NotificationChannel::InApp ? $recipient['user']->name : (string) $address,
                     'subject' => $message['title'],
                     'body' => $channel === NotificationChannel::Sms ? $message['sms'] : $message['body'],
+                    // Site photos (field maintenance) travel as e-mail attachments.
+                    'meta' => $channel === NotificationChannel::Mail && ! empty($context['attach_photo_ids'])
+                        ? ['photo_ids' => array_values((array) $context['attach_photo_ids'])]
+                        : null,
                     'status' => 'pending',
                     'trigger' => AuditContext::trigger(),
                 ]);

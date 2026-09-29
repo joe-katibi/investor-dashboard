@@ -79,6 +79,8 @@ class FifoSettings extends Page
                 Toggle::make($key('fifo.respect_shift'))->label('Respect shifts'),
                 Toggle::make($key('fifo.exclude_on_leave'))->label('Exclude users on leave'),
                 Toggle::make($key('fifo.skill_based'))->label('Skill-based assignment'),
+                Toggle::make($key('fifo.olt_coverage'))->label('Restrict technicians to their teams’ OLT coverage')
+                    ->helperText('Off: every technician can take any OLT. On: only teams covering the affected OLT (set on Teams / OLTs).'),
                 TextInput::make($key('fifo.max_active_per_user'))->label('Maximum active tickets per user')->numeric()->minValue(0)
                     ->helperText('0 = unlimited. Users may override this individually.'),
             ])->columns(2),

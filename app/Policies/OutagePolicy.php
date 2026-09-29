@@ -4,6 +4,7 @@ namespace App\Policies;
 
 use App\Enums\StatusCode;
 use App\Models\ChangeRequest;
+use App\Models\MaintenanceApproval;
 use App\Models\MajorOutageType;
 use App\Models\Outage;
 use App\Models\OutageStatus;
@@ -58,7 +59,8 @@ class OutagePolicy
     {
         return $user->can('outage.dispatch')
             && ! $outage->is_closed
-            && $outage->noc_confirmed_at !== null
+            // Field maintenance is raised on site, not NOC-confirmed; it can still be re-dispatched.
+            && ($outage->noc_confirmed_at !== null || ($outage->maintenance_kind !== null && $outage->dispatched_at !== null))
             && MajorOutageType::flags($outage->major_outage_type_id)['requires_infrastructure']
             // Planned maintenance is only dispatched once the CRF is fully signed.
             && ! $this->statusIs($outage, StatusCode::RestoreReported, StatusCode::NocRestoreConfirmed, StatusCode::MaintenanceRequested,
@@ -172,6 +174,26 @@ class OutagePolicy
         return $user->can('outage.confirm')
             && ! $outage->is_closed
             && $this->statusIs($outage, StatusCode::EscalatedToNoc);
+    }
+
+    // ------------------------------------------------------------------ field maintenance (preventive / corrective)
+
+    public function raiseFieldMaintenance(User $user): bool
+    {
+        return $user->can('field_maintenance.raise');
+    }
+
+    /** Dispatcher / Infrastructure Manager approval still open for this user (one approval per person). */
+    public function approvePreventive(User $user, Outage $outage): bool
+    {
+        return ! $outage->is_closed
+            && $this->statusIs($outage, StatusCode::PmPendingApproval)
+            && MaintenanceApproval::openSlotFor($outage, $user) !== null;
+    }
+
+    public function rejectPreventive(User $user, Outage $outage): bool
+    {
+        return $this->approvePreventive($user, $outage);
     }
 
     // ------------------------------------------------------------------ planned maintenance
