@@ -156,11 +156,9 @@ Seeded only when `APP_ENV` is not `production` (and `OMS_SEED_DEMO=true`). Passw
 | `tech.south1@oms.test`, `tech.south2@oms.test` | Outage Technician (South Crew) | Cover Area 47, Njewa OLTs |
 | `vendor.tech1@oms.test` | Outage Technician (outsourced) | FibreTech Contractors |
 
-Demo data also includes teams / sub-teams, four OLTs with FDT → Slot → Port topology, 7 days of shifts for every
-user, skills, and nine sample outages driven through the real workflow: one fully resolved, one NOC-rejected
-waiting for a CX Tier II callback, one dispatched with a support technician working in parallel, and system
-outages at IT Review and escalated to NOC. (Sample outages are only created on an empty database; demo users and
-teams are added on every seed.)
+Demo data also includes teams / sub-teams, 7 days of shifts for every user and skills. It creates **no outage
+tickets and no topology**: tickets start empty, and the real OLT → FDT → Slot → Port mapping is loaded from the
+mapping spreadsheet (see [Importing the network topology](#importing-the-network-topology-olt--fdt--slot--port)).
 
 ---
 
@@ -639,6 +637,34 @@ The role seeder only **adds** missing permissions to existing roles (it never re
 installation review *Support/Installation Technician* — it no longer needs `queue.work_technician`,
 `outage.update_restoration` or `outage.change_status` now that it works its own Support Technician queue.
 
+## Importing the network topology (OLT → FDT → Slot → Port)
+
+The mapping is a spreadsheet (`.xlsx` or `.csv`) whose first row is the header **OLT | FDT | SLOT | PORT** (one row
+per OLT port). The current network is bundled as `database/seeders/data/topology.csv` (20 OLTs, 425 FDTs, 840
+slots, 3,527 ports) and seeded by **`TopologySeeder`**, which runs with `php artisan db:seed`:
+
+```bash
+# Seeder: the bundled mapping (or storage/app/private/topology/mapping.xlsx|csv when present — it takes precedence)
+php artisan db:seed --class=TopologySeeder --force
+
+# Command, for any file (preview first, then import)
+php artisan oms:import-topology /path/to/MAPPING.xlsx --dry-run
+php artisan oms:import-topology /path/to/MAPPING.xlsx --missing=remove
+```
+
+…or **Configuration → OLTs → Import topology** (permission `topology.manage`) with a *Preview only* switch.
+
+* **Safe to re-run** — existing items are matched case-insensitively and reused; only missing ones are created.
+* **Tidying** — names are trimmed and spaces collapsed; FDT names are upper-cased so `Ntd FDT 1` / `NTD FDT 1` become
+  one FDT. The same FDT name under different OLTs (e.g. `FDT 24`) stays separate. Slots / ports must be numbers.
+* **Bad rows** (empty OLT / FDT, non-numeric slot or port) stop the whole import and are listed with row numbers.
+* **Items not in the file** (`--missing`): `keep` (default); `deactivate` (hidden from selection lists); `remove`
+  (deleted — except those still on tickets, which are deactivated so ticket history keeps its OLT / FDT / port).
+* Each import writes one `topology_imported` entry to the audit trail with the counts.
+* **Updating the bundled mapping** — replace `database/seeders/data/topology.csv` (same four columns) and re-seed,
+  or drop a newer file in `storage/app/private/topology/` (git-ignored) on the server.
+* The bundled mapping describes the live network: keep the repository **private**.
+
 ## Seeded reference data
 
 `php artisan db:seed` always seeds the reference data below (idempotent — safe to re-run on every deploy); demo
@@ -660,7 +686,8 @@ users and outages are added only outside production. Each seeder can also be run
 | `NotificationRuleSeeder` | In-app + e-mail + SMS lifecycle alerts: ticket created, assigned to NOC, NOC rejected, CX callback, site visit raised, assigned to Infrastructure, dispatched, support technician requested / completed, assigned to IT, returned to IT, progress update, closed by technician, resolved (plus IT feedback for system outages); critical outages, queue escalation, credit due; in-app *Admin feed* for Super Admin |
 | `EmailTemplateSeeder` | Two-Hour Update, Executive Summary, Summary Report |
 | `MaintenanceTemplateSeeder` | Planned maintenance e-mails: CRF for review, sign-off request, fully signed, changes requested, reminder, started, rescheduled, completed, cancelled (created only when missing) |
-| `DemoDataSeeder` | Non-production only: teams, users, topology, shifts, skills, sample outages |
+| `DemoDataSeeder` | Non-production only: teams, users for every role, shifts, skills (no tickets, no topology) |
+| `TopologySeeder` | OLTs, FDTs, slots and ports from `database/seeders/data/topology.csv` (runs with `db:seed`; safe to re-run, never removes) |
 
 ## Configuration screens
 
@@ -741,6 +768,8 @@ tests/Feature/             FIFO, workflow, SLA, reports, panel & security tests
 | `oms:prune-expired-cache` (scheduled closure) | hourly | Clean expired rows when the database cache driver is used |
 | `queue:prune-failed`, `queue:prune-batches` | daily | Housekeeping |
 | `oms:create-admin` | manual | Create a Super Admin |
+| `oms:import-topology {file} [--dry-run] [--missing=keep\|deactivate\|remove]` | manual | Import the OLT → FDT → Slot → Port mapping |
+| `oms:purge-outages [--force]` | manual | **Delete all outage tickets** and their data (history, queues, notifications, CRFs, photos) and restart ticket numbering. Asks you to type PURGE; back up first |
 
 All scheduled tasks use `onOneServer()` and `withoutOverlapping()`.
 

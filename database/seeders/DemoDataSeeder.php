@@ -8,7 +8,6 @@ use App\Models\Department;
 use App\Models\Fdt;
 use App\Models\Olt;
 use App\Models\Outage;
-use App\Models\OutageType;
 use App\Models\Port;
 use App\Models\Service;
 use App\Models\ShiftAssignment;
@@ -17,19 +16,18 @@ use App\Models\Team;
 use App\Models\User;
 use App\Models\UserSkill;
 use App\Models\Vertical;
-use App\Services\Outages\OutageWorkflow;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\Auth;
 
 /**
- * Local / staging demo data. Drives sample outages through the real workflow + FIFO engine,
- * so seeding doubles as an end-to-end smoke test of the lifecycle.
+ * Local / staging demo data: teams, users for every role, shifts and skills. No outage tickets
+ * and no topology — tickets start empty and the real OLT → FDT → Slot → Port mapping is loaded
+ * with `php artisan oms:import-topology` (or TopologySeeder).
  */
 class DemoDataSeeder extends Seeder
 {
     public const PASSWORD = 'Password123!';
 
-    public function run(OutageWorkflow $workflow): void
+    public function run(): void
     {
         $dept = Department::query()->pluck('id', 'code');
 
@@ -93,26 +91,9 @@ class DemoDataSeeder extends Seeder
         $north->forceFill(['leader_id' => $infraLead->id])->save();
         $south->forceFill(['leader_id' => $infraLead->id])->save();
 
-        // ---------------------------------------------------------------- topology
+        // Topology is not demo data: load the real OLT → FDT → Slot → Port mapping with
+        // `php artisan oms:import-topology` or TopologySeeder.
         $ftth = Vertical::query()->where('code', Vertical::FTTH)->value('id');
-        $olts = [];
-        foreach (['Salaama' => 'North', 'Kanengo' => 'North', 'Area 47' => 'South', 'Njewa' => 'South'] as $name => $region) {
-            $olt = Olt::query()->firstOrCreate(['name' => $name], ['location' => "{$name} ({$region})", 'vertical_id' => $ftth, 'is_active' => true]);
-            $olts[$name] = $olt;
-
-            foreach (range(1, 4) as $f) {
-                $fdt = Fdt::query()->firstOrCreate(['olt_id' => $olt->id, 'name' => "FDT {$f}"], ['is_active' => true]);
-                foreach (range(1, 2) as $s) {
-                    $slot = Slot::query()->firstOrCreate(['fdt_id' => $fdt->id, 'name' => "{$s}/".(10 + $f)], ['is_active' => true]);
-                    foreach (range(1, 4) as $p) {
-                        Port::query()->firstOrCreate(['slot_id' => $slot->id, 'name' => (string) $p], ['is_active' => true]);
-                    }
-                }
-            }
-        }
-
-        $north->olts()->syncWithoutDetaching([$olts['Salaama']->id, $olts['Kanengo']->id]);
-        $south->olts()->syncWithoutDetaching([$olts['Area 47']->id, $olts['Njewa']->id]);
 
         // Skills (used when skill-based FIFO is enabled)
         $internet = Service::query()->where('name', 'Internet')->value('id');
@@ -132,123 +113,6 @@ class DemoDataSeeder extends Seeder
             }
         }
 
-        // ---------------------------------------------------------------- sample outages
-        if (Outage::query()->exists()) {
-            return;
-        }
-
-        $type = OutageType::query()->pluck('id', 'code');
-        $mobility = Vertical::query()->where('code', Vertical::MOBILITY_4G)->value('id');
-        $salaamaFdt = $olts['Salaama']->fdts()->where('name', 'FDT 3')->first();
-
-        $samples = [
-            ['Salaama FDT 3 fibre cut', 'regular', $ftth, 11, 'Salaama', [$olts['Salaama']->id], [$salaamaFdt->id], 'resolve'],
-            ['Kanengo OLT power failure', 'emergency', $ftth, 240, 'Kanengo', [$olts['Kanengo']->id], [], 'support'],
-            ['Area 47 customer reports no service', 'regular', $ftth, 1, 'Area 47', [$olts['Area 47']->id], [], 'reject'],
-            ['CRM login failures across branches', 'system', $ftth, 0, 'Head office', [], [], 'it_escalate'],
-            ['Area 47 splitter degradation', 'regular', $ftth, 35, 'Area 47', [$olts['Area 47']->id], [], 'confirm'],
-            ['Lilongwe CBD 4G cluster down', 'regular', $mobility, 420, 'Lilongwe CBD', [], [], 'confirm', ['sites_down' => 1, 'cells_down' => 9, 'power_faults' => 1]],
-            ['SEACOM international transit degradation', 'core', $ftth, 1500, 'Core network', [], [], 'confirm'],
-            ['Dialer platform unavailable', 'system', $ftth, 0, 'Contact centre', [], [], 'none'],
-        ];
-
-        foreach ($samples as $i => $sample) {
-            [$title, $typeCode, $vertical, $customers, $location, $oltIds, $fdtIds, $progress] = $sample;
-            $extra = $sample[8] ?? [];
-
-            $outage = $this->as($cxAgent, fn () => $workflow->create(array_merge([
-                'title' => $title,
-                'outage_type_id' => $type[$typeCode],
-                'vertical_id' => $vertical,
-                'customers_affected' => $customers,
-                'location' => $location,
-                'description' => "Demo outage: {$title}.",
-                'start_time' => now()->subMinutes(30 + $i * 25),
-                'olt_ids' => $oltIds,
-                'fdt_ids' => $fdtIds,
-                'service_ids' => [$internet],
-            ], $extra), $cxAgent));
-
-            if ($progress === 'none') {
-                continue;
-            }
-
-            $outage->refresh();
-
-            if ($progress === 'it_escalate') {
-                $itUser = $outage->currentAssignee ?? $itLead;
-                $this->as($itUser, fn () => $workflow->itEscalateToNoc($outage, $itUser, 'CRM servers healthy; core DNS resolution failing — needs NOC.'));
-
-                continue;
-            }
-
-            $nocUser = $outage->currentAssignee ?? $nocLead;
-
-            if ($progress === 'reject') {
-                $this->as($nocUser, fn () => $workflow->rejectByNoc($outage, $nocUser, 'Single customer; OLT and PON healthy — likely drop cable or CPE.'));
-
-                continue;
-            }
-
-            $this->as($nocUser, fn () => $workflow->confirmByNoc($outage, $nocUser, 'Confirmed via monitoring alarms.'));
-
-            if (in_array($progress, ['dispatch', 'support', 'resolve'], true) && $outage->refresh()->currentAssignee) {
-                $dispatcher = $outage->currentAssignee;
-                $crew = in_array($location, ['Salaama', 'Kanengo'], true) ? $north : $south;
-                $this->as($dispatcher, fn () => $workflow->dispatch($outage, [
-                    'team_type' => TeamType::InHouse->value, 'team_id' => $infra->id, 'sub_team_id' => $crew->id, 'note' => 'Crew engaged.',
-                ], $dispatcher));
-            }
-
-            if ($progress === 'support' && ($tech = $outage->refresh()->currentAssignee)) {
-                $this->as($tech, fn () => $workflow->requestSupport($outage, $tech, [
-                    'work_required' => 'Replace damaged drop cable from FDT to the clinic and re-terminate the ONT.',
-                    'customer_details' => 'Kanengo Clinic — account 100245',
-                ]));
-            }
-
-            if ($progress === 'resolve' && ($tech = $outage->refresh()->currentAssignee)) {
-                $this->as($tech, fn () => $workflow->addUpdate($outage, $tech, 'On site, splicing damaged cable.'));
-                $this->as($tech, fn () => $workflow->reportRestored($outage, $tech, 'Cable spliced and service restored.'));
-
-                $outage->refresh();
-                $restoreNoc = $outage->currentAssignee ?? $nocLead;
-                $this->as($restoreNoc, fn () => $workflow->confirmRestoration($outage, $restoreNoc, 'Customers back online.'));
-                $this->as($nocLead, fn () => $workflow->resolve($outage, $nocLead, 'Fibre cut by road works; cable spliced.'));
-                $this->as($cxAgent, fn () => $workflow->setFlag($outage, 'sms_sent', true, $cxAgent));
-            }
-        }
-
-        // Planned maintenance: requested by Infrastructure, CRF issued by NOC and waiting for signatures.
-        $maintenance = $this->as($infraLead, fn () => $workflow->requestMaintenance([
-            'title' => 'Njewa OLT firmware upgrade',
-            'vertical_id' => $ftth,
-            'location' => 'Njewa',
-            'olt_ids' => [$olts['Njewa']->id],
-            'customers_affected' => 60,
-            'scheduled_start' => now()->addDay()->startOfDay(),
-            'scheduled_end' => now()->addDay()->startOfDay()->addHours(4),
-            'in_charge' => 'Ivy Infra Lead',
-            'emergency_contact' => '+265991000000',
-            'risk_tier' => 'high',
-            'work_description' => 'Upgrade Njewa OLT firmware and re-provision affected ONUs.',
-            'fallback_plan' => 'Roll back to the previous firmware image.',
-            'prior_tests' => 'Upgrade tested on the lab OLT.',
-            'risks_mitigation' => 'ONUs failing to register — technician on site to re-provision.',
-        ], $infraLead));
-        $this->as($nocLead, fn () => $workflow->sendCrfForSignoff($maintenance, $nocLead, [
-            'customers_affected' => 64,
-            'risk_tier' => 'high',
-            'checklist' => ['customers_identified' => true, 'pre_alerts_broadcast' => true],
-            'signatories' => [
-                ['role' => 'NOC', 'user_id' => $nocManager->id],
-                ['role' => 'CE Manager', 'user_id' => $cxLead->id],
-                ['role' => 'Department Head', 'user_id' => $infraManager->id],
-                ['role' => 'Chief Technology Officer (CTO)', 'email' => 'cto@oms.test'],
-            ],
-        ]));
-
-        Auth::logout();
     }
 
     private function team(string $name, int $departmentId, TeamType $type, ?Team $parent = null): Team
@@ -276,12 +140,5 @@ class DemoDataSeeder extends Seeder
         $user->teams()->syncWithoutDetaching(collect($teams)->pluck('id')->all());
 
         return $user;
-    }
-
-    private function as(User $user, callable $callback): mixed
-    {
-        Auth::setUser($user);
-
-        return $callback();
     }
 }
