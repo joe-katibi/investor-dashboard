@@ -2,8 +2,11 @@
 
 namespace App\Filament\Concerns;
 
+use BackedEnum;
+use Illuminate\Auth\Access\Response;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
+use UnitEnum;
 
 /**
  * Permission-based access for configuration resources (spec §4.4). Master data referenced
@@ -24,6 +27,30 @@ trait GuardsWithPermission
     protected static function managePermission(): string
     {
         return static::$permission;
+    }
+
+    /**
+     * Filament authorises its Create / Edit / Delete actions and pages through this method, which
+     * by default asks a Laravel policy and ALLOWS the action when the model has none. These
+     * resources are permission-based (no policies), so every action is routed to the checks below —
+     * otherwise anyone able to view the list could also create and edit.
+     */
+    public static function getAuthorizationResponse(string|UnitEnum $action, ?Model $record = null): Response
+    {
+        $action = $action instanceof UnitEnum ? ($action instanceof BackedEnum ? (string) $action->value : $action->name) : $action;
+
+        $allowed = match ($action) {
+            'viewAny' => static::canViewAny(),
+            'view' => $record ? static::canView($record) : static::canViewAny(),
+            'create' => static::canCreate(),
+            'update' => $record ? static::canEdit($record) : static::allows(static::managePermission()),
+            'delete' => $record ? static::canDelete($record) : static::canDeleteAny(),
+            'deleteAny' => static::canDeleteAny(),
+            'reorder', 'replicate' => static::allows(static::managePermission()),
+            default => false, // force delete, restore, anything unknown
+        };
+
+        return $allowed ? Response::allow() : Response::deny();
     }
 
     public static function canViewAny(): bool

@@ -4,6 +4,7 @@ namespace App\Filament\Resources\NotificationLogs;
 
 use App\Enums\NotificationChannel;
 use App\Enums\NotificationEvent;
+use App\Filament\Concerns\ReadOnlyResource;
 use App\Filament\Resources\NotificationLogs\Pages\ManageNotificationLogs;
 use App\Jobs\SendNotificationJob;
 use App\Models\NotificationLog;
@@ -26,6 +27,8 @@ use UnitEnum;
 /** Delivery log for every notification: recipient, event, time, status, failure reason (spec §12). */
 class NotificationLogResource extends Resource
 {
+    use ReadOnlyResource;
+
     protected static ?string $model = NotificationLog::class;
 
     protected static ?string $navigationLabel = 'Notification Log';

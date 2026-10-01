@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\AuditLogs;
 
+use App\Filament\Concerns\ReadOnlyResource;
 use App\Filament\Resources\AuditLogs\Pages\ManageAuditLogs;
 use App\Models\AuditLog;
 use BackedEnum;
@@ -23,6 +24,8 @@ use UnitEnum;
 
 class AuditLogResource extends Resource
 {
+    use ReadOnlyResource;
+
     protected static ?string $model = AuditLog::class;
 
     protected static ?string $navigationLabel = 'Audit Trail';
