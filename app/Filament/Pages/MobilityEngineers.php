@@ -63,7 +63,7 @@ class MobilityEngineers extends Page implements HasTable
                     'technicianOutages as resolved_30_count' => fn ($q) => $internal($q)->whereNotNull('restored_at')->where('restored_at', '>=', now()->subDays(30)),
                 ]))
             ->defaultSort('name')
-            ->recordUrl(fn (User $record) => MobilityOutageResource::getUrl('index', ['activeTab' => 'all', 'filters' => ['technician_id' => ['value' => $record->id]]]))
+            ->recordUrl(fn (User $record) => MobilityOutageResource::getUrl('index', ['tab' => 'all', 'filters' => ['technician_id' => ['value' => $record->id]]]))
             ->emptyStateHeading('No 4G engineers or technicians yet')
             ->emptyStateDescription('Give a user the “4G Engineer” or “4G Technician” role under People → Users.')
             ->columns([

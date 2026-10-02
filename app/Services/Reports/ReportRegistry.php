@@ -59,6 +59,7 @@ class ReportRegistry
         return array_filter(self::REPORTS, fn (string $key) => match (true) {
             $user === null => false,
             in_array($key, self::SHARED, true) => true,
+            $key === 'mobility_audit' => $user->can('mobility.view') && $user->can('audit.view'),
             $key === 'mobility_4g' || isset(MobilityReports::REPORTS[$key]) => $user->can('mobility.view'),
             default => $user->can('outage.view'),
         }, ARRAY_FILTER_USE_KEY);

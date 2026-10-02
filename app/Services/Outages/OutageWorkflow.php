@@ -9,6 +9,7 @@ use App\Enums\StatusCode;
 use App\Events\OutageCreated;
 use App\Events\OutageStatusChanged;
 use App\Events\OutageUpdated;
+use App\Models\AuditLog;
 use App\Models\ChangeRequest;
 use App\Models\Fdt;
 use App\Models\Olt;
@@ -317,6 +318,14 @@ class OutageWorkflow
             ]);
 
             $outage->forceFill(['latest_update' => $body])->save();
+
+            if ($outage->isMobility()) {
+                $outage->audit(AuditLog::MOBILITY_PREFIX.'update_posted', [
+                    'ticket' => $outage->ticket_number, 'by' => "{$by->name} ({$update->actor_type})",
+                    'type' => OutageUpdate::TYPES[$update->type] ?? $update->type, 'details' => $body,
+                ], userId: $by->id);
+            }
+
             event(new OutageUpdated($outage->id, $outage->ticket_number));
             $this->notifier->dispatch(NotificationEvent::UpdatePosted, $outage, ['reason' => $body, 'by' => $by->name]);
 
@@ -876,6 +885,14 @@ class OutageWorkflow
         $outage->setRelation('status', $status);
 
         $this->recordHistory($outage, $fromId, $status, $reason, $by);
+
+        // 4G audit trail: every status change with who, previous and new status, and the comment.
+        if ($outage->isMobility() && (int) $fromId !== (int) $status->id) {
+            $outage->audit(AuditLog::MOBILITY_PREFIX.'status_changed', [
+                'ticket' => $outage->ticket_number, 'status' => $status->name, 'comment' => $reason,
+            ], ['status' => OutageStatus::query()->whereKey($fromId)->value('name')], $by?->id ?? false);
+        }
+
         $this->sla->onStatusChanged($outage, $status);
 
         if ($status->is_closed) {

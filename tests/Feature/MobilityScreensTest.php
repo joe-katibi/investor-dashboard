@@ -9,6 +9,8 @@ use App\Filament\Pages\MobilityEngineers;
 use App\Filament\Pages\MobilitySettings;
 use App\Filament\Pages\MyWork;
 use App\Filament\Pages\Reports;
+use App\Filament\Resources\AuditLogs\AuditLogResource;
+use App\Filament\Resources\AuditLogs\Pages\ManageAuditLogs;
 use App\Filament\Resources\Enodebs\EnodebResource;
 use App\Filament\Resources\Enodebs\Pages\ManageEnodebs;
 use App\Filament\Resources\ImpactRules\ImpactRuleResource;
@@ -26,6 +28,7 @@ use App\Filament\Resources\VendorTemplates\VendorTemplateResource;
 use App\Filament\Resources\VendorUpdates\VendorUpdateResource;
 use App\Filament\Support\OutageLink;
 use App\Mail\ScheduledReportMail;
+use App\Models\AuditLog;
 use App\Models\EmailTemplate;
 use App\Models\Enodeb;
 use App\Models\Outage;
@@ -114,7 +117,15 @@ class MobilityScreensTest extends TestCase
             $this->get($url)->assertOk();
         }
 
-        $this->get(MobilityDashboard::getUrl())->assertSee($internal->ticket_number)->assertSee('Vendor performance');
+        $this->get(MobilityDashboard::getUrl())->assertSee($internal->ticket_number)->assertSee('Vendor performance')->assertSee('4G Audit Trail');
+
+        // The audit trail, filtered to 4G: named actions with the ticket number.
+        $this->get(AuditLogResource::getUrl('index', ['filters' => ['scope' => ['value' => 'mobility']]]))
+            ->assertOk()->assertSee('4G: Vendor update')->assertSee('4G: Engineer assigned')->assertSee($power->ticket_number);
+        Livewire::test(ManageAuditLogs::class)
+            ->filterTable('scope', 'mobility')
+            ->assertCanSeeTableRecords(AuditLog::query()->where('event', '4g_vendor_update')->get())
+            ->assertCanNotSeeTableRecords(AuditLog::query()->where('auditable_type', (new Priority)->getMorphClass())->limit(3)->get());
         $this->get(MobilityOutageResource::getUrl('view', ['record' => $power]))->assertSee('Vendor Investigating')->assertSee('ATC');
     }
 
@@ -203,7 +214,10 @@ class MobilityScreensTest extends TestCase
             ->assertActionVisible(TestAction::make('mobilityReopen'))
             ->callAction(TestAction::make('mobilityReopen'), ['reason' => 'Down again'])
             ->assertHasNoActionErrors();
-        $this->assertTrue($ticket->refresh()->status->isCode(StatusCode::MobilityOpen));
+        // Reopened → back in the engineer FIFO queue → picked up by the available engineer.
+        $this->assertTrue($ticket->refresh()->status->isCode(StatusCode::MobilityAssigned));
+        $this->assertSame($this->engineer->id, $ticket->current_assignee_id);
+        $this->assertFalse($ticket->is_closed);
 
         // Attachments are private downloads for people who may see the ticket.
         $file = $this->workflow->addMobilityAttachments($ticket, $this->noc, [OutageAttachment::DIRECTORY.'/2026/10/alarm.png'], [OutageAttachment::DIRECTORY.'/2026/10/alarm.png' => 'alarm.png'])->first();

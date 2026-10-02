@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -17,6 +18,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 ])]
 class VendorUpdate extends Model
 {
+    use Auditable;
+
     public const STATUSES = [
         'acknowledged' => 'Acknowledged',
         'investigating' => 'Investigating',

@@ -3,6 +3,7 @@
 namespace App\Providers\Filament;
 
 use App\Filament\Pages\Dashboard;
+use App\Filament\Resources\AuditLogs\AuditLogResource;
 use App\Filament\Widgets\CommandCentreOverview;
 use App\Filament\Widgets\CoreOutagesTable;
 use App\Filament\Widgets\ManagementInsights;
@@ -21,16 +22,19 @@ use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
 use Filament\Navigation\NavigationGroup;
+use Filament\Navigation\NavigationItem;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
 use Filament\Support\Enums\Width;
+use Filament\Support\Icons\Heroicon;
 use Filament\View\PanelsRenderHook;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\HtmlString;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 
@@ -85,6 +89,15 @@ class AdminPanelProvider extends PanelProvider
                 NavigationGroup::make('Configuration')->collapsed(),
                 NavigationGroup::make('People')->collapsed(),
                 NavigationGroup::make('Monitoring')->collapsed(),
+            ])
+            ->navigationItems([
+                // The audit trail filtered to the 4G NOC module: ticket actions, vendors, topology, rules, settings.
+                NavigationItem::make('4G Audit Trail')
+                    ->group('4G NOC')
+                    ->icon(Heroicon::OutlinedFingerPrint)
+                    ->sort(12)
+                    ->visible(fn () => (bool) Auth::user()?->can('audit.view') && (bool) Auth::user()?->can('mobility.view'))
+                    ->url(fn () => AuditLogResource::getUrl('index', ['filters' => ['scope' => ['value' => 'mobility']]])),
             ])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')

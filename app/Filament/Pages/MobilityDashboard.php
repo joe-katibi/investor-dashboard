@@ -79,7 +79,7 @@ class MobilityDashboard extends Page
             'open' => Outage::query()->mobility()->active()
                 ->with(['priority:id,name,color,queue_rank', 'status:id,name,color', 'vendor:id,name', 'technician:id,name', 'currentAssignee:id,name', 'enodebs:id,site_id,name', 'transmissionNodes:id,code,name'])
                 ->orderBy('sla_due_at')->limit(25)->get(),
-            'tab' => fn (string $tab) => MobilityOutageResource::getUrl('index', ['activeTab' => $tab]),
+            'tab' => fn (string $tab) => MobilityOutageResource::getUrl('index', ['tab' => $tab]),
             'human' => fn (?int $minutes) => MobilityMetrics::human($minutes),
         ];
     }

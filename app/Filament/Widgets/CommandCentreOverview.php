@@ -33,7 +33,7 @@ class CommandCentreOverview extends StatsOverviewWidget
         $tile = fn (string $code, string $tab) => Stat::make(($major[$code]['name'] ?? ucfirst($code)).' — live', $major[$code]['outages'] ?? 0)
             ->description(number_format($major[$code]['customers'] ?? 0).' customers affected')
             ->color(($major[$code]['outages'] ?? 0) > 0 ? 'danger' : 'success')
-            ->url(OutageResource::getUrl('index', ['activeTab' => $tab]));
+            ->url(OutageResource::getUrl('index', ['tab' => $tab]));
 
         return [
             $tile(MajorOutageType::NETWORK, 'network'),

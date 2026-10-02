@@ -2,10 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Enums\AvailabilityStatus;
 use App\Enums\QueueType;
 use App\Enums\SlaState;
 use App\Enums\StatusCode;
 use App\Mail\VendorNotificationMail;
+use App\Models\AuditLog;
 use App\Models\Enodeb;
 use App\Models\ImpactRule;
 use App\Models\NotificationLog;
@@ -13,11 +15,13 @@ use App\Models\Outage;
 use App\Models\OutageType;
 use App\Models\OutageUpdate;
 use App\Models\Priority;
+use App\Models\QueueDefinition;
 use App\Models\TransmissionNode;
 use App\Models\User;
 use App\Models\Vendor;
 use App\Models\VendorTemplate;
 use App\Models\Vertical;
+use App\Services\Fifo\FifoAssignmentEngine;
 use App\Services\Mobility\MobilityImpact;
 use App\Services\Mobility\VendorEscalationMonitor;
 use App\Services\Mobility\VendorNotifier;
@@ -30,6 +34,7 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Tests\Concerns\BuildsOmsFixtures;
 use Tests\TestCase;
@@ -193,10 +198,14 @@ class MobilityNocTest extends TestCase
         $other = $this->makeUser('4G Technician', 'MOBILITY');
         $site = $this->site('4624', 'Nsambya Kevina');
 
+        // No engineer picked: FIFO gives it to the engineer who has waited longest.
         $ticket = $this->ticket('mobility_enodeb', ['enodeb_ids' => [$site->id], 'cells_down' => 3]);
 
         $this->assertSame('4G-ENB-000001', $ticket->ticket_number);
-        $this->assertSame(StatusCode::MobilityNew->value, $ticket->status->code);
+        $this->assertSame(StatusCode::MobilityAssigned->value, $ticket->status->code);
+        $this->assertSame($engineer->id, $ticket->current_assignee_id);
+        $this->assertSame(['New', 'Assigned'], $ticket->statusHistories()->with('toStatus')->reorder('id')->get()->pluck('toStatus.name')->all());
+        $this->assertTrue(OutageUpdate::query()->where('outage_id', $ticket->id)->where('actor_type', 'System')->where('body', 'like', "Assigned to {$engineer->name} automatically by FIFO%")->exists());
         $this->assertSame(OutageType::WORKFLOW_MOBILITY_INTERNAL, $ticket->workflow);
         $this->assertSame(Priority::MOBILITY_MINOR, $ticket->priority->code);
         $this->assertSame('4G Minor – 24h', $ticket->slaPolicy->name);
@@ -209,6 +218,16 @@ class MobilityNocTest extends TestCase
         } catch (ValidationException) {
         }
 
+        // The engineer cannot take it: FIFO passes it to the next one, and the ticket follows.
+        Auth::setUser($engineer);
+        app(FifoAssignmentEngine::class)->reject($ticket->currentAssignment, $engineer, 'On another site');
+        $ticket->refresh();
+        $this->assertSame($other->id, $ticket->current_assignee_id);
+        $this->assertSame($other->id, $ticket->technician_id);
+        $this->assertSame(StatusCode::MobilityAssigned->value, $ticket->status->code);
+
+        // The NOC can still pick a person by hand.
+        Auth::setUser($this->noc);
         $ticket = $this->workflow->assignMobilityEngineer($ticket, $this->noc, $engineer->id, 'Please check the RRUs');
         $this->assertSame(StatusCode::MobilityAssigned->value, $ticket->status->code);
         $this->assertSame($engineer->id, $ticket->current_assignee_id);
@@ -275,8 +294,68 @@ class MobilityNocTest extends TestCase
 
         // The timeline says who did what.
         $actors = OutageUpdate::query()->where('outage_id', $ticket->id)->pluck('actor_type')->unique()->values()->all();
-        $this->assertEqualsCanonicalizing([OutageUpdate::ACTOR_NOC, OutageUpdate::ACTOR_ENGINEER], $actors);
+        $this->assertEqualsCanonicalizing([OutageUpdate::ACTOR_NOC, OutageUpdate::ACTOR_ENGINEER, OutageUpdate::ACTOR_SYSTEM], $actors);
         $this->assertTrue(OutageUpdate::query()->where('outage_id', $ticket->id)->where('body', 'like', 'Assigned to%')->exists());
+    }
+
+    public function test_fifo_assigns_4g_engineers_and_follows_timeouts_teams_and_manual_mode(): void
+    {
+        $fifo = app(FifoAssignmentEngine::class);
+        $inQueue = fn (Outage $ticket) => $ticket->refresh()->openQueueEntries()->where('queue_type', QueueType::MobilityEngineer->value)->exists();
+
+        // Nobody available: the ticket waits in the 4G engineer queue as "New".
+        $away = $this->makeUser('4G Engineer', 'MOBILITY', attributes: ['availability_status' => 'offline']);
+        $ticket = $this->ticket('mobility_enodeb');
+        $this->assertSame(StatusCode::MobilityNew->value, $ticket->status->code);
+        $this->assertSame(QueueType::MobilityEngineer, $ticket->current_queue);
+        $this->assertNull($ticket->current_assignee_id);
+        $this->assertStringContainsString('queue (FIFO)', $ticket->mobilityOwner());
+
+        // Vendor tickets never enter the engineer queue.
+        $this->assertFalse($inQueue($this->ticket('mobility_power', ['vendor_id' => $this->vendor()->id])));
+
+        // An engineer comes on: FIFO assigns the waiting ticket.
+        $fifo->setAvailability($away, AvailabilityStatus::Available, $away);
+        $this->assertSame($away->id, $ticket->refresh()->current_assignee_id);
+        $this->assertSame(StatusCode::MobilityAssigned->value, $ticket->status->code);
+
+        // Not accepted in time → taken back → nobody else available → "Open", still in the queue.
+        $this->travel(45)->minutes();
+        $fifo->processTimeouts();
+        $ticket->refresh();
+        $this->assertSame(StatusCode::MobilityOpen->value, $ticket->status->code);
+        $this->assertNull($ticket->current_assignee_id);
+        $this->assertNull($ticket->technician_id);
+        $this->assertTrue($inQueue($ticket));
+        $this->assertTrue(OutageUpdate::query()->where('outage_id', $ticket->id)->where('body', 'like', 'No engineer is on the ticket any more%')->exists());
+
+        // FIFO can be limited to one team (e.g. Transmission): only its members are offered the ticket.
+        $transmission = $this->makeTeam('4G Transmission', 'MOBILITY');
+        $ran = $this->makeUser('4G Engineer', 'MOBILITY');
+        $tx = $this->makeUser('4G Technician', 'MOBILITY', [$transmission]);
+        Auth::setUser($this->noc);
+        $ticket = $this->workflow->assignMobilityEngineer($ticket, $this->noc, null, 'Microwave side', $transmission->id);
+        $this->assertSame($tx->id, $ticket->current_assignee_id, 'the longer-waiting RAN engineer is skipped: not in the team');
+        $this->assertSame($transmission->id, $ticket->team_id);
+        $this->assertNotSame($ran->id, $ticket->current_assignee_id);
+
+        // The engineer started, then the NOC sends it back to the queue: next engineer starts at "Assigned".
+        Auth::setUser($tx);
+        $this->workflow->startMobilityWork($ticket, $tx);
+        $fifo->setAvailability($tx, AvailabilityStatus::Offline, $tx);
+        Auth::setUser($this->noc);
+        $ticket = $this->workflow->assignMobilityEngineer($ticket, $this->noc, null);
+        $this->assertSame($ran->id, $ticket->current_assignee_id, 'the team is kept only when asked for again');
+        $this->assertSame(StatusCode::MobilityAssigned->value, $ticket->status->code);
+
+        // Queue set to manual: tickets wait for the NOC to assign.
+        QueueDefinition::query()->where('queue_type', QueueType::MobilityEngineer->value)->update(['assignment_mode' => 'manual']);
+        $manual = $this->ticket('mobility_enodeb');
+        $this->assertSame(StatusCode::MobilityNew->value, $manual->status->code);
+        $this->assertNull($manual->current_assignee_id);
+        $manual = $this->workflow->assignMobilityEngineer($manual, $this->noc, $ran->id);
+        $this->assertSame($ran->id, $manual->current_assignee_id);
+        $this->assertSame(StatusCode::MobilityAssigned->value, $manual->status->code);
     }
 
     // ------------------------------------------------------------------ vendor workflow
@@ -413,8 +492,11 @@ class MobilityNocTest extends TestCase
         } catch (ValidationException) {
         }
 
+        // Reopened → back into the workflow: FIFO hands it to the next available engineer.
         $ticket = $this->workflow->reopenMobility($ticket, $this->noc, 'Site went down again after 20 minutes');
-        $this->assertSame(StatusCode::MobilityOpen->value, $ticket->status->code);
+        $this->assertSame(StatusCode::MobilityAssigned->value, $ticket->status->code);
+        $this->assertSame($engineer->id, $ticket->current_assignee_id);
+        $this->assertContains('Open', $ticket->statusHistories()->with('toStatus')->get()->pluck('toStatus.name')->all());
         $this->assertFalse($ticket->is_closed);
         $this->assertSame(1, $ticket->reopen_count);
         $this->assertNull($ticket->resolved_at);
@@ -478,6 +560,94 @@ class MobilityNocTest extends TestCase
         $this->workflow->recordVendorUpdate($ticket, $this->noc, ['vendor_status' => 'resolved', 'method' => 'email']);
         $this->travel(5)->hours();
         $this->assertSame(0, $monitor->tick());
+    }
+
+    // ------------------------------------------------------------------ audit trail
+
+    public function test_every_4g_action_is_in_the_audit_trail(): void
+    {
+        Storage::fake('local');
+        $engineer = $this->makeUser('4G Engineer', 'MOBILITY');
+        $events = fn (Outage $ticket) => AuditLog::query()->where('auditable_type', $ticket->getMorphClass())->where('auditable_id', $ticket->id)
+            ->where('event', 'like', '4g_%')->orderBy('id')->pluck('event')->all();
+
+        // Internal ticket: created → FIFO → engineer → NOC.
+        $internal = $this->ticket('mobility_enodeb');
+        Auth::setUser($engineer);
+        $this->workflow->startMobilityWork($internal, $engineer);
+        $this->workflow->addUpdate($internal, $engineer, 'Replacing the RRU', 'progress');
+        $this->workflow->markMobilityResolved($internal, $engineer, ['root_cause' => 'Faulty RRU', 'resolution' => 'Replaced']);
+        Auth::setUser($this->noc);
+        $this->workflow->rejectMobilityResolution($internal, $this->noc, 'Cell 2 still down');
+        $this->workflow->assignMobilityEngineer($internal, $this->noc, $engineer->id, 'Check the jumper');
+
+        $this->assertSame([
+            '4g_created', '4g_queued_for_engineer', '4g_status_changed', '4g_fifo_assigned', '4g_status_changed', '4g_investigation_started',
+            '4g_update_posted', '4g_status_changed', '4g_resolved_pending_noc', '4g_status_changed', '4g_verification_failed',
+            '4g_status_changed', '4g_engineer_assigned',
+        ], $events($internal));
+
+        // Who, action, previous status, new status, comment.
+        $change = AuditLog::query()->where('auditable_id', $internal->id)->where('event', '4g_status_changed')->orderBy('id')->get()[1];
+        $this->assertSame($engineer->id, $change->user_id);
+        $this->assertSame('Assigned', $change->old_values['status']);
+        $this->assertSame('In Progress', $change->new_values['status']);
+        $this->assertSame($internal->ticket_number, $change->subjectLabel());
+        $this->assertSame('4G: Status changed', $change->eventLabel());
+
+        $fifo = AuditLog::query()->where('auditable_id', $internal->id)->where('event', '4g_fifo_assigned')->firstOrFail();
+        $this->assertNull($fifo->user_id, 'FIFO assignments are the system’s, not the signed-in user’s');
+        $this->assertSame('System', $fifo->new_values['by']);
+        $this->assertSame('4G: FIFO assigned', $fifo->eventLabel());
+
+        // Vendor ticket: vendor, e-mail, vendor update, attachment, close, reopen, escalate, cancel.
+        $vendor = $this->vendor();
+        $power = $this->ticket('mobility_power', ['vendor_id' => $vendor->id]);
+        Storage::disk('local')->put('outage-attachments/2026/10/mail.eml', 'x');
+        $this->workflow->recordVendorUpdate($power, $this->noc, [
+            'vendor_status' => 'power_restored', 'method' => 'email', 'comments' => 'Mains back',
+            'attachments' => ['outage-attachments/2026/10/mail.eml'], 'attachment_names' => ['outage-attachments/2026/10/mail.eml' => 'mail.eml'],
+        ]);
+        $this->workflow->addMobilityAttachments($power, $this->noc, ['outage-attachments/2026/10/mail.eml'], [], 'Site photo');
+        $this->workflow->closeMobility($power, $this->noc, ['root_cause' => 'Mains failure', 'resolution' => 'Restored by ATC']);
+        $this->workflow->reopenMobility($power, $this->noc, 'Down again');
+        $this->workflow->changeMobilityVendor($power, $this->noc, $this->vendor('TOA', 'noc@toa.example')->id, 'Site is on a TOA tower');
+        $this->workflow->escalateMobility($power, $this->noc, 'Second failure today');
+        $this->workflow->cancelMobility($power, $this->noc, 'Duplicate');
+
+        $recorded = $events($power);
+        foreach ([
+            '4g_created', '4g_vendor_assigned', '4g_vendor_email_sent', '4g_vendor_update', '4g_attachment_added', '4g_closed',
+            '4g_reopened', '4g_vendor_changed', '4g_escalated', '4g_cancelled', '4g_status_changed',
+        ] as $event) {
+            $this->assertContains($event, $recorded, $event);
+        }
+
+        $mail = AuditLog::query()->where('auditable_id', $power->id)->where('event', '4g_vendor_email_sent')->firstOrFail();
+        $this->assertStringContainsString('ops@atc.example', $mail->new_values['details']);
+        $closed = AuditLog::query()->where('auditable_id', $power->id)->where('event', '4g_closed')->firstOrFail();
+        $this->assertSame($this->noc->id, $closed->user_id);
+        $this->assertSame('Closed', $closed->new_values['status']);
+
+        // The records behind a ticket are audited too, and so is the 4G configuration.
+        $vendor->update(['phone' => '+256700000001']);
+        app(Settings::class)->set(['mobility.vendor_silent_minutes' => 45], $this->noc->id);
+        $ftth = $this->reportOutage($this->makeUser('CX Agent', 'CX'));
+
+        $scope = AuditLog::query()->mobility()->get();
+        $types = $scope->pluck('auditable_type')->map(fn (string $type) => class_basename($type))->unique()->values()->all();
+        foreach (['Outage', 'Vendor', 'VendorUpdate', 'OutageAttachment', 'OutageReopening', 'Setting'] as $type) {
+            $this->assertContains($type, $types, $type);
+        }
+        $this->assertTrue($scope->contains(fn (AuditLog $log) => $log->auditable_type === $power->getMorphClass() && $log->auditable_id === $power->id && $log->event === 'updated'), 'field changes of 4G tickets');
+        $this->assertFalse($scope->contains(fn (AuditLog $log) => $log->auditable_type === $ftth->getMorphClass() && $log->auditable_id === $ftth->id), 'FTTH tickets are not part of the 4G trail');
+        $this->assertFalse($scope->contains(fn (AuditLog $log) => class_basename($log->auditable_type) === 'Priority'));
+
+        // A silent vendor is in the trail as well.
+        $silent = $this->ticket('mobility_power', ['vendor_id' => $vendor->id]);
+        $this->travel(61)->minutes();
+        app(VendorEscalationMonitor::class)->tick();
+        $this->assertContains('4g_vendor_no_update', $events($silent));
     }
 
     // ------------------------------------------------------------------ notifications: 4G is separate from FTTH

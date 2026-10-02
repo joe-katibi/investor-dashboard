@@ -7,7 +7,9 @@ use App\Models\ChangeRequest;
 use App\Models\NotificationLog;
 use App\Models\Outage;
 use App\Models\OutageAttachment;
+use App\Models\OutageReopening;
 use App\Models\User;
+use App\Models\VendorUpdate;
 use App\Services\Reports\DashboardMetrics;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -66,6 +68,9 @@ class OutagePurger
 
     private function auditQuery()
     {
-        return AuditLog::query()->whereIn('auditable_type', [(new Outage)->getMorphClass(), (new ChangeRequest)->getMorphClass()]);
+        // Tickets, CRFs and the 4G records that hang off a ticket (vendor updates, attachments, reopenings).
+        return AuditLog::query()->whereIn('auditable_type', array_map(fn (string $class) => (new $class)->getMorphClass(), [
+            Outage::class, ChangeRequest::class, VendorUpdate::class, OutageAttachment::class, OutageReopening::class,
+        ]));
     }
 }

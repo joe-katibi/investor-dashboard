@@ -358,6 +358,17 @@ class Outage extends Model
         return $this->workflow === OutageType::WORKFLOW_MOBILITY_VENDOR;
     }
 
+    /** Who has a 4G ticket right now: the vendor, the person FIFO assigned, the queue it waits in, or the NOC. */
+    public function mobilityOwner(): string
+    {
+        if ($this->isVendorTicket() && ! $this->current_queue) {
+            return 'Vendor '.($this->vendor?->name ?? '—');
+        }
+
+        return $this->currentAssignee?->name
+            ?? ($this->current_queue ? $this->current_queue->getLabel().' queue (FIFO)' : ($this->technician?->name ?? '4G NOC'));
+    }
+
     public function domainLabel(): ?string
     {
         return OutageType::FAULT_DOMAINS[$this->fault_domain] ?? null;

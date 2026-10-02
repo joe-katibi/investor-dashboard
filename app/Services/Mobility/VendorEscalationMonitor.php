@@ -6,6 +6,7 @@ use App\Enums\NotificationChannel;
 use App\Enums\NotificationEvent;
 use App\Enums\StatusCode;
 use App\Events\OutageUpdated;
+use App\Models\AuditLog;
 use App\Models\Outage;
 use App\Models\OutageStatus;
 use App\Models\OutageType;
@@ -116,6 +117,10 @@ class VendorEscalationMonitor
         OutageUpdate::query()->create([
             'outage_id' => $outage->id, 'type' => 'escalation', 'actor_type' => OutageUpdate::ACTOR_SYSTEM, 'body' => $reason, 'is_system' => true,
         ]);
+
+        $outage->audit(AuditLog::MOBILITY_PREFIX.($management ? 'vendor_escalated' : 'vendor_no_update'), [
+            'ticket' => $outage->ticket_number, 'status' => $outage->status?->name, 'by' => OutageUpdate::ACTOR_SYSTEM, 'details' => $reason,
+        ], userId: false);
 
         $event = $management ? NotificationEvent::MobilityVendorEscalation : NotificationEvent::MobilityVendorSilent;
         $context = ['reason' => $reason, 'by' => 'System'];

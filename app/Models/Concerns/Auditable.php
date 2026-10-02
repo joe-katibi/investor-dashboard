@@ -48,7 +48,18 @@ trait Auditable
         return array_diff_key($attributes, array_flip($excluded));
     }
 
-    protected function writeAudit(string $event, array $old, array $new): void
+    /**
+     * Record a named action on this record (e.g. "4g_vendor_update"), next to the automatic
+     * created / updated / deleted entries. $userId names the acting user when it is not the
+     * signed-in one (workflow services act on behalf of a given user); false records it as done
+     * by the system even inside a user's request (automatic e-mails, FIFO assignment).
+     */
+    public function audit(string $event, array $new = [], array $old = [], int|false|null $userId = null): void
+    {
+        $this->writeAudit($event, $old, $new, $userId);
+    }
+
+    protected function writeAudit(string $event, array $old, array $new, int|false|null $userId = null): void
     {
         $request = app()->runningInConsole() ? null : Request::instance();
 
@@ -58,7 +69,7 @@ trait Auditable
             'event' => $event,
             'old_values' => $old ?: null,
             'new_values' => $new ?: null,
-            'user_id' => Auth::id(),
+            'user_id' => $userId === false ? null : ($userId ?? Auth::id()),
             'trigger' => AuditContext::trigger(),
             'ip_address' => $request?->ip(),
             'user_agent' => $request ? mb_substr((string) $request->userAgent(), 0, 255) : null,

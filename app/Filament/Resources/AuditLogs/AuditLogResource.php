@@ -63,7 +63,7 @@ class AuditLogResource extends Resource
         return $schema->components([
             TextEntry::make('created_at')->dateTime('Y-m-d H:i:s'),
             TextEntry::make('user.name')->label('User')->placeholder('System'),
-            TextEntry::make('event')->badge(),
+            TextEntry::make('event')->badge()->formatStateUsing(fn (AuditLog $record) => $record->eventLabel()),
             TextEntry::make('subject')->state(fn (AuditLog $record) => $record->subjectLabel()),
             TextEntry::make('trigger'),
             TextEntry::make('ip_address')->placeholder('—'),
@@ -82,9 +82,15 @@ class AuditLogResource extends Resource
                 TextColumn::make('created_at')->dateTime('Y-m-d H:i:s')->sortable(),
                 TextColumn::make('user.name')->label('User')->placeholder('System')->searchable(),
                 TextColumn::make('auditable_type')->label('Record')->formatStateUsing(fn (string $state, AuditLog $record) => $record->subjectLabel()),
-                TextColumn::make('event')->badge()->color(fn (string $state) => match ($state) {
-                    'created' => 'success', 'deleted' => 'danger', default => 'info',
-                }),
+                TextColumn::make('event')->label('Action')->badge()->formatStateUsing(fn (AuditLog $record) => $record->eventLabel())
+                    ->color(fn (string $state) => match (true) {
+                        $state === 'created' => 'success',
+                        $state === 'deleted' => 'danger',
+                        str_starts_with($state, AuditLog::MOBILITY_PREFIX) => 'warning',
+                        default => 'info',
+                    }),
+                TextColumn::make('changes')->label('What')->state(fn (AuditLog $record) => $record->changeLines())
+                    ->listWithLineBreaks()->limitList(3)->expandableLimitedList()->wrap()->visibleFrom('lg'),
                 TextColumn::make('trigger')->color('gray'),
                 TextColumn::make('ip_address')->toggleable(isToggledHiddenByDefault: true),
             ])
@@ -92,7 +98,17 @@ class AuditLogResource extends Resource
                 SelectFilter::make('auditable_type')->label('Record type')
                     ->options(fn () => AuditLog::query()->distinct()->orderBy('auditable_type')->pluck('auditable_type')
                         ->mapWithKeys(fn ($type) => [$type => class_basename($type)])->all()),
-                SelectFilter::make('event')->options(['created' => 'Created', 'updated' => 'Updated', 'deleted' => 'Deleted', 'topology_updated' => 'Topology updated']),
+                // 4G NOC: ticket actions and changes, vendors, vendor updates, attachments, reopenings, sites,
+                // transmission nodes, severity rules, vendor templates and the 4G settings.
+                SelectFilter::make('scope')->label('Module')->options(['mobility' => '4G NOC', 'other' => 'Everything else'])
+                    ->query(fn (Builder $query, array $data) => match ($data['value'] ?? null) {
+                        'mobility' => $query->mobility(),
+                        'other' => $query->whereNotIn('id', AuditLog::query()->mobility()->select('id')),
+                        default => $query,
+                    }),
+                SelectFilter::make('event')->label('Action')->multiple()
+                    ->options(fn () => AuditLog::query()->distinct()->orderBy('event')->pluck('event')
+                        ->mapWithKeys(fn (string $event) => [$event => AuditLog::labelFor($event)])->all()),
                 SelectFilter::make('user_id')->relationship('user', 'name')->searchable()->label('User'),
                 Filter::make('period')->schema([DatePicker::make('from'), DatePicker::make('until')])
                     ->query(fn (Builder $query, array $data) => $query

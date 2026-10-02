@@ -398,8 +398,10 @@ ticket is an outage whose type carries a 4G workflow; it is listed under **4G NO
 
 ```
 INTERNAL (eNodeB Outage 4G-ENB-…, Transmission Outage 4G-TRX-…)
-  4G NOC creates → NEW → NOC assigns an Engineer / Technician → ASSIGNED → engineer accepts and investigates → IN PROGRESS
-  (→ MONITORING) → engineer records root cause + resolution → RESOLVED – PENDING NOC CONFIRMATION
+  4G NOC creates → NEW → 4G ENGINEER FIFO QUEUE → next available Engineer / Technician (or one the NOC picks) → ASSIGNED
+     └─ rejected / not accepted in time / engineer unavailable → OPEN, back in the queue → the next one → ASSIGNED
+  → engineer accepts and investigates → IN PROGRESS (→ MONITORING)
+  → engineer records root cause + resolution → RESOLVED – PENDING NOC CONFIRMATION → 4G NOC VERIFICATION FIFO QUEUE
      ├─ NOC verifies the service → CLOSED
      └─ NOC: not restored → back to the same engineer (IN PROGRESS)
 
@@ -412,8 +414,17 @@ VENDOR (Power Outage 4G-PWR-…)
      └─ NOC: not restored → VENDOR INVESTIGATING
 
 Any time: CANCELLED (duplicates / false alarms, SLA N/A) · Closed tickets: REOPEN with a reason → OPEN
+(a reopened engineer ticket goes straight back into the 4G engineer FIFO queue)
 ```
 
+* **FIFO** — 4G uses the same FIFO engine as FTTH (availability, shift, leave, workload, acknowledgement timeout,
+  requeue on reject / timeout, *FIFO Queues* screen, *My Work*), with two queues of its own: **4G Engineer /
+  Technician** and **4G NOC Verification**. A new eNodeB / transmission ticket goes to the engineer queue and the
+  longest-waiting available engineer or technician gets it; the ticket follows the queue item on its own (Assigned
+  when someone holds it, Open when it is back in the queue). The NOC can still pick a person on the form or with
+  **Assign / Reassign**, send a ticket back to the queue, or limit the queue to one team of the 4G NOC department
+  (e.g. Transmission). Set the queue to *Manual* under *Configuration → FIFO Queues* (4G Engineer / Technician Queue) to always assign by hand.
+  Power tickets are with the vendor, so they only enter FIFO for the NOC verification step.
 * **Only the NOC closes.** Engineers and technicians (`mobility.work`) can accept, update, attach files and mark a
   ticket *Resolved – Pending NOC Confirmation*; *Verify & close* needs `mobility.verify`. Vendors are **records, not
   users** — no login; only the NOC (`mobility.vendor_update`) records what they say.
@@ -464,6 +475,15 @@ Any time: CANCELLED (duplicates / false alarms, SLA N/A) · Closed tickets: REOP
 * **Timeline** — every ticket lists creation, assignment, status changes, updates, vendor assignment, e-mails,
   vendor updates, attachments, verification, closure and reopening, each marked **System / NOC / Engineer /
   Technician**. Reopening keeps who, when, why and the previous closure.
+* **Audit trail** — every 4G action is written to the audit trail as a named entry on the ticket with the user (or
+  *System*), the action, the status, the time and the comment: created, queued, FIFO assigned / returned, engineer
+  assigned, investigation started, update posted, resolved, verification failed, status set, status changed
+  (previous → new), vendor assigned / changed, vendor e-mail sent / failed / not sent, vendor update, no vendor
+  update / escalated, attachment added, escalated, closed, reopened and cancelled — next to the field-by-field
+  changes of the ticket. Vendor updates, attachments, reopenings, vendors, sites, transmission nodes, severity
+  rules, vendor templates and the 4G settings are audited too. See it on the ticket (*Audit trail* tab), under
+  **4G NOC → 4G Audit Trail** (the audit trail filtered to the module) and as the **4G Audit Trail** report;
+  all need the `audit.view` permission.
 * **Dashboard and reports** — *4G NOC → Dashboard* (open, critical, pending confirmation, per category, SLA, MTTR,
   vendor and engineer performance). *Reporting → Reports*: 4G Outage, Power, Transmission, eNodeB, Vendor
   Performance, Engineer Performance, SLA Compliance, MTTR and Root Cause Analysis (CSV / Excel / PDF).

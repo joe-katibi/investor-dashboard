@@ -171,9 +171,7 @@ class OperationalSnapshot
             'start_time' => $o->start_time?->format('H:i d/m'),
             'elapsed' => $o->elapsedForHumans(),
             'status' => $o->status?->name,
-            'owner' => $o->isVendorTicket() && ! $o->current_queue
-                ? 'Vendor '.($o->vendor?->name ?? '—')
-                : ($o->currentAssignee?->name ?? $o->technician?->name ?? '4G NOC'),
+            'owner' => $o->mobilityOwner(),
             'vendor' => $o->vendor?->name ?? '—',
             'engineer' => $o->technician?->name ?? '—',
             'vendor_eta' => $o->vendor_eta_at?->format('H:i d/m') ?? '—',

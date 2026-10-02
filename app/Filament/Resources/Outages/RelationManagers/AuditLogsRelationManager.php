@@ -28,17 +28,12 @@ class AuditLogsRelationManager extends RelationManager
             ->columns([
                 TextColumn::make('created_at')->label('When')->dateTime('d M Y H:i:s'),
                 TextColumn::make('user.name')->label('User')->placeholder('System'),
-                TextColumn::make('event')->badge(),
+                // 4G tickets carry a named entry per action (assigned, vendor update, closed…) next to the field changes.
+                TextColumn::make('event')->label('Action')->badge()->formatStateUsing(fn (AuditLog $record) => $record->eventLabel())
+                    ->color(fn (AuditLog $record) => $record->isMobilityAction() ? 'warning' : 'info'),
                 TextColumn::make('trigger')->color('gray'),
-                TextColumn::make('changes')->state(fn (AuditLog $record) => collect($record->new_values ?? [])
-                    ->map(fn ($new, $key) => $key.': '.$this->fmt($record->old_values[$key] ?? null).' → '.$this->fmt($new))
-                    ->values()->all())
+                TextColumn::make('changes')->state(fn (AuditLog $record) => $record->changeLines())
                     ->listWithLineBreaks()->limitList(8)->expandableLimitedList()->wrap(),
             ]);
-    }
-
-    private function fmt(mixed $value): string
-    {
-        return $value === null ? '∅' : (is_scalar($value) ? (string) $value : json_encode($value));
     }
 }

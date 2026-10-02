@@ -107,12 +107,16 @@ final class MobilityOutageForm
                         ->visible(fn (Get $get) => (bool) self::type($get('outage_type_id'))?->usesVendor())
                         ->required(fn (Get $get) => (bool) self::type($get('outage_type_id'))?->usesVendor())
                         ->helperText('The vendor is e-mailed automatically when the ticket is created. Vendors do not use this system: record their replies with “Add vendor update”.'),
-                    Select::make('engineer_id')->label('Assign to engineer / technician')->searchable()
-                        ->placeholder('Assign later')
+                    Select::make('engineer_id')->label('Assign to engineer / technician')->searchable()->live()
+                        ->placeholder('Automatic — next available engineer / technician (FIFO)')
                         ->options(fn () => MobilityActions::engineerOptions())
-                        ->visible(fn (Get $get) => filled($get('outage_type_id')) && ! self::type($get('outage_type_id'))?->usesVendor()),
+                        ->visible(fn (Get $get) => self::isInternal($get('outage_type_id')))
+                        ->helperText('Left on automatic, the ticket goes to the 4G engineer FIFO queue: the next available engineer / technician gets it, and the one after if it is rejected or not accepted in time.'),
+                    Select::make('team_id')->label('Only offer it to this team (optional)')
+                        ->options(fn () => MobilityActions::teamOptions())
+                        ->visible(fn (Get $get) => self::isInternal($get('outage_type_id')) && blank($get('engineer_id')) && MobilityActions::teamOptions() !== []),
                     TextInput::make('assignment_note')->label('Instructions for the engineer')->maxLength(255)
-                        ->visible(fn (Get $get) => filled($get('engineer_id'))),
+                        ->visible(fn (Get $get) => self::isInternal($get('outage_type_id'))),
                 ])->columns(2),
 
             Section::make('Details')
@@ -185,6 +189,12 @@ final class MobilityOutageForm
         $result = app(MobilityImpact::class)->severity((int) $vertical, $type->id, self::counts($get));
 
         return ($result['priority']?->name ?? 'No matching rule').($result['rule'] ? ' — '.$result['rule']->name : '');
+    }
+
+    /** Worked by an engineer / technician (not a vendor). */
+    private static function isInternal(mixed $typeId): bool
+    {
+        return ($type = self::type($typeId)) !== null && ! $type->usesVendor();
     }
 
     private static function type(mixed $id): ?OutageType

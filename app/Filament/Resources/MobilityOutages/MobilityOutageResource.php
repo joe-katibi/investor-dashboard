@@ -221,12 +221,19 @@ class MobilityOutageResource extends Resource
                         TextEntry::make('time_to_resolve')->label('Time to resolve')->state(fn (Outage $record) => self::span($record->start_time, $record->restored_at))->placeholder('—'),
                     ])->columns(2),
 
-                    Section::make('Engineer / technician')->icon(Heroicon::OutlinedWrenchScrewdriver)->schema([
-                        TextEntry::make('technician.name')->label('Assigned to')->placeholder('Not assigned — with the 4G NOC'),
+                    // Who has the ticket through the FIFO queues: the engineer / technician, then the NOC user verifying it.
+                    Section::make('FIFO ownership')->icon(Heroicon::OutlinedQueueList)->schema([
+                        TextEntry::make('current_queue')->label('Queue')->badge()->placeholder('Not queued'),
+                        TextEntry::make('currentAssignee.name')->label('Assigned to')
+                            ->placeholder(fn (Outage $record) => $record->current_queue ? 'Waiting for the next available person (FIFO)' : 'With the 4G NOC'),
                         TextEntry::make('currentAssignment.status')->label('Assignment')->badge()->placeholder('—'),
-                        TextEntry::make('work_started_at')->label('Investigation started')->dateTime('d M H:i')->placeholder('—'),
-                        TextEntry::make('current_queue')->label('Queue')->badge()->placeholder('—'),
-                    ])->columns(2)->visible(fn (Outage $record) => ! $record->isVendorTicket()),
+                        TextEntry::make('currentAssignment.ack_due_at')->label('Accept by')->dateTime('H:i')->placeholder('—'),
+                        TextEntry::make('technician.name')->label('Engineer / technician')->placeholder('—')
+                            ->visible(fn (Outage $record) => ! $record->isVendorTicket()),
+                        TextEntry::make('work_started_at')->label('Investigation started')->dateTime('d M H:i')->placeholder('—')
+                            ->visible(fn (Outage $record) => ! $record->isVendorTicket()),
+                        TextEntry::make('team.name')->label('Team')->visible(fn (Outage $record) => $record->team_id !== null),
+                    ])->columns(2)->visible(fn (Outage $record) => ! $record->isVendorTicket() || $record->current_queue !== null),
 
                     Section::make('Vendor')->icon(Heroicon::OutlinedBuildingOffice2)
                         ->description('External party — no system access. Updates are captured by the NOC.')
@@ -315,11 +322,7 @@ class MobilityOutageResource extends Resource
     /** Who has the ticket: the vendor, the engineer, or the NOC user verifying it. */
     public static function owner(Outage $record): ?string
     {
-        if ($record->isVendorTicket() && ! $record->current_queue) {
-            return $record->vendor ? 'Vendor: '.$record->vendor->name : null;
-        }
-
-        return $record->currentAssignee?->name ?? (! $record->isVendorTicket() ? $record->technician?->name : null);
+        return $record->mobilityOwner();
     }
 
     private static function span(?CarbonInterface $from, ?CarbonInterface $to): ?string

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,6 +11,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable(['outage_id', 'vendor_update_id', 'path', 'original_name', 'note', 'user_id'])]
 class OutageAttachment extends Model
 {
+    use Auditable;
+
     public const DIRECTORY = 'outage-attachments';
 
     public function outage(): BelongsTo

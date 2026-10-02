@@ -5,9 +5,11 @@ namespace App\Filament\Resources\MobilityOutages;
 use App\Enums\QueueType;
 use App\Enums\StatusCode;
 use App\Filament\Resources\Outages\OutageActions;
+use App\Models\Department;
 use App\Models\Outage;
 use App\Models\OutageAttachment;
 use App\Models\OutageStatus;
+use App\Models\Team;
 use App\Models\User;
 use App\Models\Vendor;
 use App\Models\VendorUpdate;
@@ -19,6 +21,7 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Components\Grid;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Auth;
 
@@ -52,19 +55,24 @@ final class MobilityActions
     public static function assignEngineer(): Action
     {
         return Action::make('mobilityAssign')
-            ->label(fn (Outage $record) => $record->technician_id ? 'Reassign engineer' : 'Assign engineer / technician')
+            ->label(fn (Outage $record) => $record->technician_id || $record->current_queue ? 'Reassign' : 'Assign engineer / technician')
             ->icon(Heroicon::OutlinedUserPlus)
             ->color('warning')
             ->visible(fn (Outage $record) => Auth::user()?->can('mobilityAssign', $record))
-            ->fillForm(fn (Outage $record) => ['engineer_id' => $record->technician_id])
+            ->modalDescription('Pick a person, or leave it on automatic: the ticket then goes to the 4G engineer FIFO queue and the next available engineer / technician gets it (and the one after, if it is rejected or not accepted in time).')
             ->schema([
-                Select::make('engineer_id')->label('Engineer / technician')->required()->searchable()
+                Select::make('engineer_id')->label('Engineer / technician')->searchable()->live()
+                    ->placeholder('Automatic — next available engineer / technician (FIFO)')
                     ->options(fn () => self::engineerOptions()),
+                Select::make('team_id')->label('Only offer it to this team (optional)')
+                    ->options(fn () => self::teamOptions())
+                    ->visible(fn (Get $get) => blank($get('engineer_id')) && self::teamOptions() !== []),
                 Textarea::make('note')->label('Instructions (optional)')->maxLength(2000),
             ])
             ->action(fn (Outage $record, array $data) => OutageActions::run($record, fn () => app(OutageWorkflow::class)->assignMobilityEngineer(
-                $record, Auth::user(), (int) $data['engineer_id'], $data['note'] ?? null,
-            ), 'Ticket assigned'));
+                $record, Auth::user(), filled($data['engineer_id'] ?? null) ? (int) $data['engineer_id'] : null, $data['note'] ?? null,
+                filled($data['team_id'] ?? null) ? (int) $data['team_id'] : null,
+            ), filled($data['engineer_id'] ?? null) ? 'Ticket assigned' : 'Placed in the 4G engineer queue (FIFO)'));
     }
 
     public static function startWork(): Action
@@ -274,6 +282,14 @@ final class MobilityActions
             ->mapWithKeys(fn (User $user) => [$user->id => "{$user->name} — ".($user->roles->pluck('name')->implode(', ') ?: 'no role')
                 .", {$user->availability_status->getLabel()}, {$user->active_assignments_count} active"])
             ->all();
+    }
+
+    /** Teams of the 4G NOC department (e.g. RAN, Transmission): FIFO can be limited to one of them. */
+    public static function teamOptions(): array
+    {
+        return Team::query()->active()
+            ->whereIn('department_id', Department::query()->where('code', QueueType::MobilityEngineer->defaultDepartmentCode())->pluck('id'))
+            ->orderBy('name')->pluck('name', 'id')->all();
     }
 
     /** Statuses this user may set by hand on this ticket (code => name). */

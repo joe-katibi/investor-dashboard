@@ -2,7 +2,11 @@
 
 namespace App\Providers;
 
+use App\Events\AssignmentTimeout;
 use App\Events\OmsBroadcastEvent;
+use App\Events\OutageAssigned;
+use App\Events\OutageRejected;
+use App\Events\OutageUpdated;
 use App\Models\NotificationRule;
 use App\Models\User;
 use App\Services\Notifications\NotificationDispatcher;
@@ -11,6 +15,7 @@ use App\Services\Notifications\Sms\HttpSmsGateway;
 use App\Services\Notifications\Sms\LogSmsGateway;
 use App\Services\Notifications\Sms\SmsGateway;
 use App\Services\Notifications\Sms\TwilioSmsGateway;
+use App\Services\Outages\OutageWorkflow;
 use App\Services\Reports\DashboardMetrics;
 use App\Support\Settings;
 use Illuminate\Auth\Events\Login;
@@ -26,6 +31,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use Throwable;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -91,6 +97,21 @@ class AppServiceProvider extends ServiceProvider
         Event::listen('App\Events\*', function (string $eventName): void {
             if (is_subclass_of($eventName, OmsBroadcastEvent::class)) {
                 DashboardMetrics::bump();
+            }
+        });
+
+        // 4G tickets follow their engineer FIFO item: when the FIFO engine assigns one the ticket
+        // becomes "Assigned", when it takes it back (reject, timeout, engineer unavailable) "Open".
+        Event::listen([OutageAssigned::class, OutageRejected::class, AssignmentTimeout::class, OutageUpdated::class], function (OmsBroadcastEvent $event): void {
+            if (! $event->outageId) {
+                return;
+            }
+
+            try {
+                app(OutageWorkflow::class)->syncMobilityAssignment($event->outageId);
+            } catch (Throwable $exception) {
+                // The assignment itself is already committed; the next event (or the sweep) syncs again.
+                report($exception);
             }
         });
 

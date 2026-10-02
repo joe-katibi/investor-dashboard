@@ -29,9 +29,9 @@ class SlaCustomerOverview extends StatsOverviewWidget
         return [
             Stat::make('SLA compliant', $s['compliant'])->description('Active, inside SLA')->color('success'),
             Stat::make('Approaching breach', $s['at_risk'])->description('Pre-breach window')->color($s['at_risk'] ? 'warning' : 'gray')
-                ->url(OutageResource::getUrl('index', ['activeTab' => 'breached'])),
+                ->url(OutageResource::getUrl('index', ['tab' => 'breached'])),
             Stat::make('SLA breached', $s['breached'])->description('Active, past SLA')->color($s['breached'] ? 'danger' : 'gray')
-                ->url(OutageResource::getUrl('index', ['activeTab' => 'breached'])),
+                ->url(OutageResource::getUrl('index', ['tab' => 'breached'])),
             Stat::make('Resolved within SLA', $s['compliance'] !== null ? $s['compliance'].'%' : 'n/a')
                 ->description("{$s['met']} met · {$s['missed']} missed (period)")->color('info'),
             Stat::make('SMS sent / not sent', "{$s['sms_sent']} / {$s['sms_pending']}")->description('Active outages')->color('primary'),

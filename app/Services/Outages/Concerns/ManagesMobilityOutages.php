@@ -10,6 +10,7 @@ use App\Enums\SlaState;
 use App\Enums\StatusCode;
 use App\Events\OutageCreated;
 use App\Events\OutageUpdated;
+use App\Models\AuditLog;
 use App\Models\Enodeb;
 use App\Models\NotificationLog;
 use App\Models\Outage;
@@ -19,6 +20,7 @@ use App\Models\OutageStatus;
 use App\Models\OutageType;
 use App\Models\OutageUpdate;
 use App\Models\Priority;
+use App\Models\Team;
 use App\Models\TransmissionNode;
 use App\Models\User;
 use App\Models\Vendor;
@@ -115,7 +117,7 @@ trait ManagesMobilityOutages
             $outage->refresh();
             $this->recordHistory($outage, null, $initial, 'Ticket created', $by);
             $this->sla->apply($outage, 'started');
-            $this->addMobilityUpdate($outage, "Ticket created: {$outage->title}".(($impact = $outage->impactLabel()) ? " — affected: {$impact}" : '').'.', $by);
+            $this->addMobilityUpdate($outage, "Ticket created: {$outage->title}".(($impact = $outage->impactLabel()) ? " — affected: {$impact}" : '').'.', $by, action: 'created');
 
             event(new OutageCreated($outage->id, $outage->ticket_number));
             $this->notifier->dispatch(NotificationEvent::OutageCreated, $outage);
@@ -125,6 +127,9 @@ trait ManagesMobilityOutages
                 $this->assignVendorTo($outage, $vendor, $by, VendorTemplate::TICKET_CREATED);
             } elseif (! empty($data['engineer_id'])) {
                 $this->assignEngineerTo($outage, User::query()->findOrFail($data['engineer_id']), $by, $data['assignment_note'] ?? null);
+            } else {
+                // No engineer picked: the 4G engineer FIFO queue gives it to the next available one.
+                $this->queueForEngineer($outage, $by, $this->mobilityTeamId($data['team_id'] ?? null), $data['assignment_note'] ?? null);
             }
 
             return $outage->refresh();
@@ -172,17 +177,82 @@ trait ManagesMobilityOutages
 
     // ------------------------------------------------------------------ internal tickets: NOC → engineer → NOC
 
-    public function assignMobilityEngineer(Outage $outage, User $by, int $engineerId, ?string $note = null): Outage
+    /**
+     * NOC assigns (or re-assigns) the ticket: to a named engineer / technician, or — without one —
+     * to the 4G engineer FIFO queue, optionally limited to one team.
+     */
+    public function assignMobilityEngineer(Outage $outage, User $by, ?int $engineerId, ?string $note = null, ?int $teamId = null): Outage
     {
-        $result = DB::transaction(function () use ($outage, $by, $engineerId, $note): Outage {
+        $result = DB::transaction(function () use ($outage, $by, $engineerId, $note, $teamId): Outage {
             $outage = $this->lock($outage);
             Gate::forUser($by)->authorize('mobilityAssign', $outage);
-            $this->assignEngineerTo($outage, User::query()->findOrFail($engineerId), $by, $note);
+
+            $engineerId
+                ? $this->assignEngineerTo($outage, User::query()->findOrFail($engineerId), $by, $note)
+                : $this->queueForEngineer($outage, $by, $this->mobilityTeamId($teamId), $note);
 
             return $outage->refresh();
         });
 
         return $result->refresh();
+    }
+
+    /**
+     * Keeps an internal 4G ticket in step with its engineer FIFO item. The FIFO engine assigns,
+     * takes back (reject, acknowledgement timeout, engineer went off shift) and re-assigns on its
+     * own; this turns that into the ticket's status, engineer and timeline:
+     *
+     *   someone holds the item   → engineer set, New / Open becomes ASSIGNED
+     *   nobody holds it any more → ASSIGNED / IN PROGRESS / MONITORING becomes OPEN (waiting in the queue)
+     *
+     * Called after every assignment event; does nothing when the ticket is already in step.
+     */
+    public function syncMobilityAssignment(int $outageId): void
+    {
+        // One cheap look before locking: FTTH tickets and closed tickets are not ours.
+        if (Outage::query()->whereKey($outageId)->where('workflow', OutageType::WORKFLOW_MOBILITY_INTERNAL)->where('is_closed', false)->doesntExist()) {
+            return;
+        }
+
+        AuditContext::as('system:fifo-engine', fn () => DB::transaction(function () use ($outageId): void {
+            $outage = Outage::query()->with(['status', 'priority'])->lockForUpdate()->find($outageId);
+            $entry = $outage?->openQueueEntries()->where('queue_type', QueueType::MobilityEngineer->value)->first();
+
+            if (! $outage || $outage->is_closed || ! $entry) {
+                return; // not at the engineer step (with the NOC, or waiting for NOC verification)
+            }
+
+            $assignment = $entry->activeAssignment()->with(['user:id,name', 'assignedBy:id,name'])->first();
+
+            if ($assignment) {
+                $newEngineer = (int) $outage->technician_id !== (int) $assignment->user_id;
+                $outage->forceFill(['technician_id' => $assignment->user_id, 'acknowledged_at' => $outage->acknowledged_at ?? now()]);
+
+                $how = $assignment->assignment_type === AssignmentType::AutoFifo
+                    ? 'automatically by FIFO (next available engineer / technician)'
+                    : 'by '.($assignment->assignedBy?->name ?? 'a manager');
+
+                // A new engineer starts at "Assigned", also when the previous one had already begun.
+                if ($this->statusIs($outage, StatusCode::MobilityNew, StatusCode::MobilityOpen)
+                    || ($newEngineer && $this->statusIs($outage, StatusCode::MobilityInProgress, StatusCode::MobilityMonitoring))) {
+                    $this->transition($outage, StatusCode::MobilityAssigned, null, "Assigned to {$assignment->user?->name} {$how}");
+                } elseif ($outage->isDirty()) {
+                    $outage->save();
+                }
+
+                if ($newEngineer) {
+                    $this->addMobilityUpdate($outage, "Assigned to {$assignment->user?->name} {$how}.", null, action: 'fifo_assigned');
+                }
+
+                return;
+            }
+
+            if ($this->statusIs($outage, StatusCode::MobilityAssigned, StatusCode::MobilityInProgress, StatusCode::MobilityMonitoring)) {
+                $outage->forceFill(['technician_id' => null]);
+                $this->transition($outage, StatusCode::MobilityOpen, null, 'Back in the 4G engineer queue');
+                $this->addMobilityUpdate($outage, 'No engineer is on the ticket any more (assignment rejected, not accepted in time, or the engineer became unavailable). It is back in the 4G engineer queue for the next available engineer / technician.', null, action: 'fifo_returned');
+            }
+        }));
     }
 
     /** The assigned engineer / technician accepts the ticket and starts investigating. */
@@ -195,7 +265,7 @@ trait ManagesMobilityOutages
 
             $outage->forceFill(['work_started_at' => $outage->work_started_at ?? now(), 'acknowledged_at' => $outage->acknowledged_at ?? now()]);
             $this->transition($outage, StatusCode::MobilityInProgress, $by, $note ?: 'Investigation started');
-            $this->addMobilityUpdate($outage, 'Accepted the ticket and started the investigation.'.($note ? " {$note}" : ''), $by);
+            $this->addMobilityUpdate($outage, 'Accepted the ticket and started the investigation.'.($note ? " {$note}" : ''), $by, action: 'investigation_started');
 
             return $outage->refresh();
         });
@@ -232,7 +302,7 @@ trait ManagesMobilityOutages
 
             $this->fifo->complete($outage, QueueType::MobilityEngineer, $by, 'Resolved – pending NOC confirmation');
             $this->transition($outage, StatusCode::MobilityResolvedPendingNoc, $by, trim($data['resolution']));
-            $this->addMobilityUpdate($outage, "Marked resolved — pending NOC confirmation. Root cause: {$outage->root_cause} Resolution: {$outage->resolution}", $by, 'restoration');
+            $this->addMobilityUpdate($outage, "Marked resolved — pending NOC confirmation. Root cause: {$outage->root_cause} Resolution: {$outage->resolution}", $by, 'restoration', action: 'resolved_pending_noc');
 
             $this->fifo->enqueue($outage, QueueType::MobilityNoc, ['reason' => 'Resolved by '.$by->name.' — NOC to verify']);
             $this->notifier->dispatch(NotificationEvent::MobilityResolvedPending, $outage, ['reason' => $outage->resolution, 'notify_user_ids' => [$outage->created_by]]);
@@ -276,7 +346,7 @@ trait ManagesMobilityOutages
 
             $this->fifo->complete($outage, QueueType::MobilityNoc, $by, 'Verified and closed');
             $this->transition($outage, StatusCode::MobilityClosed, $by, $note ?: 'Restoration verified by NOC');
-            $this->addMobilityUpdate($outage, 'NOC verified the restoration and closed the ticket.'.($note ? " {$note}" : ''), $by);
+            $this->addMobilityUpdate($outage, 'NOC verified the restoration and closed the ticket.'.($note ? " {$note}" : ''), $by, action: 'closed');
             $this->notifier->dispatch(NotificationEvent::Resolved, $outage, ['reason' => $note ?: null, 'notify_user_ids' => [$outage->technician_id, $outage->created_by]]);
 
             if ($outage->isVendorTicket()) {
@@ -312,10 +382,12 @@ trait ManagesMobilityOutages
                 $outage->refresh();
                 $this->transition($outage, StatusCode::MobilityInProgress, $by, $reason);
             } else {
+                // The engineer who worked it is gone: back to the FIFO queue for the next one.
                 $this->transition($outage, StatusCode::MobilityOpen, $by, $reason);
+                $this->queueForEngineer($outage, $by, $outage->team_id);
             }
 
-            $this->addMobilityUpdate($outage, "NOC could not verify the restoration: {$reason}", $by);
+            $this->addMobilityUpdate($outage, "NOC could not verify the restoration: {$reason}", $by, action: 'verification_failed');
             $this->notifier->dispatch(NotificationEvent::MobilityVerificationFailed, $outage, ['reason' => $reason, 'notify_user_ids' => [$outage->technician_id]]);
 
             return $outage->refresh();
@@ -366,7 +438,7 @@ trait ManagesMobilityOutages
             }
 
             $this->transition($outage, $to, $by, $note);
-            $this->addMobilityUpdate($outage, 'Status set to '.$outage->status->name.($note ? ": {$note}" : '.'), $by);
+            $this->addMobilityUpdate($outage, 'Status set to '.$outage->status->name.($note ? ": {$note}" : '.'), $by, action: 'status_set');
 
             return $outage->refresh();
         });
@@ -432,7 +504,7 @@ trait ManagesMobilityOutages
                 'latest_update' => $summary,
             ])->save();
 
-            $this->addMobilityUpdate($outage, $summary, $by, 'vendor');
+            $this->addMobilityUpdate($outage, $summary, $by, 'vendor', action: 'vendor_update');
             $pending = $this->statusIs($outage, StatusCode::MobilityVendorResolvedPendingNoc);
 
             if ($update->reportsResolved()) {
@@ -534,7 +606,7 @@ trait ManagesMobilityOutages
 
             $to = implode(', ', (array) ($log->meta['to'] ?? [$log->recipient]));
             $cc = implode(', ', (array) ($log->meta['cc'] ?? []));
-            $this->addMobilityUpdate($outage, "Vendor notification e-mail sent to {$to}".($cc ? " (CC {$cc})" : '').": “{$log->subject}”.", null);
+            $this->addMobilityUpdate($outage, "Vendor notification e-mail sent to {$to}".($cc ? " (CC {$cc})" : '').": “{$log->subject}”.", null, action: 'vendor_email_sent');
 
             $outage->forceFill(['vendor_notified_at' => $outage->vendor_notified_at ?? now()]);
 
@@ -564,7 +636,7 @@ trait ManagesMobilityOutages
             }
 
             $reason = Str::limit((string) ($error ?: $log->failure_reason ?: 'unknown error'), 300);
-            $this->addMobilityUpdate($outage, "Vendor notification e-mail to {$log->recipient} FAILED: {$reason} Contact the vendor directly, then use “Send vendor notification” to retry.", null);
+            $this->addMobilityUpdate($outage, "Vendor notification e-mail to {$log->recipient} FAILED: {$reason} Contact the vendor directly, then use “Send vendor notification” to retry.", null, action: 'vendor_email_failed');
             $this->notifier->dispatch(NotificationEvent::MobilityVendorMailFailed, $outage, ['reason' => $reason, 'by' => 'System', 'notify_user_ids' => [$outage->created_by]]);
         }));
     }
@@ -611,11 +683,14 @@ trait ManagesMobilityOutages
             $this->transition($outage, StatusCode::MobilityOpen, $by, $reason);
             // The outage never really ended: the SLA clock continues from the original start.
             $this->sla->apply($outage, 'reopened');
-            $this->addMobilityUpdate($outage, "Ticket reopened (was {$previous}): {$reason}", $by);
+            $this->addMobilityUpdate($outage, "Ticket reopened (was {$previous}): {$reason}", $by, action: 'reopened');
             $this->notifier->dispatch(NotificationEvent::MobilityReopened, $outage, ['reason' => $reason, 'notify_user_ids' => [$outage->technician_id]]);
 
             if ($outage->isVendorTicket()) {
                 $this->sendVendorMail($outage, VendorTemplate::REOPENED, $by, ['reason' => $reason]);
+            } else {
+                // Back into the workflow: the next available engineer / technician picks it up.
+                $this->queueForEngineer($outage, $by, $outage->team_id);
             }
 
             return $outage->refresh();
@@ -640,7 +715,7 @@ trait ManagesMobilityOutages
             ]);
 
             $this->transition($outage, StatusCode::MobilityCancelled, $by, $reason);
-            $this->addMobilityUpdate($outage, "Ticket cancelled: {$reason}", $by);
+            $this->addMobilityUpdate($outage, "Ticket cancelled: {$reason}", $by, action: 'cancelled');
             $this->notifier->dispatch(NotificationEvent::MobilityCancelled, $outage, ['reason' => $reason, 'notify_user_ids' => [$outage->technician_id]]);
 
             if ($outage->isVendorTicket() && $outage->vendor_notified_at) {
@@ -663,7 +738,7 @@ trait ManagesMobilityOutages
             Gate::forUser($by)->authorize('mobilityEscalate', $outage);
 
             $outage->forceFill(['escalated_at' => now(), 'escalated_by' => $by->id])->save();
-            $this->addMobilityUpdate($outage, "Escalated by NOC: {$reason}", $by, 'escalation');
+            $this->addMobilityUpdate($outage, "Escalated by NOC: {$reason}", $by, 'escalation', action: 'escalated');
 
             $settings = app(Settings::class);
             $this->notifier->notifyTargets(NotificationEvent::MobilityEscalated, $outage, [
@@ -694,7 +769,7 @@ trait ManagesMobilityOutages
                 throw ValidationException::withMessages(['attachments' => 'Add at least one file.']);
             }
 
-            $this->addMobilityUpdate($outage, 'Attachment'.($files->count() === 1 ? '' : 's').' added: '.$files->map->name()->implode(', ').($note ? " — {$note}" : '.'), $by, 'attachment');
+            $this->addMobilityUpdate($outage, 'Attachment'.($files->count() === 1 ? '' : 's').' added: '.$files->map->name()->implode(', ').($note ? " — {$note}" : '.'), $by, 'attachment', action: 'attachment_added');
             event(new OutageUpdated($outage->id, $outage->ticket_number));
 
             return $files;
@@ -722,7 +797,41 @@ trait ManagesMobilityOutages
         $outage->refresh();
         $outage->forceFill(['technician_id' => $engineer->id, 'acknowledged_at' => $outage->acknowledged_at ?? now()]);
         $this->transition($outage, StatusCode::MobilityAssigned, $by, $note ?: "Assigned to {$engineer->name}");
-        $this->addMobilityUpdate($outage, "Assigned to {$engineer->name}.".($note ? " {$note}" : ''), $by);
+        $this->addMobilityUpdate($outage, "Assigned to {$engineer->name}.".($note ? " {$note}" : ''), $by, action: 'engineer_assigned');
+    }
+
+    /**
+     * Put the ticket in the 4G engineer FIFO queue: the next available engineer / technician gets
+     * it (and the one after, if it is rejected or not accepted in time). Any engineer currently on
+     * it is released first.
+     */
+    private function queueForEngineer(Outage $outage, User $by, ?int $teamId, ?string $note = null): void
+    {
+        if ($outage->isVendorTicket()) {
+            throw ValidationException::withMessages(['engineer_id' => 'This outage type is handled by a vendor, not an engineer.']);
+        }
+
+        $this->fifo->complete($outage, QueueType::MobilityEngineer, $by, 'Returned to the 4G engineer queue');
+
+        // Nobody is on it until FIFO assigns; a team, when given, limits who it is offered to.
+        $outage->forceFill(['technician_id' => null, 'team_id' => $teamId ?? $outage->team_id])->save();
+
+        $this->fifo->enqueue($outage, QueueType::MobilityEngineer, ['team_id' => $teamId, 'reason' => 'Placed in the 4G engineer queue by '.$by->name]);
+        $outage->refresh();
+
+        // Someone was working it: it is open again until FIFO hands it to the next engineer.
+        if ($this->statusIs($outage, StatusCode::MobilityAssigned, StatusCode::MobilityInProgress, StatusCode::MobilityMonitoring)) {
+            $this->transition($outage, StatusCode::MobilityOpen, $by, $note ?: 'Returned to the 4G engineer queue');
+        }
+
+        $team = $teamId ? Team::query()->whereKey($teamId)->value('name') : null;
+        $this->addMobilityUpdate($outage, 'Placed in the 4G engineer queue (FIFO)'.($team ? " for team {$team}" : '').': the next available engineer / technician is assigned automatically.'.($note ? " {$note}" : ''), $by, action: 'queued_for_engineer');
+    }
+
+    /** A team may limit who FIFO offers the ticket to; only an active team counts. */
+    private function mobilityTeamId(mixed $teamId): ?int
+    {
+        return $teamId && Team::query()->active()->whereKey($teamId)->exists() ? (int) $teamId : null;
     }
 
     private function assignVendorTo(Outage $outage, Vendor $vendor, User $by, string $trigger, ?string $reason = null): void
@@ -740,7 +849,7 @@ trait ManagesMobilityOutages
         $this->transition($outage, StatusCode::MobilityVendorAssigned, $by, $reason ?: "Vendor {$vendor->name} assigned");
         $this->addMobilityUpdate($outage, $previous
             ? "Vendor changed from {$previous} to {$vendor->name}: {$reason}"
-            : "Vendor {$vendor->name} assigned.", $by);
+            : "Vendor {$vendor->name} assigned.", $by, action: $previous ? 'vendor_changed' : 'vendor_assigned');
 
         $this->sendVendorMail($outage, $trigger, $by, ['reason' => (string) $reason], advance: true, fallback: VendorTemplate::TICKET_CREATED, announce: true);
     }
@@ -755,7 +864,7 @@ trait ManagesMobilityOutages
 
         if ($logs->isEmpty()) {
             if ($announce) {
-                $this->addMobilityUpdate($outage, 'No active vendor e-mail template for this step, so no e-mail was sent. Contact the vendor directly.', null);
+                $this->addMobilityUpdate($outage, 'No active vendor e-mail template for this step, so no e-mail was sent. Contact the vendor directly.', null, action: 'vendor_email_not_sent');
             }
 
             return;
@@ -763,7 +872,7 @@ trait ManagesMobilityOutages
 
         // Could not even be queued (the vendor has no e-mail address).
         foreach ($logs->where('status', 'failed') as $log) {
-            $this->addMobilityUpdate($outage, "Vendor notification NOT sent: {$log->failure_reason} Contact the vendor directly.", null);
+            $this->addMobilityUpdate($outage, "Vendor notification NOT sent: {$log->failure_reason} Contact the vendor directly.", null, action: 'vendor_email_failed');
             $this->notifier->dispatch(NotificationEvent::MobilityVendorMailFailed, $outage, ['reason' => $log->failure_reason, 'by' => 'System']);
         }
     }
@@ -864,17 +973,30 @@ trait ManagesMobilityOutages
             ]));
     }
 
-    /** One entry of the ticket timeline, tagged with who it came from (System / NOC / Engineer / Technician). */
-    private function addMobilityUpdate(Outage $outage, string $body, ?User $by, string $type = 'system'): void
+    /**
+     * One entry of the ticket timeline, tagged with who it came from (System / NOC / Engineer /
+     * Technician) — and the same action in the audit trail (who, action, status, when, comment), so
+     * nothing that happens to a 4G ticket goes unrecorded.
+     */
+    private function addMobilityUpdate(Outage $outage, string $body, ?User $by, string $type = 'system', string $action = 'note'): void
     {
+        $actor = OutageUpdate::actorFor($by);
+
         OutageUpdate::query()->create([
             'outage_id' => $outage->id,
             'user_id' => $by?->id,
             'type' => $type,
-            'actor_type' => OutageUpdate::actorFor($by),
+            'actor_type' => $actor,
             'body' => $body,
             'is_system' => $type === 'system',
         ]);
+
+        $outage->audit(AuditLog::MOBILITY_PREFIX.$action, [
+            'ticket' => $outage->ticket_number,
+            'status' => OutageStatus::query()->whereKey($outage->status_id)->value('name'),
+            'by' => $by ? "{$by->name} ({$actor})" : $actor,
+            'details' => $body,
+        ], userId: $by?->id ?? false);
     }
 
     /** A moment that happened: now by default, never (meaningfully) in the future. */

@@ -3,6 +3,7 @@
 namespace App\Services\Reports;
 
 use App\Enums\SlaState;
+use App\Models\AuditLog;
 use App\Models\Outage;
 use App\Models\OutageType;
 use App\Services\Mobility\MobilityMetrics;
@@ -29,6 +30,7 @@ class MobilityReports
         'mobility_sla' => '4G SLA Compliance',
         'mobility_mttr' => '4G MTTR Report',
         'mobility_root_cause' => '4G Root Cause Analysis',
+        'mobility_audit' => '4G Audit Trail',
     ];
 
     public const RELATIONS = [
@@ -50,6 +52,7 @@ class MobilityReports
             'mobility_sla' => $this->slaCompliance($filters),
             'mobility_mttr' => $this->mttr($filters),
             'mobility_root_cause' => $this->rootCause($filters),
+            'mobility_audit' => $this->auditTrail($filters),
             default => throw new InvalidArgumentException("Unknown report [{$key}]."),
         };
     }
@@ -268,6 +271,42 @@ class MobilityReports
             'category' => 'Category', 'root_cause' => 'Root Cause', 'tickets' => 'Occurrences', 'sites' => 'Sites', 'vendors' => 'Vendor(s)',
             'avg_duration' => 'Avg Outage (min)', 'total_downtime' => 'Total Downtime (min)', 'last' => 'Last Occurrence', 'example' => 'Example Ticket',
         ], $rows, 'Tickets with a recorded root cause, grouped by category and cause, most frequent first.', $from, $to);
+    }
+
+    /**
+     * Everything recorded about the 4G NOC module in the period: each ticket action (who, action,
+     * status, comment), field changes, vendor / topology / rule / template / settings changes.
+     */
+    private function auditTrail(array $filters): ReportResult
+    {
+        [$from, $to] = $this->period($filters);
+        $query = fn () => AuditLog::query()->mobility()->whereBetween('created_at', [$from, $to]);
+
+        return new ReportResult(self::REPORTS['mobility_audit'], [
+            'time' => 'Date / Time', 'user' => 'User', 'record' => 'Ticket / Record', 'action' => 'Action', 'previous_status' => 'Previous Status',
+            'status' => 'New Status', 'details' => 'Details / Comment', 'trigger' => 'Trigger', 'ip' => 'IP Address',
+        ], function (?int $limit) use ($query) {
+            $q = $query()->with('user:id,name')->orderByDesc('id');
+
+            foreach ($limit ? $q->limit($limit)->get() : $q->lazyByIdDesc(1000) as $log) {
+                $new = $log->new_values ?? [];
+                $action = $log->isMobilityAction();
+
+                yield [
+                    'time' => $log->created_at?->format('Y-m-d H:i:s'),
+                    'user' => $log->user?->name ?? 'System',
+                    'record' => $log->subjectLabel(),
+                    'action' => $log->eventLabel(),
+                    'previous_status' => $action ? ($log->old_values['status'] ?? null) : null,
+                    'status' => $action ? ($new['status'] ?? null) : null,
+                    'details' => $action
+                        ? ($new['details'] ?? $new['comment'] ?? null)
+                        : Str::limit(implode('; ', $log->changeLines()), 500),
+                    'trigger' => $log->trigger,
+                    'ip' => $log->ip_address,
+                ];
+            }
+        }, ['Entries' => $query()->count()], $from->format('d M Y').' – '.$to->format('d M Y').'. Every action on 4G tickets and every change to 4G vendors, topology, rules, templates and settings.');
     }
 
     // ------------------------------------------------------------------ helpers
