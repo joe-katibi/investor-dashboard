@@ -2,11 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Enums\AvailabilityStatus;
+use App\Enums\QueueType;
 use App\Enums\TeamType;
 use App\Filament\Resources\Outages\OutageActions;
 use App\Filament\Resources\Outages\OutageForm;
 use App\Filament\Resources\Outages\Pages\CreateOutage;
 use App\Filament\Resources\Outages\Pages\ViewOutage;
+use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Models\Fdt;
 use App\Models\MajorOutageType;
 use App\Models\Olt;
@@ -112,6 +115,41 @@ class OutageFormTest extends TestCase
         $this->assertCount(2, $options);
         $this->assertSame([], OutageForm::fdtOptions([]));
         $this->assertSame([3, 5], OutageForm::ids(['3', OutageForm::ALL, 5, 'x']));
+    }
+
+    public function test_assign_override_fifo_opens_and_reassigns(): void
+    {
+        $agent = $this->makeUser('CX Agent', 'CX');
+        $first = $this->makeUser('NOC Tier I', 'NOC');
+        $outage = $this->reportOutage($agent);
+        $this->assertSame($first->id, $outage->current_assignee_id);
+
+        $second = $this->makeUser('NOC Tier II', 'NOC');
+        $lead = $this->makeUser('NOC Team Leader', 'NOC', attributes: ['availability_status' => 'offline']); // queue.override
+        $this->actingAs($lead);
+
+        // The queue Select is enum-backed: its state comes back as a QueueType, in the options closure and on submit.
+        Livewire::test(ViewOutage::class, ['record' => $outage->getRouteKey()])
+            ->callAction(TestAction::make('reassign'), [
+                'queue_type' => QueueType::NocReview->value,
+                'user_id' => $second->id,
+                'reason' => 'Shift handover',
+            ])
+            ->assertHasNoFormErrors();
+
+        $this->assertSame($second->id, $outage->refresh()->current_assignee_id);
+    }
+
+    public function test_set_availability_on_the_users_screen(): void
+    {
+        $tech = $this->makeUser('Outage Technician', 'INFRA');
+        $this->actingAs($this->makeUser('NOC Team Leader', 'NOC', attributes: ['availability_status' => 'offline'])); // workforce.manage
+
+        Livewire::test(ListUsers::class)
+            ->callAction(TestAction::make('availability')->table($tech), ['status' => AvailabilityStatus::OnBreak->value, 'reason' => 'Lunch'])
+            ->assertHasNoFormErrors();
+
+        $this->assertSame(AvailabilityStatus::OnBreak, $tech->refresh()->availability_status);
     }
 
     public function test_dispatch_modal_opens_with_team_type_prefilled(): void

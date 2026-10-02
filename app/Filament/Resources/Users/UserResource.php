@@ -138,7 +138,9 @@ class UserResource extends Resource
                         ])
                         ->fillForm(fn (User $record) => ['status' => $record->availability_status])
                         ->action(function (User $record, array $data): void {
-                            app(FifoAssignmentEngine::class)->setAvailability($record, AvailabilityStatus::from($data['status']), Auth::user(), $data['reason'] ?? 'Set by manager');
+                            // An enum-backed Select hands back the enum itself, not its value.
+                            $status = $data['status'] instanceof AvailabilityStatus ? $data['status'] : AvailabilityStatus::from((string) $data['status']);
+                            app(FifoAssignmentEngine::class)->setAvailability($record, $status, Auth::user(), $data['reason'] ?? 'Set by manager');
                             Notification::make()->title('Availability updated')->success()->send();
                         }),
                     Action::make('resetMfa')

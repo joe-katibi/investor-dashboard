@@ -395,12 +395,18 @@ final class OutageActions
                 Select::make('queue_type')->label('Queue')->options(QueueType::class)->required()->live()
                     ->afterStateUpdated(fn (Set $set) => $set('user_id', null)),
                 Select::make('user_id')->label('Assign to')->required()->searchable()
-                    ->options(fn (Get $get) => self::queueUserOptions(QueueType::tryFrom((string) $get('queue_type')))),
+                    ->options(fn (Get $get) => self::queueUserOptions(self::queueType($get('queue_type')))),
                 Textarea::make('reason')->label('Override reason')->required()->maxLength(1000),
             ])
             ->action(fn (Outage $record, array $data) => self::run($record, fn () => app(FifoAssignmentEngine::class)->manualAssign(
-                $record, QueueType::from($data['queue_type']), User::query()->findOrFail($data['user_id']), Auth::user(), $data['reason'],
+                $record, self::queueType($data['queue_type']) ?? QueueType::NocReview, User::query()->findOrFail($data['user_id']), Auth::user(), $data['reason'],
             ), 'Assignment overridden'));
+    }
+
+    /** An enum-backed Select hands back the enum once hydrated, or the raw value before that. */
+    private static function queueType(mixed $state): ?QueueType
+    {
+        return $state instanceof QueueType ? $state : (is_string($state) ? QueueType::tryFrom($state) : null);
     }
 
     // ------------------------------------------------------------------ NOC
