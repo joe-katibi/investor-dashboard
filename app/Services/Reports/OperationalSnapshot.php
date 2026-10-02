@@ -5,8 +5,10 @@ namespace App\Services\Reports;
 use App\Enums\SlaState;
 use App\Models\MajorOutageType;
 use App\Models\Outage;
+use App\Models\OutageType;
 use App\Models\Priority;
 use App\Models\Vertical;
+use App\Services\Mobility\MobilityMetrics;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -102,6 +104,86 @@ class OperationalSnapshot
                 'ticket' => 'Ticket', 'title' => 'Title', 'priority' => 'Priority', 'customers' => 'Clients', 'start_time' => 'Start',
                 'status' => 'Status', 'sla_status' => 'SLA', 'owner' => 'Owner',
             ], $active->take(50)->map(fn (Outage $o) => $this->item($o))->all()),
+        ] + $this->mobility($periodStart, $now);
+    }
+
+    /**
+     * 4G NOC tickets for the hourly 4G update: counts (g4_*) and the loops
+     * {{#for each active 4G outage}}, {{#for each closed 4G outage}}, {{#for each 4G power outage}}…
+     */
+    public function mobility(CarbonInterface $periodStart, CarbonInterface $now): array
+    {
+        $open = Outage::query()->mobility()->active()->with(MobilityReports::RELATIONS)
+            ->get()->sortBy(fn (Outage $o) => [$o->priority?->severity ? -$o->priority->severity : 0, $o->start_time?->getTimestamp()])->values();
+        $closed = Outage::query()->mobility()->where('is_closed', true)->whereBetween('resolved_at', [$periodStart, $now])
+            ->with(MobilityReports::RELATIONS)->orderByDesc('resolved_at')->limit(100)->get();
+
+        $k = app(MobilityMetrics::class)->overview($periodStart, $now);
+        $items = fn (Collection $tickets) => $tickets->map(fn (Outage $o) => $this->mobilityItem($o))->values()->all();
+        $domain = fn (string $code) => $open->where('fault_domain', $code)->values();
+
+        return [
+            'g4_active' => $k['open'],
+            'g4_critical' => $k['critical'],
+            'g4_major' => $k['major'],
+            'g4_minor' => $k['minor'],
+            'g4_enodeb' => $k['enodeb'],
+            'g4_transmission' => $k['transmission'],
+            'g4_power' => $k['power'],
+            'g4_with_vendor' => $k['with_vendor'],
+            'g4_pending_noc' => $k['pending_noc'],
+            'g4_sites_down' => $k['sites_down'],
+            'g4_cells_down' => $k['cells_down'],
+            'g4_sla_at_risk' => $k['sla_at_risk'],
+            'g4_sla_breached' => $k['sla_breached'],
+            'g4_new' => Outage::query()->mobility()->whereBetween('created_at', [$periodStart, $now])->count(),
+            'g4_closed' => $closed->count(),
+            'g4_mttr' => MobilityMetrics::human($k['mttr']),
+
+            'g4_outages' => $items($open),
+            'g4_enodeb_outages' => $items($domain(OutageType::DOMAIN_ENODEB)),
+            'g4_transmission_outages' => $items($domain(OutageType::DOMAIN_TRANSMISSION)),
+            'g4_power_outages' => $items($domain(OutageType::DOMAIN_POWER)),
+            'g4_vendor_outages' => $items($open->where('workflow', OutageType::WORKFLOW_MOBILITY_VENDOR)->values()),
+            'g4_closed_outages' => $items($closed),
+
+            'g4_active_table' => $this->table([
+                'ticket' => 'Ticket', 'category' => 'Category', 'severity' => 'Severity', 'site' => 'Site(s)', 'start_time' => 'Start',
+                'elapsed' => 'Open for', 'status' => 'Status', 'owner' => 'With', 'sla_status' => 'SLA',
+            ], $items($open->take(50))),
+        ];
+    }
+
+    public function mobilityItem(Outage $o): array
+    {
+        $end = $o->end_time ?? $o->resolved_at;
+
+        return [
+            'ticket' => $o->ticket_number,
+            'title' => $o->title,
+            'category' => $o->domainLabel() ?? '—',
+            'outage_type' => $o->outageType?->name,
+            'severity' => $o->priority?->name ?? '—',
+            'site' => $o->sitesLabel(4) ?: ($o->nodesLabel(4) ?: ($o->location ?: '—')),
+            'nodes' => $o->nodesLabel(4) ?: '—',
+            'impact' => $o->impactLabel() ?: '—',
+            'location' => $o->location ?: '—',
+            'start_time' => $o->start_time?->format('H:i d/m'),
+            'elapsed' => $o->elapsedForHumans(),
+            'status' => $o->status?->name,
+            'owner' => $o->isVendorTicket() && ! $o->current_queue
+                ? 'Vendor '.($o->vendor?->name ?? '—')
+                : ($o->currentAssignee?->name ?? $o->technician?->name ?? '4G NOC'),
+            'vendor' => $o->vendor?->name ?? '—',
+            'engineer' => $o->technician?->name ?? '—',
+            'vendor_eta' => $o->vendor_eta_at?->format('H:i d/m') ?? '—',
+            'sla_status' => $o->currentSlaState()?->getLabel() ?? '—',
+            'sla_due' => $o->sla_due_at?->format('H:i d/m') ?? '—',
+            'latest_action' => $o->latest_update ?: 'Awaiting update.',
+            'end_time' => $end?->format('H:i d/m') ?? '—',
+            'duration' => $end && $o->start_time ? MobilityMetrics::human((int) $o->start_time->diffInMinutes($end)) : '—',
+            'root_cause' => $o->root_cause ?: '—',
+            'resolution' => $o->resolution ?: '—',
         ];
     }
 

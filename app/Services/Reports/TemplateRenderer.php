@@ -35,7 +35,30 @@ class TemplateRenderer
         'critical incident' => 'major_incidents',
         'closed outage' => 'closed_outages',
         'resolved outage' => 'closed_outages',
+        // 4G NOC tickets (hourly 4G update)
+        'active 4g outage' => 'g4_outages',
+        'open 4g outage' => 'g4_outages',
+        '4g enodeb outage' => 'g4_enodeb_outages',
+        '4g transmission outage' => 'g4_transmission_outages',
+        '4g power outage' => 'g4_power_outages',
+        '4g vendor ticket' => 'g4_vendor_outages',
+        'closed 4g outage' => 'g4_closed_outages',
     ];
+
+    /** Item keys inside the 4G loops. */
+    public const MOBILITY_ITEM_KEYS = [
+        'ticket', 'title', 'category', 'outage_type', 'severity', 'site', 'nodes', 'impact', 'location', 'start_time', 'elapsed', 'status', 'owner',
+        'vendor', 'engineer', 'vendor_eta', 'sla_status', 'sla_due', 'latest_action', 'end_time', 'duration', 'root_cause', 'resolution',
+    ];
+
+    /** @return list<string> values of the 4G hourly update */
+    public static function mobilityPlaceholders(): array
+    {
+        return [
+            'g4_active', 'g4_critical', 'g4_major', 'g4_minor', 'g4_enodeb', 'g4_transmission', 'g4_power', 'g4_with_vendor', 'g4_pending_noc',
+            'g4_sites_down', 'g4_cells_down', 'g4_sla_at_risk', 'g4_sla_breached', 'g4_new', 'g4_closed', 'g4_mttr', 'g4_active_table',
+        ];
+    }
 
     public function render(string $template, array $data): string
     {

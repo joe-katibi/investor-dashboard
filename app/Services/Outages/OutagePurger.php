@@ -6,6 +6,7 @@ use App\Models\AuditLog;
 use App\Models\ChangeRequest;
 use App\Models\NotificationLog;
 use App\Models\Outage;
+use App\Models\OutageAttachment;
 use App\Models\User;
 use App\Services\Reports\DashboardMetrics;
 use Illuminate\Support\Facades\Cache;
@@ -52,11 +53,12 @@ class OutagePurger
             User::query()->whereNotNull('last_assigned_at')->update(['last_assigned_at' => null]);
         });
 
-        foreach (['outage-photos', 'crf-customer-lists'] as $directory) {
+        foreach (['outage-photos', 'crf-customer-lists', OutageAttachment::DIRECTORY] as $directory) {
             Storage::disk('local')->deleteDirectory($directory);
         }
 
         Cache::forget('oms.nav.active-outages');
+        Cache::forget('oms.nav.active-4g-outages');
         DashboardMetrics::bump();
 
         return $counts;

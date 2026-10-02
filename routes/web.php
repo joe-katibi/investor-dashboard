@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\CrfDocumentController;
 use App\Http\Controllers\CrfSignController;
+use App\Http\Controllers\OutageAttachmentController;
 use App\Http\Controllers\OutagePhotoController;
 use Illuminate\Support\Facades\Route;
 
@@ -20,3 +21,6 @@ Route::middleware(['auth', 'throttle:60,1'])->get('/crf/{outage}/pdf', CrfDocume
 
 // Field maintenance site photos (signed-in users who can view the ticket).
 Route::middleware(['auth', 'throttle:240,1'])->get('/photos/{photo}', OutagePhotoController::class)->name('outage-photos.show');
+
+// 4G ticket attachments / vendor evidence (signed-in users who can view the ticket).
+Route::middleware(['auth', 'throttle:240,1'])->get('/attachments/{attachment}', OutageAttachmentController::class)->name('outage-attachments.show');

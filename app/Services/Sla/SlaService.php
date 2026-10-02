@@ -36,7 +36,7 @@ class SlaService
             ->active()
             ->get()
             ->filter(function (SlaPolicy $policy) use ($outage, $serviceIds): bool {
-                foreach (['major_outage_type_id', 'outage_type_id', 'vertical_id', 'priority_id'] as $column) {
+                foreach (['major_outage_type_id', 'outage_type_id', 'vertical_id', 'priority_id', 'vendor_id'] as $column) {
                     if ($policy->{$column} !== null && (int) $policy->{$column} !== (int) $outage->{$column}) {
                         return false;
                     }
@@ -120,7 +120,7 @@ class SlaService
 
         // Work that never went ahead (not an outage / not approved / cancelled) has no SLA outcome.
         if ($outage->status?->isCode(StatusCode::NocReject) || $outage->status?->isCode(StatusCode::PmRejected)
-            || $outage->status?->isCode(StatusCode::MaintenanceCancelled)) {
+            || $outage->status?->isCode(StatusCode::MaintenanceCancelled) || $outage->status?->isCode(StatusCode::MobilityCancelled)) {
             $state = SlaState::NotApplicable;
         } else {
             $end = $outage->end_time ?? $outage->restored_at ?? now();
@@ -195,7 +195,8 @@ class SlaService
             $this->notifier->notifyTargets(NotificationEvent::SlaBreach, $outage, $targets, $channels);
             $this->notifier->dispatch(NotificationEvent::SlaBreach, $outage);
 
-            if (($policy?->notify_credit ?? $this->settings->bool('notifications.credit_due_on_breach')) && ! $outage->credit_shared) {
+            // Customer credit is an FTTH matter: never raised for 4G NOC tickets.
+            if ($outage->workflow === null && ($policy?->notify_credit ?? $this->settings->bool('notifications.credit_due_on_breach')) && ! $outage->credit_shared) {
                 $this->notifier->notifyTargets(NotificationEvent::CreditDue, $outage, $targets, $channels);
                 $this->notifier->dispatch(NotificationEvent::CreditDue, $outage);
             }

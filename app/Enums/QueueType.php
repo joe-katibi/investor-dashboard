@@ -20,6 +20,10 @@ enum QueueType: string implements HasColor, HasLabel
     case ItConfirmation = 'it_confirmation';
     case CxNotify = 'cx_notify';
 
+    // 4G NOC: the engineer / technician working a ticket, and the NOC verifying a reported fix.
+    case MobilityEngineer = 'mobility_engineer';
+    case MobilityNoc = 'mobility_noc';
+
     public function getLabel(): string
     {
         return match ($this) {
@@ -32,6 +36,8 @@ enum QueueType: string implements HasColor, HasLabel
             self::ItReview => 'IT Review',
             self::ItConfirmation => 'IT Confirmation',
             self::CxNotify => 'CX Customer Notification',
+            self::MobilityEngineer => '4G Engineer / Technician',
+            self::MobilityNoc => '4G NOC Verification',
         };
     }
 
@@ -46,6 +52,8 @@ enum QueueType: string implements HasColor, HasLabel
             self::SupportTechnician => 'warning',
             self::ItReview, self::ItConfirmation => 'gray',
             self::CxNotify => 'success',
+            self::MobilityEngineer => 'primary',
+            self::MobilityNoc => 'success',
         };
     }
 
@@ -60,6 +68,8 @@ enum QueueType: string implements HasColor, HasLabel
             self::CxFollowUp, self::CxNotify => 'queue.work_cx',
             self::SupportTechnician => 'queue.work_support',
             self::ItReview, self::ItConfirmation => 'queue.work_it',
+            self::MobilityEngineer => 'queue.work_mobility_engineer',
+            self::MobilityNoc => 'queue.work_mobility_noc',
         };
     }
 
@@ -72,6 +82,7 @@ enum QueueType: string implements HasColor, HasLabel
             self::CxFollowUp, self::CxNotify => 'CX',
             self::SupportTechnician => 'DISPATCH',
             self::ItReview, self::ItConfirmation => 'IT',
+            self::MobilityEngineer, self::MobilityNoc => 'MOBILITY',
         };
     }
 
@@ -83,5 +94,10 @@ enum QueueType: string implements HasColor, HasLabel
     public function isParallel(): bool
     {
         return $this === self::SupportTechnician;
+    }
+
+    public function isMobility(): bool
+    {
+        return in_array($this, [self::MobilityEngineer, self::MobilityNoc], true);
     }
 }

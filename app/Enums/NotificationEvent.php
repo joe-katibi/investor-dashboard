@@ -50,9 +50,31 @@ enum NotificationEvent: string implements HasLabel
     case PreventiveRejected = 'preventive_rejected';
     case CorrectiveRaised = 'corrective_raised';
 
+    // 4G NOC
+    case MobilityVendorNotified = 'mobility_vendor_notified';
+    case MobilityVendorMailFailed = 'mobility_vendor_mail_failed';
+    case MobilityVendorUpdate = 'mobility_vendor_update';
+    case MobilityVendorSilent = 'mobility_vendor_silent';
+    case MobilityVendorEscalation = 'mobility_vendor_escalation';
+    case MobilityResolvedPending = 'mobility_resolved_pending';
+    case MobilityVerificationFailed = 'mobility_verification_failed';
+    case MobilityReopened = 'mobility_reopened';
+    case MobilityCancelled = 'mobility_cancelled';
+    case MobilityEscalated = 'mobility_escalated';
+
     public function getLabel(): string
     {
         return match ($this) {
+            self::MobilityVendorNotified => '4G: Vendor Notification Sent',
+            self::MobilityVendorMailFailed => '4G: Vendor Notification Failed',
+            self::MobilityVendorUpdate => '4G: Vendor Update Recorded',
+            self::MobilityVendorSilent => '4G: No Vendor Update – NOC Escalation',
+            self::MobilityVendorEscalation => '4G: No Vendor Update – Management Escalation',
+            self::MobilityResolvedPending => '4G: Resolved – Pending NOC Confirmation',
+            self::MobilityVerificationFailed => '4G: NOC Could Not Verify the Fix',
+            self::MobilityReopened => '4G: Ticket Reopened',
+            self::MobilityCancelled => '4G: Ticket Cancelled',
+            self::MobilityEscalated => '4G: Ticket Escalated by NOC',
             self::PreventiveRequested => 'Preventive Maintenance Awaiting Approval',
             self::PreventiveApproved => 'Preventive Maintenance Downtime Approved',
             self::PreventiveRejected => 'Preventive Maintenance Rejected',

@@ -3,7 +3,7 @@
 namespace App\Filament\Widgets;
 
 use App\Filament\Concerns\RefreshesOnOmsEvents;
-use App\Filament\Resources\Outages\OutageResource;
+use App\Filament\Support\OutageLink;
 use App\Models\Outage;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
@@ -37,7 +37,7 @@ abstract class LiveOutagesTable extends TableWidget
             ->paginated([5, 10, 25])
             ->defaultPaginationPageOption(5)
             ->poll('60s')
-            ->recordUrl(fn (Outage $record) => OutageResource::getUrl('view', ['record' => $record]))
+            ->recordUrl(fn (Outage $record) => OutageLink::url($record))
             ->emptyStateHeading('No live outages')
             ->emptyStateIcon('heroicon-o-check-circle')
             ->columns([

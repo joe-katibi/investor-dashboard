@@ -101,8 +101,22 @@ class RolesAndPermissionsSeeder extends Seeder
         ],
         'IT Engineer' => ['outage.view', 'outage.create', 'outage.update_progress', 'outage.it_review', 'queue.view', 'queue.work_it'],
 
+        // 4G NOC: its own tickets, statuses, vendors and alert lists. Only the NOC closes a ticket;
+        // engineers / technicians work it and mark it "Resolved – Pending NOC Confirmation".
+        '4G NOC Manager' => [
+            'mobility.*', 'queue.view', 'queue.work_mobility_noc', 'queue.override', 'reports.view', 'reports.export', 'audit.view',
+            'workforce.manage', 'sla.manage', 'notifications.manage', 'templates.manage',
+        ],
+        '4G NOC' => [
+            'mobility.view', 'mobility.create', 'mobility.edit', 'mobility.assign', 'mobility.vendor_update', 'mobility.work',
+            'mobility.verify', 'mobility.reopen', 'mobility.cancel', 'mobility.escalate',
+            'queue.view', 'queue.work_mobility_noc', 'reports.view',
+        ],
+        '4G Engineer' => ['mobility.view', 'mobility.work', 'queue.work_mobility_engineer'],
+        '4G Technician' => ['mobility.view', 'mobility.work', 'queue.work_mobility_engineer'],
+
         // Management (read-only command centre)
-        'Executive' => ['outage.view', 'queue.view', 'reports.view', 'reports.export'],
+        'Executive' => ['outage.view', 'mobility.view', 'queue.view', 'reports.view', 'reports.export'],
     ];
 
     public function run(): void

@@ -3,6 +3,7 @@
 namespace App\Filament\Widgets;
 
 use App\Filament\Concerns\RefreshesOnOmsEvents;
+use App\Filament\Pages\MobilityDashboard;
 use App\Filament\Resources\Outages\OutageResource;
 use App\Models\MajorOutageType;
 use App\Services\Reports\DashboardMetrics;
@@ -40,7 +41,8 @@ class CommandCentreOverview extends StatsOverviewWidget
             $tile(MajorOutageType::SYSTEM, 'system'),
             Stat::make('4G Mobility — live', $mobility['active'])
                 ->description("Sites {$mobility['sites_down']} · Cells {$mobility['cells_down']} · Power {$mobility['power_faults']}")
-                ->color($mobility['active'] > 0 ? 'warning' : 'success'),
+                ->color($mobility['active'] > 0 ? 'warning' : 'success')
+                ->url(MobilityDashboard::canAccess() ? MobilityDashboard::getUrl() : null),
         ];
     }
 }

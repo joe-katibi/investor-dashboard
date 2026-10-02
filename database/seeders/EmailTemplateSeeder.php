@@ -54,6 +54,19 @@ class EmailTemplateSeeder extends Seeder
             'is_active' => false,
             'description' => 'Structured table of outages for the reporting period (spec §17), with Excel attachment.',
         ]);
+
+        $this->seedTemplate('mobility_hourly_update', [
+            'name' => '4G Hourly Outage Update',
+            'report_type' => 'mobility_hourly',
+            'schedule_type' => 'interval',
+            'interval_minutes' => 60,
+            'period_hours' => 1,
+            'to' => $recipients,
+            'subject' => '4G Outage Update – {{report_time}} {{report_date}}',
+            'body' => self::MOBILITY_HOURLY_BODY,
+            'is_active' => false,
+            'description' => 'Hourly status of every open 4G outage (eNodeB, transmission, power) with the latest engineer / vendor update. Activate after setting recipients.',
+        ]);
     }
 
     /**
@@ -78,6 +91,39 @@ class EmailTemplateSeeder extends Seeder
             $template->forceFill(['body' => $attributes['body']])->save();
         }
     }
+
+    public const MOBILITY_HOURLY_BODY = <<<'TXT'
+Hello Team,
+
+4G outage update as at {{report_time}} {{report_date}}
+
+**4G SNAPSHOT**
+• Open 4G outages: {{g4_active}} (Critical {{g4_critical}} | Major {{g4_major}} | Minor {{g4_minor}})
+• eNodeB: {{g4_enodeb}} | Transmission: {{g4_transmission}} | Power: {{g4_power}}
+• eNodeBs (sites) affected: {{g4_sites_down}} | Cells down: {{g4_cells_down}}
+• With vendors: {{g4_with_vendor}} | Resolved – pending NOC confirmation: {{g4_pending_noc}}
+• SLA approaching: {{g4_sla_at_risk}} | SLA breached: {{g4_sla_breached}}
+• New this hour: {{g4_new}} | Closed this hour: {{g4_closed}}
+
+**OPEN 4G OUTAGES**
+{{#for each active 4G outage}}
+**{{ticket}} | {{category}} | {{severity}} | {{site}}**
+{{title}}
+Start: {{start_time}} | Open for: {{elapsed}} | Affected: {{impact}}
+Status: {{status}} | With: {{owner}}
+SLA: {{sla_status}} | Due: {{sla_due}} | Vendor ETA: {{vendor_eta}}
+Latest update:
+{{latest_action}}
+
+{{/for}}
+**CLOSED THIS HOUR**
+{{#for each closed 4G outage}}
+**{{ticket}}** | {{category}} | {{site}} | Restored {{end_time}} | Duration {{duration}} | Root cause: {{root_cause}}
+{{/for}}
+
+Regards,
+4G NOC / Outage Management System
+TXT;
 
     public const TWO_HOUR_BODY = <<<'TXT'
 Hello Team,

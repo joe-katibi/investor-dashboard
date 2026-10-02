@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
-    'name', 'major_outage_type_id', 'outage_type_id', 'vertical_id', 'priority_id', 'service_id',
+    'name', 'major_outage_type_id', 'outage_type_id', 'vertical_id', 'priority_id', 'service_id', 'vendor_id',
     'resolution_minutes', 'pre_breach_minutes', 'ack_timeout_minutes', 'escalation_minutes',
     'escalation_roles', 'notify_roles', 'notify_user_ids', 'notify_emails',
     'notify_credit', 'notify_sms', 'allow_pause', 'description', 'is_active',
@@ -20,7 +20,7 @@ class SlaPolicy extends Model
     use Auditable, HasAuditColumns;
 
     /** Matcher columns; each non-null match adds specificity. */
-    public const MATCHERS = ['outage_type_id', 'priority_id', 'service_id', 'vertical_id', 'major_outage_type_id'];
+    public const MATCHERS = ['outage_type_id', 'priority_id', 'service_id', 'vendor_id', 'vertical_id', 'major_outage_type_id'];
 
     protected function casts(): array
     {
@@ -59,6 +59,12 @@ class SlaPolicy extends Model
     public function service(): BelongsTo
     {
         return $this->belongsTo(Service::class);
+    }
+
+    /** 4G vendor tickets: a target agreed with one vendor (e.g. ATC power restoration). */
+    public function vendor(): BelongsTo
+    {
+        return $this->belongsTo(Vendor::class);
     }
 
     public function scopeActive(Builder $query): void

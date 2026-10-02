@@ -28,6 +28,7 @@ use App\Models\User;
 use App\Services\Fifo\FifoAssignmentEngine;
 use App\Services\Notifications\NotificationDispatcher;
 use App\Services\Outages\Concerns\ManagesFieldMaintenance;
+use App\Services\Outages\Concerns\ManagesMobilityOutages;
 use App\Services\Outages\Concerns\ManagesPlannedMaintenance;
 use App\Services\Sla\SlaService;
 use App\Support\AuditContext;
@@ -50,7 +51,7 @@ use Illuminate\Validation\ValidationException;
  */
 class OutageWorkflow
 {
-    use ManagesFieldMaintenance, ManagesPlannedMaintenance;
+    use ManagesFieldMaintenance, ManagesMobilityOutages, ManagesPlannedMaintenance;
 
     public function __construct(
         private readonly TicketNumberGenerator $tickets,
@@ -69,6 +70,11 @@ class OutageWorkflow
         $result = DB::transaction(function () use ($data, $by): Outage {
             $type = OutageType::query()->with('majorOutageType')->active()->findOrFail($data['outage_type_id']);
             $major = $type->majorOutageType;
+
+            // 4G NOC tickets (eNodeB / transmission / power) have their own form, statuses and workflow.
+            if ($type->isMobility()) {
+                throw ValidationException::withMessages(['outage_type_id' => '4G outages are reported under “4G NOC → Report 4G outage”.']);
+            }
 
             // Planned maintenance has its own request → CRF → sign-off flow.
             if ($type->is_planned) {
@@ -303,7 +309,9 @@ class OutageWorkflow
             $update = OutageUpdate::query()->create([
                 'outage_id' => $outage->id,
                 'user_id' => $by->id,
-                'type' => array_key_exists($type, OutageUpdate::TYPES) ? $type : 'note',
+                'type' => in_array($type, OutageUpdate::MANUAL_TYPES, true) ? $type : 'note',
+                // 4G timeline shows whether the NOC, an engineer or a technician wrote it.
+                'actor_type' => $outage->isMobility() ? OutageUpdate::actorFor($by) : null,
                 'body' => $body,
                 'is_system' => false,
             ]);
@@ -478,7 +486,7 @@ class OutageWorkflow
     /** Operational statuses (Partial Restore, Awaiting Field Access, Vendor Escalated, ...). */
     public function changeStatus(Outage $outage, OutageStatus $status, User $by, ?string $reason): Outage
     {
-        if (! $status->is_active || ! $status->is_manual_selectable) {
+        if (! $status->is_active || ! $status->is_manual_selectable || $status->workflow !== null) {
             throw ValidationException::withMessages(['status_id' => 'This status can only be set by the workflow.']);
         }
 
@@ -922,7 +930,7 @@ class OutageWorkflow
         }
 
         $outage->priority_is_manual = false;
-        $outage->priority_id = $this->priorities->forCustomers((int) $outage->customers_affected)?->id;
+        $outage->priority_id = $this->priorities->forCustomers((int) $outage->customers_affected, $outage->vertical_id ? (int) $outage->vertical_id : null)?->id;
     }
 
     private function onPriorityChanged(Outage $outage): void
@@ -1016,9 +1024,9 @@ class OutageWorkflow
         return Outage::query()->with(['status', 'majorOutageType', 'priority', 'slaPolicy', 'team', 'subTeam'])->lockForUpdate()->findOrFail($outage->id);
     }
 
-    private function statusIs(Outage $outage, StatusCode $code): bool
+    private function statusIs(Outage $outage, StatusCode ...$codes): bool
     {
-        return OutageStatus::codeForId($outage->status_id) === $code->value;
+        return in_array(OutageStatus::codeForId($outage->status_id), array_map(fn (StatusCode $code) => $code->value, $codes), true);
     }
 
     private function requireText(?string $value, string $field, string $message): void

@@ -61,10 +61,16 @@ class OutageResource extends Resource
         return ['ticket_number', 'title', 'location'];
     }
 
+    /** 4G NOC tickets have their own screens (4G NOC → Outages) and are not listed here. */
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->standard();
+    }
+
     public static function getNavigationBadge(): ?string
     {
         // Short cache keeps the sidebar cheap on every page load across all nodes.
-        $count = Cache::remember('oms.nav.active-outages', 30, fn () => Outage::query()->active()->count());
+        $count = Cache::remember('oms.nav.active-outages', 30, fn () => Outage::query()->standard()->active()->count());
 
         return $count > 0 ? (string) $count : null;
     }
@@ -125,10 +131,10 @@ class OutageResource extends Resource
             ])
             ->filters([
                 SelectFilter::make('major_outage_type_id')->label('Major type')->relationship('majorOutageType', 'name'),
-                SelectFilter::make('outage_type_id')->label('Outage type')->relationship('outageType', 'name'),
+                SelectFilter::make('outage_type_id')->label('Outage type')->relationship('outageType', 'name', fn (Builder $query) => $query->whereNull('workflow')),
                 SelectFilter::make('vertical_id')->label('Vertical')->relationship('vertical', 'name'),
                 SelectFilter::make('priority_id')->label('Priority')->relationship('priority', 'name')->multiple(),
-                SelectFilter::make('status_id')->label('Status')->relationship('status', 'name')->multiple(),
+                SelectFilter::make('status_id')->label('Status')->relationship('status', 'name', fn (Builder $query) => $query->standard())->multiple(),
                 SelectFilter::make('sla_state')->label('SLA state')->options(SlaState::class)->multiple(),
                 SelectFilter::make('team_id')->label('Team')->relationship('team', 'name'),
                 SelectFilter::make('olts')->label('OLT')->relationship('olts', 'name')->multiple()->searchable()->preload(),

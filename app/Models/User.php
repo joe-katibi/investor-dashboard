@@ -95,6 +95,12 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
         return $this->assignments()->whereIn('status', AssignmentStatus::activeValues());
     }
 
+    /** Tickets this user is (or was) the technician / 4G engineer of. */
+    public function technicianOutages(): HasMany
+    {
+        return $this->hasMany(Outage::class, 'technician_id');
+    }
+
     public function scopeActive(Builder $query): void
     {
         $query->where('is_active', true);

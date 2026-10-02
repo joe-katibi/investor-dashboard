@@ -4,9 +4,10 @@ namespace Database\Seeders;
 
 use App\Models\MajorOutageType;
 use App\Models\OutageType;
+use App\Models\Vertical;
 use Illuminate\Database\Seeder;
 
-/** Outage types and ticket prefixes (spec §5). Requires MajorOutageTypeSeeder. */
+/** Outage types and ticket prefixes (spec §5). Requires MajorOutageTypeSeeder and VerticalSeeder. */
 class OutageTypeSeeder extends Seeder
 {
     public function run(): void
@@ -31,6 +32,33 @@ class OutageTypeSeeder extends Seeder
                 'is_planned' => $planned,
                 'is_emergency' => $emergency,
                 'maintenance_kind' => $kind,
+                'sort_order' => $sort,
+                'is_active' => true,
+            ]);
+        }
+
+        // 4G NOC outage types. More (fibre cut, battery, generator…) can be added under
+        // 4G NOC → 4G Outage Types: each one only picks a workflow, a fault domain and a prefix.
+        $mobility = Vertical::query()->where('code', Vertical::MOBILITY_4G)->value('id');
+
+        // [code, name, prefix, workflow, fault domain, sort, description]
+        foreach ([
+            ['mobility_enodeb', 'eNodeB Outage', '4G-ENB', OutageType::WORKFLOW_MOBILITY_INTERNAL, OutageType::DOMAIN_ENODEB, 20,
+                'One cell, several cells or the whole 4G site (eNodeB) down. 4G NOC → Engineer / Technician → 4G NOC.'],
+            ['mobility_transmission', 'Transmission Outage', '4G-TRX', OutageType::WORKFLOW_MOBILITY_INTERNAL, OutageType::DOMAIN_TRANSMISSION, 21,
+                'Transmission node / link failure (SSG, CSG, ASG, RSG; microwave or fibre). 4G NOC → Transmission Engineer → 4G NOC.'],
+            ['mobility_power', 'Power Outage', '4G-PWR', OutageType::WORKFLOW_MOBILITY_VENDOR, OutageType::DOMAIN_POWER, 22,
+                'Power failure at a site, handled by the power vendor (ATC, TOA, UTEL…). 4G NOC → Vendor → NOC records vendor updates → NOC verifies.'],
+        ] as [$code, $name, $prefix, $workflow, $domain, $sort, $description]) {
+            // firstOrCreate: these are edited under 4G NOC → 4G Outage Types and must survive re-seeding.
+            OutageType::query()->firstOrCreate(['code' => $code], [
+                'name' => $name,
+                'major_outage_type_id' => $major[MajorOutageType::MOBILITY],
+                'vertical_id' => $mobility,
+                'prefix' => $prefix,
+                'workflow' => $workflow,
+                'fault_domain' => $domain,
+                'description' => $description,
                 'sort_order' => $sort,
                 'is_active' => true,
             ]);

@@ -3,11 +3,12 @@
 namespace App\Filament\Widgets;
 
 use App\Filament\Concerns\RefreshesOnOmsEvents;
-use App\Filament\Resources\Outages\OutageResource;
+use App\Filament\Support\OutageLink;
 use App\Models\Outage;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget;
+use Illuminate\Support\Facades\Auth;
 
 class RecentOutagesTable extends TableWidget
 {
@@ -22,11 +23,14 @@ class RecentOutagesTable extends TableWidget
     public function table(Table $table): Table
     {
         return $table
-            ->query(fn () => Outage::query()->with(['outageType:id,name', 'priority:id,name,color', 'status:id,name,color', 'currentAssignee:id,name', 'team:id,name'])->latest('id'))
+            ->query(fn () => Outage::query()->with(['outageType:id,name', 'priority:id,name,color', 'status:id,name,color', 'currentAssignee:id,name', 'team:id,name'])
+                // 4G NOC tickets are listed only for people who may open them.
+                ->when(! Auth::user()?->can('mobility.view'), fn ($query) => $query->standard())
+                ->latest('id'))
             ->paginated([5, 10])
             ->defaultPaginationPageOption(5)
             ->poll('60s')
-            ->recordUrl(fn (Outage $record) => OutageResource::getUrl('view', ['record' => $record]))
+            ->recordUrl(fn (Outage $record) => OutageLink::url($record))
             ->columns([
                 TextColumn::make('ticket_number')->label('Ticket')->weight('bold')->wrap()->formatStateUsing(fn (?string $state) => str_replace('-', "\u{2011}", (string) $state))
                     ->description(fn (Outage $record) => str($record->title)->limit(40)),

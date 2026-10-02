@@ -40,4 +40,25 @@ enum StatusCode: string
     // Preventive maintenance raised on site: Dispatcher + Infrastructure Manager approve the downtime.
     case PmPendingApproval = 'pm_pending_approval';
     case PmRejected = 'pm_rejected';
+
+    // 4G NOC: NOC → engineer / technician → NOC, or NOC → external vendor → NOC. Only NOC closes.
+    case MobilityNew = 'mobility_new';
+    case MobilityOpen = 'mobility_open';
+    case MobilityAssigned = 'mobility_assigned';
+    case MobilityInProgress = 'mobility_in_progress';
+    case MobilityMonitoring = 'mobility_monitoring';
+    case MobilityResolvedPendingNoc = 'mobility_resolved_pending_noc';
+    case MobilityVendorAssigned = 'mobility_vendor_assigned';
+    case MobilityVendorNotified = 'mobility_vendor_notified';
+    case MobilityVendorAcknowledged = 'mobility_vendor_acknowledged';
+    case MobilityVendorInvestigating = 'mobility_vendor_investigating';
+    case MobilityVendorResolvedPendingNoc = 'mobility_vendor_resolved_pending_noc';
+    case MobilityClosed = 'mobility_closed';
+    case MobilityCancelled = 'mobility_cancelled';
+
+    /** Resolved by the engineer / vendor and waiting for the NOC to verify and close. */
+    public function isMobilityPendingVerification(): bool
+    {
+        return in_array($this, [self::MobilityResolvedPendingNoc, self::MobilityVendorResolvedPendingNoc], true);
+    }
 }

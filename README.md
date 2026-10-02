@@ -18,7 +18,7 @@ Repository: <https://github.com/joe-katibi/outagemangementsystem>
 5. [Running the application](#running-the-application)
 6. [Demo accounts](#demo-accounts)
 7. [Features](#features)
-8. [Outage lifecycle](#outage-lifecycle)
+8. [Outage lifecycle](#outage-lifecycle) · [4G NOC module](#4g-noc-module)
 9. [FIFO assignment engine](#fifo-assignment-engine)
 10. [SLA management](#sla-management)
 11. [Notifications](#notifications)
@@ -388,6 +388,99 @@ Rules enforced everywhere (UI, future APIs, integrations) by `App\Services\Outag
 * changing customers affected re-evaluates priority, recalculates SLA and re-ranks open FIFO items;
 * topology selections are sanitised (children must belong to selected parents; inactive items cannot be newly attached);
 * SMS / Credit are explicit YES/NO fields with *who* and *when*, plus a change history.
+
+## 4G NOC module
+
+4G outages have their **own menu, statuses, workflow, severity rules, SLA targets and notification settings** —
+separate from FTTH, but on the same engine (SLA clock, notification rules, alert lists, SMS, audit, reports). A 4G
+ticket is an outage whose type carries a 4G workflow; it is listed under **4G NOC → Outages**, never under
+*Operations → Outages*, and the FTTH *Report outage* form no longer offers the 4G vertical.
+
+```
+INTERNAL (eNodeB Outage 4G-ENB-…, Transmission Outage 4G-TRX-…)
+  4G NOC creates → NEW → NOC assigns an Engineer / Technician → ASSIGNED → engineer accepts and investigates → IN PROGRESS
+  (→ MONITORING) → engineer records root cause + resolution → RESOLVED – PENDING NOC CONFIRMATION
+     ├─ NOC verifies the service → CLOSED
+     └─ NOC: not restored → back to the same engineer (IN PROGRESS)
+
+VENDOR (Power Outage 4G-PWR-…)
+  4G NOC creates and selects the vendor → VENDOR ASSIGNED → the vendor is e-mailed automatically → VENDOR NOTIFICATION SENT
+  → the vendor works outside the system; the NOC records each reply with "Add vendor update"
+     (VENDOR ACKNOWLEDGED → VENDOR INVESTIGATING → MONITORING)
+  → vendor reports "Power Restored" / "Resolved" → VENDOR RESOLVED – PENDING NOC VERIFICATION
+     ├─ NOC verifies the site → CLOSED (the vendor gets a closure e-mail)
+     └─ NOC: not restored → VENDOR INVESTIGATING
+
+Any time: CANCELLED (duplicates / false alarms, SLA N/A) · Closed tickets: REOPEN with a reason → OPEN
+```
+
+* **Only the NOC closes.** Engineers and technicians (`mobility.work`) can accept, update, attach files and mark a
+  ticket *Resolved – Pending NOC Confirmation*; *Verify & close* needs `mobility.verify`. Vendors are **records, not
+  users** — no login; only the NOC (`mobility.vendor_update`) records what they say.
+* **Report 4G outage** — outage type, title, outage start and detection time, the **eNodeB sites** and / or
+  **transmission nodes** that are down, cells down, location, services, description and service impact. Transmission
+  types also take a link ID and type (microwave / fibre / other). Power types need the **vendor** (pre-selected from
+  the tower company of the first site); internal types can be assigned to an engineer on the form.
+* **Severity** is calculated live from what is selected (and can be overridden). A transmission node counts
+  everything below it — RSG → ASG → CSG → SSG → eNodeB — so a CSG ring brings its SSGs and their sites with it.
+  The rules are data under **4G NOC → Severity Rules** (seeded as given by the 4G NOC; when several match, the most
+  severe wins — so 3 eNodeBs is Major):
+
+  | Fault | Minor | Major | Critical |
+  |---|---|---|---|
+  | eNodeB | any cells / 1 eNodeB | — | — |
+  | Transmission | 1–3 eNodeBs | 3–6 eNodeBs, 1–2 SSGs | > 6 eNodeBs, ≥ 3 SSGs, ≥ 1 ASG, ≥ 1 RSG |
+  | Power | 1–3 eNodeBs | 3–6 eNodeBs, 1 SSG | > 6 eNodeBs, ≥ 2 SSGs, ≥ 1 ASG, ≥ 1 RSG |
+
+  FTTH keeps its own levels (Low / Medium / High / Critical by customers affected) under *Configuration → Impact /
+  Priority Rules*; every level now belongs to a vertical.
+* **SLA** — 4G policies are matched on the 4G vertical + severity (seeded: Critical 4 h, Major 8 h, Minor 24 h —
+  starting values, change them under *Configuration → SLA Policies*) and can be narrowed to an outage type or a
+  **vendor**. The ticket shows the deadline, state (within / approaching / breached) and time to acknowledge,
+  respond and resolve. A reopened ticket's clock continues from the original outage start.
+* **Vendors** (*4G NOC → Vendors*) — name, code, type, contact person, e-mail, CC addresses, phone, active flag.
+  ATC, TOA and UTEL are seeded **without contact details: add each vendor's e-mail before the first power ticket**.
+  Inactive vendors cannot be selected. If a vendor has no address (or the mail fails) the ticket stays *Vendor
+  Assigned*, the timeline and the NOC are told, and **Send vendor notification** retries.
+* **Vendor e-mails** (*4G NOC → Vendor E-mail Templates*) — editable subject / body per trigger (ticket created,
+  vendor changed, reminder, reopened, closed, cancelled, manual), to the vendor's e-mail + CC plus any fixed
+  addresses, with `{{ticket_number}}`, `{{site_id}}`, `{{site_name}}`, `{{location}}`, `{{outage_type}}`,
+  `{{priority}}`, `{{outage_start_time}}`, `{{detection_time}}`, `{{affected_services}}`, `{{description}}`,
+  `{{vendor_name}}`, `{{sla}}`, `{{noc_contact}}`, `{{ticket_url}}` and more. Every e-mail is in the notification
+  log (ticket, vendor, recipient, CC, subject, template, time, status, error) and on the ticket timeline.
+* **Vendor updates** — date / time, communication method, contact person, vendor status (Acknowledged,
+  Investigating, Technician Dispatched, Technician On Site, Awaiting Parts, Awaiting Access, Power Restored,
+  Monitoring, Unable to Resolve, Escalated, Resolved), ETA, next update time, comments and attachments.
+* **Escalation** (*4G NOC → 4G Settings & Alerts*) — no vendor update for X minutes (default 60) reminds the NOC;
+  still nothing after Y minutes (default 120) notifies the escalation roles / addresses and e-mails the vendor a
+  reminder. A "next update expected" time on a vendor update replaces X. **Escalate** on a ticket notifies the same
+  people at once; SLA policies add their own escalation time and roles.
+* **Notifications** — 4G tickets fire **only notification rules whose Vertical is 4G** and the **4G alert e-mail /
+  SMS lists** (4G Settings), never the FTTH rules or lists. Seeded 4G rules cover created, updates, vendor notified
+  / failed / update / silent, resolved-pending, verification failed, closed, reopened, cancelled, escalated and SLA.
+* **Hourly update** — *Configuration → Email Templates & Schedules → 4G Hourly Outage Update* (every 60 minutes,
+  seeded inactive: set recipients and activate). Loops `{{#for each active 4G outage}}`, `{{#for each closed 4G
+  outage}}` (also 4G eNodeB / transmission / power outage, 4G vendor ticket) and `g4_*` totals.
+* **Timeline** — every ticket lists creation, assignment, status changes, updates, vendor assignment, e-mails,
+  vendor updates, attachments, verification, closure and reopening, each marked **System / NOC / Engineer /
+  Technician**. Reopening keeps who, when, why and the previous closure.
+* **Dashboard and reports** — *4G NOC → Dashboard* (open, critical, pending confirmation, per category, SLA, MTTR,
+  vendor and engineer performance). *Reporting → Reports*: 4G Outage, Power, Transmission, eNodeB, Vendor
+  Performance, Engineer Performance, SLA Compliance, MTTR and Root Cause Analysis (CSV / Excel / PDF).
+* **Topology** — *4G NOC → eNodeB Sites* and *Transmission Nodes*, loaded from the 4G workbook:
+
+  ```bash
+  php artisan db:seed --class=MobilityTopologySeeder --force   # bundled database/seeders/data/4g-*.csv
+  php artisan oms:import-4g-topology "4G NOC TOPOLOGY.xlsx" --dry-run
+  ```
+
+  or *eNodeB Sites → Import 4G topology*. The hierarchy comes from the hostname numbering (`ssg-1234-…` → CSG 123 →
+  ASG 12 → RSG 1); SSGs without a site are imported inactive. Re-importing updates, never duplicates or removes.
+* **New 4G outage types** (fibre cut, battery, generator, microwave…) — *Configuration → Outage Types*: pick one of
+  the two workflows, a fault domain and a prefix; then add its severity rules, SLA policy, notification rules and
+  vendor template. No code change.
+* **Roles** — `4G NOC Manager`, `4G NOC`, `4G Engineer`, `4G Technician` (permissions `mobility.*`); put 4G staff in
+  the **4G NOC** department. FTTH roles do not see 4G tickets and the other way round (Executive sees both).
 
 ## FIFO assignment engine
 
@@ -765,6 +858,8 @@ tests/Feature/             FIFO, workflow, SLA, reports, panel & security tests
 | `oms:fifo-sweep` | every minute | Release tickets of users who became ineligible; assign waiting tickets |
 | `oms:send-scheduled-reports` | every minute | Queue due scheduled e-mails |
 | `oms:maintenance-tick` | every minute | Planned-maintenance reminders, before-start e-mails and "started" alerts |
+| `oms:mobility-tick` | every minute | 4G NOC: remind the NOC / escalate to management when a vendor has not updated a ticket |
+| `oms:import-4g-topology {file} [--dry-run]` | manual | Import the 4G workbook: eNodeB sites and transmission nodes (RSG → ASG → CSG → SSG) |
 | `oms:prune-expired-cache` (scheduled closure) | hourly | Clean expired rows when the database cache driver is used |
 | `queue:prune-failed`, `queue:prune-batches` | daily | Housekeeping |
 | `oms:create-admin` | manual | Create a Super Admin |

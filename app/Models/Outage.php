@@ -25,6 +25,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'title', 'major_outage_type_id', 'outage_type_id', 'vertical_id', 'priority_id', 'priority_is_manual',
     'description', 'location', 'customers_affected', 'sites_down', 'cells_down', 'power_faults',
     'start_time', 'team_type', 'team_id', 'sub_team_id', 'technician_id',
+    'detected_at', 'transmission_link_id', 'transmission_type', 'service_impact',
 ])]
 class Outage extends Model
 {
@@ -69,8 +70,26 @@ class Outage extends Model
             'downtime_start' => 'datetime',
             'downtime_end' => 'datetime',
             'pm_approved_at' => 'datetime',
+            'impact_counts' => 'array',
+            'detected_at' => 'datetime',
+            'acknowledged_at' => 'datetime',
+            'work_started_at' => 'datetime',
+            'vendor_notified_at' => 'datetime',
+            'vendor_acknowledged_at' => 'datetime',
+            'vendor_last_update_at' => 'datetime',
+            'vendor_next_update_at' => 'datetime',
+            'vendor_eta_at' => 'datetime',
+            'vendor_resolved_at' => 'datetime',
+            'vendor_escalated_at' => 'datetime',
+            'vendor_escalation_level' => 'integer',
+            'escalated_at' => 'datetime',
+            'reopened_at' => 'datetime',
+            'reopen_count' => 'integer',
+            'cancelled_at' => 'datetime',
         ];
     }
+
+    public const TRANSMISSION_TYPES = ['microwave' => 'Microwave', 'fibre' => 'Fibre', 'other' => 'Other'];
 
     // ---------------------------------------------------------------- relations
 
@@ -280,6 +299,113 @@ class Outage extends Model
         return $this->belongsTo(User::class, 'it_confirmed_by');
     }
 
+    // ---------------------------------------------------------------- 4G NOC
+
+    public function vendor(): BelongsTo
+    {
+        return $this->belongsTo(Vendor::class);
+    }
+
+    public function enodebs(): BelongsToMany
+    {
+        return $this->belongsToMany(Enodeb::class, 'outage_enodeb');
+    }
+
+    public function transmissionNodes(): BelongsToMany
+    {
+        return $this->belongsToMany(TransmissionNode::class, 'outage_transmission_node');
+    }
+
+    public function vendorUpdates(): HasMany
+    {
+        return $this->hasMany(VendorUpdate::class)->latest('occurred_at')->latest('id');
+    }
+
+    public function attachments(): HasMany
+    {
+        return $this->hasMany(OutageAttachment::class)->latest('id');
+    }
+
+    public function reopenings(): HasMany
+    {
+        return $this->hasMany(OutageReopening::class)->latest('id');
+    }
+
+    public function escalatedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'escalated_by');
+    }
+
+    public function cancelledBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'cancelled_by');
+    }
+
+    public function restoreConfirmedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'restore_confirmed_by');
+    }
+
+    /** Runs the 4G NOC workflow (its own statuses, screens and notification settings). */
+    public function isMobility(): bool
+    {
+        return $this->workflow !== null;
+    }
+
+    /** Worked by an external vendor; the NOC records the vendor's updates. */
+    public function isVendorTicket(): bool
+    {
+        return $this->workflow === OutageType::WORKFLOW_MOBILITY_VENDOR;
+    }
+
+    public function domainLabel(): ?string
+    {
+        return OutageType::FAULT_DOMAINS[$this->fault_domain] ?? null;
+    }
+
+    /** "4624 Nsambya Kevina, 4495 Tandem Hotel" */
+    public function sitesLabel(int $limit = 6): string
+    {
+        $sites = $this->enodebs->map(fn (Enodeb $site) => trim($site->site_id.' '.$site->name));
+
+        return $sites->take($limit)->implode(', ').($sites->count() > $limit ? ' +'.($sites->count() - $limit).' more' : '');
+    }
+
+    public function nodesLabel(int $limit = 6): string
+    {
+        $nodes = $this->transmissionNodes->map(fn (TransmissionNode $node) => $node->label());
+
+        return $nodes->take($limit)->implode(', ').($nodes->count() > $limit ? ' +'.($nodes->count() - $limit).' more' : '');
+    }
+
+    /** "5 eNodeBs · 2 SSGs · 1 CSG" */
+    public function impactLabel(): string
+    {
+        $counts = (array) $this->impact_counts;
+        $names = ['enodebs' => 'eNodeB', 'cells' => 'cell', 'ssg' => 'SSG', 'csg' => 'CSG', 'asg' => 'ASG', 'rsg' => 'RSG'];
+
+        return collect($names)
+            ->filter(fn (string $name, string $key) => ($counts[$key] ?? 0) > 0)
+            ->map(fn (string $name, string $key) => $counts[$key].' '.$name.($counts[$key] === 1 ? '' : 's'))
+            ->implode(' · ');
+    }
+
+    public function scopeMobility(Builder $query): void
+    {
+        $query->whereNotNull($query->qualifyColumn('workflow'));
+    }
+
+    /** Everything that is not a 4G NOC ticket (the FTTH / core / system flows). */
+    public function scopeStandard(Builder $query): void
+    {
+        $query->whereNull($query->qualifyColumn('workflow'));
+    }
+
+    public function scopeOfDomain(Builder $query, string $domain): void
+    {
+        $query->where($query->qualifyColumn('fault_domain'), $domain);
+    }
+
     // ---------------------------------------------------------------- scopes
 
     public function scopeActive(Builder $query): void
@@ -299,7 +425,7 @@ class Outage extends Model
 
     public function scopeCritical(Builder $query): void
     {
-        $query->whereHas('priority', fn (Builder $q) => $q->where('code', Priority::CRITICAL));
+        $query->whereHas('priority', fn (Builder $q) => $q->whereIn('code', Priority::CRITICAL_CODES));
     }
 
     // ---------------------------------------------------------------- helpers

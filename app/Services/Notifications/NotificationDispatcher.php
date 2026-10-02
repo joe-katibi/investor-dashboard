@@ -74,8 +74,13 @@ class NotificationDispatcher
     {
         $settings = app(Settings::class);
 
-        if (in_array($event->value, (array) $settings->get('alerts.events'), true)) {
-            $emails = collect((array) $settings->get('alerts.emails'))
+        // 4G NOC tickets go to the 4G lists (4G NOC → 4G Settings), never to the FTTH ones.
+        [$emailsKey, $eventsKey, $phonesKey, $smsEventsKey] = $outage->workflow !== null
+            ? ['mobility.alert_emails', 'mobility.alert_events', 'mobility.alert_phones', 'mobility.alert_sms_events']
+            : ['alerts.emails', 'alerts.events', 'alerts.phones', 'alerts.sms_events'];
+
+        if (in_array($event->value, (array) $settings->get($eventsKey), true)) {
+            $emails = collect((array) $settings->get($emailsKey))
                 ->filter(fn ($email) => filter_var($email, FILTER_VALIDATE_EMAIL))
                 ->map(fn (string $email) => ['user' => null, 'email' => strtolower($email), 'phone' => null])
                 ->values();
@@ -83,8 +88,8 @@ class NotificationDispatcher
             $this->deliver($event, $outage, [NotificationChannel::Mail->value], $emails, $context, null, $seen);
         }
 
-        if (in_array($event->value, (array) $settings->get('alerts.sms_events'), true)) {
-            $phones = collect((array) $settings->get('alerts.phones'))
+        if (in_array($event->value, (array) $settings->get($smsEventsKey), true)) {
+            $phones = collect((array) $settings->get($phonesKey))
                 ->map(fn ($phone) => ['user' => null, 'email' => null, 'phone' => (string) $phone])
                 ->values();
 

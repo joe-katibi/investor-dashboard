@@ -49,13 +49,14 @@ class SlaPolicyResource extends Resource
         return $schema->components([
             TextInput::make('name')->required()->maxLength(150)->columnSpanFull(),
             Section::make('Applies to')
-                ->description('Leave a matcher empty to match any value. The most specific active policy wins.')
+                ->description('Leave a matcher empty to match any value. The most specific active policy wins. FTTH and 4G have their own priorities, so a policy on an FTTH priority never applies to a 4G ticket and the other way round; a 4G policy can also be narrowed to one outage type (eNodeB / Transmission / Power) or one vendor.')
                 ->schema([
                     Select::make('major_outage_type_id')->relationship('majorOutageType', 'name')->label('Major type')->preload(),
                     Select::make('outage_type_id')->relationship('outageType', 'name')->label('Outage type')->preload(),
                     Select::make('vertical_id')->relationship('vertical', 'name')->preload(),
-                    Select::make('priority_id')->relationship('priority', 'name')->preload(),
+                    Select::make('priority_id')->label('Priority / severity')->relationship('priority', 'name')->preload(),
                     Select::make('service_id')->relationship('service', 'name')->searchable()->preload(),
+                    Select::make('vendor_id')->label('Vendor (4G vendor tickets)')->relationship('vendor', 'name')->preload(),
                 ])->columns(3)->columnSpanFull(),
             Section::make('Clock')->schema([
                 TextInput::make('resolution_minutes')->label('Resolution target (min)')->numeric()->minValue(1)->required(),
@@ -88,6 +89,7 @@ class SlaPolicyResource extends Resource
                 TextColumn::make('outageType.name')->label('Type')->placeholder('Any'),
                 TextColumn::make('vertical.name')->placeholder('Any'),
                 TextColumn::make('priority.name')->placeholder('Any')->badge(),
+                TextColumn::make('vendor.name')->label('Vendor')->placeholder('Any')->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('resolution_minutes')->label('Target')->formatStateUsing(fn (int $state) => $state >= 60 ? round($state / 60, 1).'h' : $state.'m'),
                 TextColumn::make('pre_breach_minutes')->label('Pre-breach')->suffix('m'),
                 TextColumn::make('ack_timeout_minutes')->label('Ack')->suffix('m')->placeholder('default'),

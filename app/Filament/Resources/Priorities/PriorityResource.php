@@ -18,6 +18,7 @@ use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use UnitEnum;
 
@@ -47,7 +48,10 @@ class PriorityResource extends Resource
             Select::make('color')->options(OutageStatusResource::COLORS)->default('gray'),
             TextInput::make('severity')->numeric()->minValue(1)->required()
                 ->helperText('Higher = more severe. Used when several impact rules match.'),
-            Section::make('Impact rule — total customers affected')->schema([
+            Select::make('vertical_id')->label('Vertical')->relationship('vertical', 'name')->preload()->placeholder('All verticals without their own levels')
+                ->helperText('Each vertical has its own levels: FTTH by customers affected (below), 4G by network elements affected (4G NOC → Severity Rules).')
+                ->columnSpanFull(),
+            Section::make('Impact rule — total customers affected')->description('Leave empty for 4G levels: they are set by the 4G severity rules.')->schema([
                 TextInput::make('min_customers')->numeric()->minValue(0)->label('From (inclusive)'),
                 TextInput::make('max_customers')->numeric()->minValue(0)->label('To (inclusive)')->placeholder('No upper limit')
                     ->gte('min_customers'),
@@ -66,9 +70,11 @@ class PriorityResource extends Resource
     {
         return $table
             ->defaultSort('queue_rank')
-            ->description('Priority is evaluated automatically from total customers affected when an outage is created or updated.')
+            ->description('Impact and priority are separate per vertical. FTTH: evaluated from total customers affected. 4G: Minor / Major / Critical from the eNodeBs and transmission nodes affected (4G NOC → Severity Rules). SLA targets per level are under SLA Policies.')
+            ->defaultGroup('vertical.name')
             ->columns([
                 TextColumn::make('name')->badge()->color(fn (Priority $record) => $record->color),
+                TextColumn::make('vertical.name')->label('Vertical')->placeholder('All')->badge()->color('gray'),
                 TextColumn::make('min_customers')->label('Customers from')->placeholder('—'),
                 TextColumn::make('max_customers')->label('to')->placeholder('∞'),
                 TextColumn::make('severity')->sortable(),
@@ -77,6 +83,7 @@ class PriorityResource extends Resource
                 AuditFields::activeColumn(),
                 ...AuditFields::columns(),
             ])
+            ->filters([SelectFilter::make('vertical_id')->label('Vertical')->relationship('vertical', 'name')])
             ->recordActions([EditAction::make()]);
     }
 

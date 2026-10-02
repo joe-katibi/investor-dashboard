@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Models\MajorOutageType;
 use App\Models\NotificationRule;
 use App\Models\Priority;
+use App\Models\Vertical;
 use Illuminate\Database\Seeder;
 
 /** Default notification rules (spec §12). Requires PrioritySeeder and RolesAndPermissionsSeeder. */
@@ -73,6 +74,60 @@ class NotificationRuleSeeder extends Seeder
                 'recipient_roles' => $roles,
                 'notify_assignee' => $assignee,
                 'notify_team_leaders' => $leaders,
+                'is_active' => true,
+            ]);
+        }
+
+        $this->mobilityRules($all, $inAppAndMail);
+    }
+
+    /**
+     * 4G NOC rules. A 4G ticket only fires rules whose vertical is 4G, so these are the whole
+     * audience of a 4G ticket (plus the 4G alert lists under 4G NOC → 4G Settings).
+     */
+    private function mobilityRules(array $all, array $inAppAndMail): void
+    {
+        $vertical = Vertical::query()->where('code', Vertical::MOBILITY_4G)->value('id');
+
+        if (! $vertical) {
+            return;
+        }
+
+        $critical = Priority::query()->where('code', Priority::MOBILITY_CRITICAL)->value('id');
+        $noc = ['4G NOC', '4G NOC Manager'];
+        $inApp = ['database'];
+
+        // [name, event, priority filter, channels, recipient roles, notify assignee]
+        foreach ([
+            ['4G – ticket created', 'outage_created', null, $all, $noc, false],
+            ['4G – critical ticket created', 'outage_created', $critical, $all, ['4G NOC Manager', 'Executive'], false],
+            ['4G – progress update posted', 'update_posted', null, $inApp, ['4G NOC'], true],
+            ['4G – vendor notified by e-mail', 'mobility_vendor_notified', null, $inApp, ['4G NOC'], false],
+            ['4G – vendor notification failed', 'mobility_vendor_mail_failed', null, $inAppAndMail, $noc, false],
+            ['4G – vendor update recorded', 'mobility_vendor_update', null, $inApp, ['4G NOC Manager'], false],
+            ['4G – no vendor update (NOC reminder)', 'mobility_vendor_silent', null, $inAppAndMail, ['4G NOC'], false],
+            ['4G – no vendor update (management)', 'mobility_vendor_escalation', null, $all, ['4G NOC Manager'], false],
+            ['4G – resolved, pending NOC confirmation', 'mobility_resolved_pending', null, $all, ['4G NOC'], false],
+            ['4G – NOC could not verify the fix', 'mobility_verification_failed', null, $inAppAndMail, ['4G NOC Manager'], true],
+            ['4G – verified and closed', 'resolved', null, $all, ['4G NOC Manager'], false],
+            ['4G – ticket reopened', 'mobility_reopened', null, $all, $noc, false],
+            ['4G – ticket cancelled', 'mobility_cancelled', null, $inAppAndMail, ['4G NOC Manager'], false],
+            ['4G – escalated by NOC', 'mobility_escalated', null, $all, ['4G NOC Manager'], false],
+            ['4G – SLA approaching breach', 'sla_pre_breach', null, $inAppAndMail, $noc, true],
+            ['4G – SLA breached', 'sla_breach', null, $all, ['4G NOC Manager'], true],
+            ['4G admin feed – ticket created', 'outage_created', null, $inApp, ['Super Admin'], false],
+            ['4G admin feed – resolved, pending NOC', 'mobility_resolved_pending', null, $inApp, ['Super Admin'], false],
+            ['4G admin feed – closed', 'resolved', null, $inApp, ['Super Admin'], false],
+            ['4G admin feed – reopened', 'mobility_reopened', null, $inApp, ['Super Admin'], false],
+        ] as [$name, $event, $priorityId, $channels, $roles, $assignee]) {
+            NotificationRule::query()->firstOrCreate(['name' => $name], [
+                'event' => $event,
+                'vertical_id' => $vertical,
+                'priority_id' => $priorityId,
+                'channels' => $channels,
+                'recipient_roles' => $roles,
+                'notify_assignee' => $assignee,
+                'notify_team_leaders' => false,
                 'is_active' => true,
             ]);
         }

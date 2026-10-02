@@ -6,7 +6,7 @@ use App\Enums\AssignmentStatus;
 use App\Enums\AvailabilityStatus;
 use App\Filament\Concerns\RefreshesOnOmsEvents;
 use App\Filament\Resources\Outages\OutageActions;
-use App\Filament\Resources\Outages\OutageResource;
+use App\Filament\Support\OutageLink;
 use App\Models\Outage;
 use App\Models\OutageAssignment;
 use App\Services\Fifo\FifoAssignmentEngine;
@@ -46,7 +46,7 @@ class MyWork extends Page implements HasTable
 
     public static function canAccess(): bool
     {
-        return (bool) Auth::user()?->can('outage.view');
+        return (bool) Auth::user()?->canAny(['outage.view', 'mobility.view']);
     }
 
     public static function getNavigationBadge(): ?string
@@ -100,11 +100,12 @@ class MyWork extends Page implements HasTable
         return $table
             ->query(fn (): Builder => Outage::query()
                 ->whereHas('assignments', fn ($q) => $q->where('user_id', Auth::id())->whereIn('status', AssignmentStatus::activeValues()))
-                ->with(['priority:id,name,color', 'status:id,name,color', 'outageType:id,name', 'activeAssignments', 'openSupportRequest', 'changeRequest',
+                ->with(['priority:id,name,color', 'status:id,name,color', 'outageType:id,name', 'activeAssignments', 'openSupportRequest', 'changeRequest', 'vendor',
                     'assignments' => fn ($q) => $q->where('user_id', Auth::id())->whereIn('status', AssignmentStatus::activeValues())]))
             ->defaultSort('sla_due_at')
             ->poll('30s')
-            ->recordUrl(fn (Outage $record) => OutageResource::getUrl('view', ['record' => $record]))
+            // FTTH and 4G tickets each open on their own ticket page.
+            ->recordUrl(fn (Outage $record) => OutageLink::url($record))
             ->emptyStateHeading('Nothing assigned to you')
             ->emptyStateDescription('Set yourself Available to receive the next eligible ticket from the FIFO queue.')
             ->emptyStateIcon('heroicon-o-inbox')
@@ -126,8 +127,7 @@ class MyWork extends Page implements HasTable
             ->recordActions([
                 OutageActions::accept()->button()->size('sm'),
                 ActionGroup::make([
-                    ...array_values(array_filter(OutageActions::primary(), fn (Action $action) => $action->getName() !== 'acceptAssignment')),
-                    ...OutageActions::secondary(),
+                    ...array_values(array_filter(OutageActions::all(), fn (Action $action) => $action->getName() !== 'acceptAssignment')),
                 ]),
             ]);
     }

@@ -6,6 +6,7 @@ use App\Enums\TeamType;
 use App\Models\Fdt;
 use App\Models\MajorOutageType;
 use App\Models\Olt;
+use App\Models\Outage;
 use App\Models\OutageType;
 use App\Models\Port;
 use App\Models\Service;
@@ -25,7 +26,6 @@ use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 
 /**
@@ -49,7 +49,8 @@ final class OutageForm
                         ->visibleOn('edit'),
                     TextInput::make('title')->label('Outage title')->required()->maxLength(255)->columnSpanFull(),
                     Select::make('major_outage_type_id')->label('Major outage type')->required()->live()
-                        ->options(fn () => MajorOutageType::query()->active()->orderBy('sort_order')->pluck('name', 'id'))
+                        // The 4G major type belongs to the 4G NOC form.
+                        ->options(fn () => MajorOutageType::query()->active()->where('code', '!=', MajorOutageType::MOBILITY)->orderBy('sort_order')->pluck('name', 'id'))
                         ->disabledOn('edit')
                         ->afterStateUpdated(fn (Set $set) => $set('outage_type_id', null)),
                     Select::make('outage_type_id')->label('Outage type')->required()->live()
@@ -60,7 +61,11 @@ final class OutageForm
                             ->orderBy('sort_order')->get()->mapWithKeys(fn (OutageType $t) => [$t->id => "{$t->name} ({$t->prefix})"]))
                         ->disabledOn('edit'),
                     Select::make('vertical_id')->label('Vertical')->required()->live()
-                        ->options(fn () => Vertical::query()->active()->orderBy('name')->pluck('name', 'id'))
+                        // 4G outages are reported under 4G NOC (own workflow); the vertical stays listed on tickets that already have it.
+                        ->options(fn (?Outage $record) => Vertical::query()->active()
+                            ->where(fn ($q) => $q->where('code', '!=', Vertical::MOBILITY_4G)->orWhere('id', (int) $record?->vertical_id))
+                            ->orderBy('name')->pluck('name', 'id'))
+                        ->helperText(fn (string $operation) => $operation === 'create' ? '4G outages (eNodeB, transmission, power) are reported under 4G NOC.' : null)
                         ->afterStateUpdated(fn (Set $set) => $set('service_ids', [])),
                     DateTimePicker::make('start_time')->label('Start time')->required()->seconds(false)->default(fn () => now()->startOfMinute())->maxDate(fn () => now()->addDay()->startOfMinute()),
                 ])->columns(2),
@@ -77,12 +82,13 @@ final class OutageForm
                     TextInput::make('customers_affected')->label('Total customers affected')->numeric()->minValue(0)->maxValue(10_000_000)
                         ->required()->default(0)->live(debounce: 400),
                     TextEntry::make('calculated_priority')->label('Impact / priority (rule-driven)')
-                        ->state(fn (Get $get) => app(PriorityResolver::class)->forCustomers((int) $get('customers_affected'))?->name ?? 'No matching rule')
+                        ->state(fn (Get $get) => app(PriorityResolver::class)->forCustomers((int) $get('customers_affected'), ((int) $get('vertical_id')) ?: null)?->name ?? 'No matching rule')
                         ->badge()->color('warning')
                         ->hidden(fn (Get $get) => (bool) $get('priority_is_manual')),
                     Toggle::make('priority_is_manual')->label('Override calculated priority')->live()
                         ->visible(fn () => Auth::user()?->can('outage.override_priority')),
-                    Select::make('priority_id')->label('Priority')->relationship('priority', 'name', fn (Builder $query) => $query->where('is_active', true)->orderBy('queue_rank'))
+                    Select::make('priority_id')->label('Priority')
+                        ->options(fn (Get $get) => app(PriorityResolver::class)->forVertical(((int) $get('vertical_id')) ?: null)->sortBy('queue_rank')->pluck('name', 'id')->all())
                         ->visible(fn (Get $get) => (bool) $get('priority_is_manual'))
                         ->required(fn (Get $get) => (bool) $get('priority_is_manual')),
                     TextInput::make('location')->label('Location / area')->maxLength(255),

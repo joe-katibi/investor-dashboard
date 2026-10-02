@@ -25,6 +25,9 @@ class QueueDefinitionSeeder extends Seeder
             [QueueType::ItReview, 'IT Review Queue', 'IT', 15],
             [QueueType::ItConfirmation, 'IT Confirmation Queue', 'IT', 15],
             [QueueType::CxNotify, 'CX Customer Notification Queue', 'CX', 30],
+            // 4G NOC: engineers / technicians are assigned by the NOC; verification goes to the next available NOC user.
+            [QueueType::MobilityEngineer, '4G Engineer / Technician Queue', 'MOBILITY', 30],
+            [QueueType::MobilityNoc, '4G NOC Verification Queue', 'MOBILITY', 15],
         ] as [$type, $name, $departmentCode, $ack]) {
             QueueDefinition::query()->updateOrCreate(['queue_type' => $type->value, 'name' => $name], [
                 'department_id' => $department[$departmentCode] ?? null,

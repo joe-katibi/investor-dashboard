@@ -7,7 +7,7 @@ use App\Enums\QueueType;
 use App\Enums\SlaState;
 use App\Filament\Concerns\RefreshesOnOmsEvents;
 use App\Filament\Resources\Outages\OutageActions;
-use App\Filament\Resources\Outages\OutageResource;
+use App\Filament\Support\OutageLink;
 use App\Models\OutageQueueEntry;
 use App\Models\OutageType;
 use App\Models\User;
@@ -71,9 +71,25 @@ class FifoQueue extends Page implements HasTable
         $this->resetTable();
     }
 
+    /**
+     * Queues this user may look at: the 4G queues need "View 4G outages", the others "View outages"
+     * (the same split as the tickets in them).
+     *
+     * @return list<QueueType>
+     */
+    public function visibleQueues(): array
+    {
+        $user = Auth::user();
+
+        return array_values(array_filter(QueueType::cases(), fn (QueueType $type) => (bool) $user?->can($type->isMobility() ? 'mobility.view' : 'outage.view')));
+    }
+
     public function queueType(): QueueType
     {
-        return QueueType::tryFrom($this->queue) ?? QueueType::NocReview;
+        $visible = $this->visibleQueues();
+        $selected = QueueType::tryFrom($this->queue);
+
+        return $selected && in_array($selected, $visible, true) ? $selected : ($visible[0] ?? QueueType::NocReview);
     }
 
     /** Snapshot keyed by entry id: position + next eligible user (computed once per render). */
@@ -150,7 +166,7 @@ class FifoQueue extends Page implements HasTable
                 ->fifoOrder($priorityAware))
             ->paginated([25, 50, 100])
             ->poll('30s')
-            ->recordUrl(fn (OutageQueueEntry $record) => OutageResource::getUrl('view', ['record' => $record->outage_id]))
+            ->recordUrl(fn (OutageQueueEntry $record) => OutageLink::url($record->outage ?? $record->outage_id))
             ->emptyStateHeading('Queue is empty')
             ->emptyStateIcon('heroicon-o-check-circle')
             ->columns([

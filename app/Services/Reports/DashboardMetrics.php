@@ -54,13 +54,14 @@ class DashboardMetrics
             $types = OutageType::query()->pluck('id', 'code');
             $byType = $period()->toBase()->selectRaw('outage_type_id, count(*) as aggregate')->groupBy('outage_type_id')->pluck('aggregate', 'outage_type_id');
 
-            $criticalId = Priority::query()->where('code', Priority::CRITICAL)->value('id');
+            // The top severity of every vertical (FTTH Critical, 4G Critical).
+            $criticalIds = Priority::query()->whereIn('code', Priority::CRITICAL_CODES)->pluck('id')->all();
 
             return [
                 'total' => $period()->count(),
                 'active' => $active()->count(),
                 'resolved' => $this->scoped($filters)->whereBetween('resolved_at', [$from, $to])->count(),
-                'critical' => $active()->where('priority_id', $criticalId ?? 0)->count(),
+                'critical' => $active()->whereIn('priority_id', $criticalIds ?: [0])->count(),
                 'customers' => (int) $active()->sum('customers_affected'),
                 'regular' => (int) ($byType[$types['regular'] ?? 0] ?? 0),
                 'emergency' => (int) ($byType[$types['emergency'] ?? 0] ?? 0),

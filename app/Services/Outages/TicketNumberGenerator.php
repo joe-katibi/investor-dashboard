@@ -13,11 +13,11 @@ class TicketNumberGenerator
 {
     public const DIGITS = 11;
 
-    public function next(string $prefix): string
+    public function next(string $prefix, int $digits = self::DIGITS): string
     {
         $prefix = strtoupper(trim($prefix));
 
-        return DB::transaction(function () use ($prefix): string {
+        return DB::transaction(function () use ($prefix, $digits): string {
             DB::table('ticket_sequences')->insertOrIgnore([
                 'prefix' => $prefix,
                 'last_number' => 0,
@@ -36,7 +36,7 @@ class TicketNumberGenerator
                 ->where('prefix', $prefix)
                 ->update(['last_number' => $next, 'updated_at' => now()]);
 
-            return $prefix.'-'.str_pad((string) $next, self::DIGITS, '0', STR_PAD_LEFT);
+            return $prefix.'-'.str_pad((string) $next, $digits, '0', STR_PAD_LEFT);
         });
     }
 }

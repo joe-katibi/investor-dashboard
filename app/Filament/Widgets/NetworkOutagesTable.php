@@ -9,7 +9,8 @@ class NetworkOutagesTable extends LiveOutagesTable
 {
     protected static ?int $sort = 10;
 
-    protected static ?string $heading = 'Live network outages (FTTH / 4G)';
+    // 4G outages have their own dashboard (4G NOC → Dashboard).
+    protected static ?string $heading = 'Live network outages (FTTH)';
 
     protected function scope(Builder $query): void
     {

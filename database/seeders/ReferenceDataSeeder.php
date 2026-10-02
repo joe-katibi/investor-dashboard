@@ -20,11 +20,14 @@ class ReferenceDataSeeder extends Seeder
         OutageTypeSeeder::class,
         OutageStatusSeeder::class,
         PrioritySeeder::class,
+        ImpactRuleSeeder::class,
         SlaPolicySeeder::class,
         QueueDefinitionSeeder::class,
         NotificationRuleSeeder::class,
         EmailTemplateSeeder::class,
         MaintenanceTemplateSeeder::class,
+        VendorSeeder::class,
+        VendorTemplateSeeder::class,
     ];
 
     public function run(): void

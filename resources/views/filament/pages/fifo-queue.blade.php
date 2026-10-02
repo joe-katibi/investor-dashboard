@@ -1,9 +1,9 @@
 <x-filament-panels::page>
     @php($counts = $this->getQueueCounts())
     <x-filament::tabs label="Queues">
-        @foreach (\App\Enums\QueueType::cases() as $type)
+        @foreach ($this->visibleQueues() as $type)
             <x-filament::tabs.item
-                :active="$queue === $type->value"
+                :active="$this->queueType() === $type"
                 wire:click="$set('queue', '{{ $type->value }}')"
                 :badge="$counts[$type->value] ?? 0"
                 :badge-color="($counts[$type->value] ?? 0) > 0 ? 'warning' : 'gray'"

@@ -17,6 +17,7 @@ class DatabaseSeeder extends Seeder
             RolesAndPermissionsSeeder::class,
             ReferenceDataSeeder::class,
             TopologySeeder::class,
+            MobilityTopologySeeder::class,
         ]);
 
         if (! app()->isProduction() && env('OMS_SEED_DEMO', true)) {

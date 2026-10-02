@@ -21,6 +21,7 @@ class EmailTemplate extends Model
         'two_hour' => 'Two-Hour Operational Update',
         'executive' => 'Executive Summary',
         'summary' => 'Summary Report',
+        'mobility_hourly' => '4G Hourly Outage Update',
         'custom' => 'Custom',
     ];
 

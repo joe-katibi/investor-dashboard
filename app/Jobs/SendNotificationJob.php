@@ -3,10 +3,13 @@
 namespace App\Jobs;
 
 use App\Enums\NotificationChannel;
+use App\Filament\Support\OutageLink;
 use App\Mail\MaintenanceMail;
 use App\Mail\OutageNotificationMail;
+use App\Mail\VendorNotificationMail;
 use App\Models\NotificationLog;
 use App\Services\Notifications\Sms\SmsGateway;
+use App\Services\Outages\OutageWorkflow;
 use Filament\Actions\Action;
 use Filament\Notifications\Events\DatabaseNotificationsSent;
 use Filament\Notifications\Notification;
@@ -52,9 +55,7 @@ class SendNotificationJob implements ShouldQueue
         try {
             match (NotificationChannel::from($log->channel)) {
                 NotificationChannel::InApp => $this->sendInApp($log),
-                NotificationChannel::Mail => Mail::to($log->recipient)->send(
-                    isset($log->meta['html']) ? new MaintenanceMail($log) : new OutageNotificationMail($log),
-                ),
+                NotificationChannel::Mail => $this->sendMail($log),
                 NotificationChannel::Sms => $sms->send((string) $log->recipient, (string) $log->body),
             };
 
@@ -67,6 +68,16 @@ class SendNotificationJob implements ShouldQueue
 
             throw $exception;
         }
+
+        // 4G vendor e-mail delivered: timeline entry and "Vendor Notification Sent". Outside the
+        // try above so a problem here can never cause the vendor to be e-mailed twice.
+        if ($this->isVendorMail($log)) {
+            try {
+                app(OutageWorkflow::class)->vendorMailDelivered($log);
+            } catch (Throwable $exception) {
+                report($exception);
+            }
+        }
     }
 
     public function failed(?Throwable $exception): void
@@ -75,6 +86,37 @@ class SendNotificationJob implements ShouldQueue
             'status' => 'failed',
             'failure_reason' => Str::limit((string) $exception?->getMessage(), 1000),
         ]);
+
+        $log = NotificationLog::query()->find($this->logId);
+
+        if ($log && $this->isVendorMail($log)) {
+            try {
+                app(OutageWorkflow::class)->vendorMailFailed($log, $exception?->getMessage());
+            } catch (Throwable $inner) {
+                report($inner);
+            }
+        }
+    }
+
+    private function sendMail(NotificationLog $log): void
+    {
+        // Vendor e-mails carry their own TO / CC lists; everything else goes to the one logged recipient.
+        $mail = Mail::to(! empty($log->meta['to']) ? $log->meta['to'] : $log->recipient);
+
+        if (! empty($log->meta['cc'])) {
+            $mail->cc($log->meta['cc']);
+        }
+
+        $mail->send(match (true) {
+            $this->isVendorMail($log) => new VendorNotificationMail($log),
+            isset($log->meta['html']) => new MaintenanceMail($log),
+            default => new OutageNotificationMail($log),
+        });
+    }
+
+    private function isVendorMail(NotificationLog $log): bool
+    {
+        return ($log->meta['kind'] ?? null) === 'vendor';
     }
 
     private function sendInApp(NotificationLog $log): void
@@ -95,7 +137,7 @@ class SendNotificationJob implements ShouldQueue
             $notification->actions([
                 Action::make('view')
                     ->label('Open ticket')
-                    ->url(route('filament.admin.resources.outages.view', ['record' => $log->outage_id]))
+                    ->url(OutageLink::url($log->outage ?? $log->outage_id))
                     ->markAsRead(),
             ]);
         }

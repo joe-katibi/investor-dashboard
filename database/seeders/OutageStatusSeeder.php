@@ -45,5 +45,35 @@ class OutageStatusSeeder extends Seeder
                 'is_system' => true, 'sort_order' => $sort, 'is_active' => true,
             ]);
         }
+
+        // 4G NOC statuses (spec §10). Which ones a ticket can take depends on its outage type's workflow:
+        // internal (engineer / technician) or vendor. They are driven by the 4G workflow, never by "Set status".
+        // [code, name, colour, closed, resolved, sort]
+        foreach ([
+            [StatusCode::MobilityNew, 'New', 'gray', false, false, 40],
+            [StatusCode::MobilityOpen, 'Open', 'info', false, false, 41],
+            [StatusCode::MobilityAssigned, 'Assigned', 'warning', false, false, 42],
+            [StatusCode::MobilityInProgress, 'In Progress', 'primary', false, false, 43],
+            [StatusCode::MobilityVendorAssigned, 'Vendor Assigned', 'warning', false, false, 44],
+            [StatusCode::MobilityVendorNotified, 'Vendor Notification Sent', 'warning', false, false, 45],
+            [StatusCode::MobilityVendorAcknowledged, 'Vendor Acknowledged', 'info', false, false, 46],
+            [StatusCode::MobilityVendorInvestigating, 'Vendor Investigating', 'primary', false, false, 47],
+            [StatusCode::MobilityMonitoring, 'Monitoring', 'info', false, false, 48],
+            [StatusCode::MobilityResolvedPendingNoc, 'Resolved – Pending NOC Confirmation', 'success', false, false, 49],
+            [StatusCode::MobilityVendorResolvedPendingNoc, 'Vendor Resolved – Pending NOC Verification', 'success', false, false, 50],
+            [StatusCode::MobilityClosed, 'Closed', 'success', true, true, 51],
+            [StatusCode::MobilityCancelled, 'Cancelled', 'gray', true, false, 52],
+        ] as [$code, $name, $color, $closed, $resolved, $sort]) {
+            $status = OutageStatus::query()->firstOrNew(['code' => $code->value]);
+
+            // The engine relies on these flags; name, colour, order and "pauses SLA" stay editable.
+            $status->forceFill(['workflow' => OutageStatus::WORKFLOW_MOBILITY, 'is_closed' => $closed, 'is_resolved' => $resolved, 'is_system' => true, 'is_manual_selectable' => false]);
+
+            if (! $status->exists) {
+                $status->forceFill(['name' => $name, 'color' => $color, 'sort_order' => $sort, 'prompt_final_reason' => false, 'pauses_sla' => false, 'is_active' => true]);
+            }
+
+            $status->save();
+        }
     }
 }

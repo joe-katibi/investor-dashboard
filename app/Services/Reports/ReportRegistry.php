@@ -43,10 +43,33 @@ class ReportRegistry
         'planned_maintenance' => 'Planned Maintenance Report',
         'assignment_history' => 'FIFO Assignment History Report',
         'audit_trail' => 'Audit Trail Report',
-    ];
+    ] + MobilityReports::REPORTS;
+
+    /** Reports that cover every ticket, whatever its vertical. */
+    public const SHARED = ['assignment_history', 'audit_trail'];
+
+    /**
+     * Reports a user may run: the 4G reports need "View 4G outages", the FTTH / core / system
+     * ones "View outages" — the same split as the tickets themselves.
+     *
+     * @return array<string, string>
+     */
+    public static function availableTo(?User $user): array
+    {
+        return array_filter(self::REPORTS, fn (string $key) => match (true) {
+            $user === null => false,
+            in_array($key, self::SHARED, true) => true,
+            $key === 'mobility_4g' || isset(MobilityReports::REPORTS[$key]) => $user->can('mobility.view'),
+            default => $user->can('outage.view'),
+        }, ARRAY_FILTER_USE_KEY);
+    }
 
     public function run(string $key, array $filters = []): ReportResult
     {
+        if (isset(MobilityReports::REPORTS[$key])) {
+            return app(MobilityReports::class)->run($key, $filters);
+        }
+
         return match ($key) {
             'outage_register' => $this->outageList(self::REPORTS[$key], $filters, $this->registerColumns()),
             'summary_report' => $this->outageList(self::REPORTS[$key], $filters, $this->summaryColumns()),
@@ -284,6 +307,8 @@ class ReportRegistry
 
     private function mobility(array $filters): ReportResult
     {
+        // Every ticket of the 4G vertical: 4G NOC tickets and any older ones raised on the standard form.
+        $filters += ['_scope' => 'all'];
         $verticalId = Vertical::query()->where('code', Vertical::MOBILITY_4G)->value('id');
         $base = $this->scoped($filters)->where('vertical_id', $verticalId ?? 0);
 
@@ -522,6 +547,8 @@ class ReportRegistry
     private function scoped(array $filters): Builder
     {
         return OutageQuery::make($filters)
+            // 4G NOC tickets have their own reports; '_scope' => 'all' lifts this for cross-vertical ones.
+            ->when(($filters['_scope'] ?? null) !== 'all', fn (Builder $q) => $q->standard())
             ->when($filters['_major'] ?? null, fn (Builder $q, $code) => $q->ofMajorType($code))
             ->when($filters['_planned'] ?? null, fn (Builder $q) => $q->whereHas('outageType', fn (Builder $t) => $t->where('is_planned', true)));
     }

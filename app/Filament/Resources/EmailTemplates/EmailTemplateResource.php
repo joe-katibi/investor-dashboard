@@ -86,7 +86,10 @@ class EmailTemplateResource extends Resource
                         'Placeholders: <code>{{ key }}</code>. Loops: <code>{{#for each active network outage}} … {{/for}}</code> '.
                         '(also major incident, core outage, system outage, 4G outage, closed outage) with item keys '.
                         '<code>ticket, title, location, olt_fdt, start_time, customers, noc_time, maintenance_time, sms_status, credit_status, sla_status, status, owner, latest_action, final_reason</code>.<br>'.
-                        'Values: <code>'.e(implode(', ', TemplateRenderer::placeholders())).'</code>'
+                        'Values: <code>'.e(implode(', ', TemplateRenderer::placeholders())).'</code><br>'.
+                        '<strong>4G NOC:</strong> loops <code>{{#for each active 4G outage}} … {{/for}}</code> (also 4G eNodeB outage, 4G transmission outage, '.
+                        '4G power outage, 4G vendor ticket, closed 4G outage) with item keys <code>'.e(implode(', ', TemplateRenderer::MOBILITY_ITEM_KEYS)).'</code>. '.
+                        '4G values: <code>'.e(implode(', ', TemplateRenderer::mobilityPlaceholders())).'</code>'
                     )),
                 Toggle::make('attach_excel')->label('Attach summary report as Excel (.xlsx)'),
             ])->columnSpanFull(),

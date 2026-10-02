@@ -76,6 +76,28 @@ class Settings
         ],
         'maintenance.reapprove_on_reschedule' => false, // re-collect signatures when the window moves
         'maintenance.sign_link_days' => 14,
+
+        // 4G NOC (4G NOC → 4G Settings). 4G tickets use their own alert lists, not the FTTH ones above.
+        'mobility.noc_contact' => '',                 // shown to vendors in the notification e-mail
+        'mobility.vendor_silent_minutes' => 60,       // no vendor update for this long → remind the NOC (0 = off)
+        'mobility.vendor_escalation_minutes' => 120,  // still nothing → management escalation (0 = off)
+        'mobility.vendor_reminder_mail' => true,      // also e-mail the vendor a reminder at the escalation
+        'mobility.escalation_roles' => ['4G NOC Manager'],
+        'mobility.escalation_emails' => [],
+        'mobility.alert_emails' => [],
+        'mobility.alert_events' => self::MOBILITY_ALERT_EVENTS,
+        'mobility.alert_phones' => [],
+        'mobility.alert_sms_events' => [
+            'outage_created', 'mobility_resolved_pending', 'resolved', 'mobility_reopened', 'mobility_escalated',
+            'mobility_vendor_escalation', 'sla_breach',
+        ],
+    ];
+
+    public const MOBILITY_ALERT_EVENTS = [
+        'outage_created', 'assigned', 'update_posted', 'mobility_vendor_notified', 'mobility_vendor_mail_failed',
+        'mobility_vendor_update', 'mobility_vendor_silent', 'mobility_vendor_escalation', 'mobility_resolved_pending',
+        'mobility_verification_failed', 'resolved', 'mobility_reopened', 'mobility_cancelled', 'mobility_escalated',
+        'sla_pre_breach', 'sla_breach',
     ];
 
     /** @var array<string, mixed>|null */

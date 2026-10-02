@@ -8,6 +8,7 @@ use App\Models\MaintenanceApproval;
 use App\Models\MajorOutageType;
 use App\Models\Outage;
 use App\Models\OutageStatus;
+use App\Models\OutageType;
 use App\Models\SupportRequest;
 use App\Models\User;
 
@@ -22,9 +23,10 @@ class OutagePolicy
         return $user->can('outage.view');
     }
 
+    /** 4G NOC tickets are a separate audience from the FTTH / core / system tickets. */
     public function view(User $user, Outage $outage): bool
     {
-        return $user->can('outage.view');
+        return $outage->workflow !== null ? $user->can('mobility.view') : $user->can('outage.view');
     }
 
     public function create(User $user): bool
@@ -34,7 +36,7 @@ class OutagePolicy
 
     public function update(User $user, Outage $outage): bool
     {
-        return $user->can('outage.edit') && ! $outage->is_closed;
+        return $user->can('outage.edit') && ! $outage->is_closed && $outage->workflow === null;
     }
 
     public function delete(User $user, Outage $outage): bool
@@ -69,6 +71,12 @@ class OutagePolicy
 
     public function addUpdate(User $user, Outage $outage): bool
     {
+        if ($outage->workflow !== null) {
+            return $outage->is_closed
+                ? $user->can('mobility.verify')
+                : $user->canAny(['mobility.work', 'mobility.vendor_update', 'mobility.verify', 'mobility.create']);
+        }
+
         return $outage->is_closed ? $user->can('outage.edit') : $user->can('outage.update_progress');
     }
 
@@ -101,17 +109,118 @@ class OutagePolicy
 
     public function changeStatus(User $user, Outage $outage): bool
     {
-        return $user->can('outage.change_status') && ! $outage->is_closed;
+        return $user->can('outage.change_status') && ! $outage->is_closed && $outage->workflow === null;
     }
 
     public function updateFlags(User $user, Outage $outage): bool
     {
-        return $user->can('outage.update_credit_sms');
+        return $user->can('outage.update_credit_sms') && $outage->workflow === null;
     }
 
     public function overrideAssignment(User $user, Outage $outage): bool
     {
-        return $user->can('queue.override') && ! $outage->is_closed;
+        return $user->can('queue.override') && ! $outage->is_closed && $outage->workflow === null;
+    }
+
+    // ------------------------------------------------------------------ 4G NOC
+
+    public function createMobility(User $user): bool
+    {
+        return $user->can('mobility.create');
+    }
+
+    public function mobilityEdit(User $user, Outage $outage): bool
+    {
+        return $outage->workflow !== null && ! $outage->is_closed && $user->can('mobility.edit');
+    }
+
+    /** NOC assigns (or re-assigns) the engineer / technician of an internal ticket. */
+    public function mobilityAssign(User $user, Outage $outage): bool
+    {
+        return $outage->workflow === OutageType::WORKFLOW_MOBILITY_INTERNAL
+            && ! $outage->is_closed
+            && $user->can('mobility.assign')
+            && $this->statusIs($outage, StatusCode::MobilityNew, StatusCode::MobilityOpen, StatusCode::MobilityAssigned,
+                StatusCode::MobilityInProgress, StatusCode::MobilityMonitoring);
+    }
+
+    /** The assigned engineer accepts the ticket and starts investigating. */
+    public function mobilityStart(User $user, Outage $outage): bool
+    {
+        return $outage->workflow === OutageType::WORKFLOW_MOBILITY_INTERNAL
+            && ! $outage->is_closed
+            && $user->can('mobility.work')
+            && $this->statusIs($outage, StatusCode::MobilityAssigned);
+    }
+
+    /** Engineer / technician: "Resolved – Pending NOC Confirmation". They can never close. */
+    public function mobilityResolve(User $user, Outage $outage): bool
+    {
+        return $outage->workflow === OutageType::WORKFLOW_MOBILITY_INTERNAL
+            && ! $outage->is_closed
+            && $user->can('mobility.work')
+            && $this->statusIs($outage, StatusCode::MobilityNew, StatusCode::MobilityOpen, StatusCode::MobilityAssigned,
+                StatusCode::MobilityInProgress, StatusCode::MobilityMonitoring);
+    }
+
+    /** NOC verifies the restoration and closes (or sends the ticket back). */
+    public function mobilityClose(User $user, Outage $outage): bool
+    {
+        return $outage->workflow !== null
+            && ! $outage->is_closed
+            && $user->can('mobility.verify')
+            && $this->statusIs($outage, StatusCode::MobilityResolvedPendingNoc, StatusCode::MobilityVendorResolvedPendingNoc);
+    }
+
+    public function mobilitySetStatus(User $user, Outage $outage): bool
+    {
+        return $outage->workflow !== null
+            && ! $outage->is_closed
+            && $user->canAny(['mobility.verify', 'mobility.work'])
+            && ! $this->statusIs($outage, StatusCode::MobilityResolvedPendingNoc, StatusCode::MobilityVendorResolvedPendingNoc);
+    }
+
+    /** NOC captures what the vendor reported (vendors never use the system). */
+    public function mobilityVendorUpdate(User $user, Outage $outage): bool
+    {
+        return $outage->workflow === OutageType::WORKFLOW_MOBILITY_VENDOR
+            && ! $outage->is_closed
+            && $outage->vendor_id !== null
+            && $user->can('mobility.vendor_update');
+    }
+
+    public function mobilityNotifyVendor(User $user, Outage $outage): bool
+    {
+        return $this->mobilityVendorUpdate($user, $outage)
+            && ! $this->statusIs($outage, StatusCode::MobilityVendorResolvedPendingNoc);
+    }
+
+    public function mobilityChangeVendor(User $user, Outage $outage): bool
+    {
+        return $outage->workflow === OutageType::WORKFLOW_MOBILITY_VENDOR
+            && ! $outage->is_closed
+            && $user->can('mobility.assign')
+            && ! $this->statusIs($outage, StatusCode::MobilityVendorResolvedPendingNoc);
+    }
+
+    public function mobilityReopen(User $user, Outage $outage): bool
+    {
+        return $outage->workflow !== null && $outage->is_closed && $user->can('mobility.reopen');
+    }
+
+    public function mobilityCancel(User $user, Outage $outage): bool
+    {
+        return $outage->workflow !== null && ! $outage->is_closed && $user->can('mobility.cancel');
+    }
+
+    public function mobilityEscalate(User $user, Outage $outage): bool
+    {
+        return $outage->workflow !== null && ! $outage->is_closed && $user->can('mobility.escalate');
+    }
+
+    public function mobilityAttach(User $user, Outage $outage): bool
+    {
+        return $outage->workflow !== null && $this->addUpdate($user, $outage);
     }
 
     // ------------------------------------------------------------------ NOC reject → CX follow-up

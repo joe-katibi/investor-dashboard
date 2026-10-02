@@ -64,6 +64,12 @@ class NotificationRule extends Model
 
     public function matches(Outage $outage): bool
     {
+        // 4G NOC tickets have their own audience: only rules set to that vertical apply, so the
+        // FTTH rules ("any vertical") never page FTTH teams about a 4G site.
+        if ($outage->workflow !== null && $this->vertical_id === null) {
+            return false;
+        }
+
         foreach (['major_outage_type_id', 'outage_type_id', 'vertical_id', 'priority_id', 'status_id'] as $column) {
             if ($this->{$column} !== null && (int) $this->{$column} !== (int) $outage->{$column}) {
                 return false;

@@ -79,6 +79,7 @@ class AdminPanelProvider extends PanelProvider
             ->globalSearchKeyBindings(['command+k', 'ctrl+k'])
             ->navigationGroups([
                 NavigationGroup::make('Operations'),
+                NavigationGroup::make('4G NOC'),
                 NavigationGroup::make('Reporting'),
                 NavigationGroup::make('Topology')->collapsed(),
                 NavigationGroup::make('Configuration')->collapsed(),

@@ -56,7 +56,8 @@ class Reports extends Page
     public function mount(): void
     {
         $this->form->fill([
-            'report' => 'outage_register',
+            // The first report this user may run (a 4G-only user starts on the 4G outage report).
+            'report' => array_key_first(ReportRegistry::availableTo(Auth::user())),
             'from' => now()->subDays(6)->toDateString(),
             'to' => now()->toDateString(),
         ]);
@@ -70,7 +71,7 @@ class Reports extends Page
             ->statePath('data')
             ->components([
                 Section::make()->schema([
-                    Select::make('report')->label('Report')->options(ReportRegistry::REPORTS)->required()->live()->columnSpan(2),
+                    Select::make('report')->label('Report')->options(fn () => ReportRegistry::availableTo(Auth::user()))->required()->live()->columnSpan(2),
                     DatePicker::make('from')->label('From')->live(),
                     DatePicker::make('to')->label('To')->live(),
                 ])->columns(4),
@@ -97,7 +98,7 @@ class Reports extends Page
     {
         $key = $this->data['report'] ?? null;
 
-        return $key && isset(ReportRegistry::REPORTS[$key]) ? app(ReportRegistry::class)->run($key, $this->filters()) : null;
+        return $key && isset(ReportRegistry::availableTo(Auth::user())[$key]) ? app(ReportRegistry::class)->run($key, $this->filters()) : null;
     }
 
     public function screenLimit(): int

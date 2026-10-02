@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Models\OutageType;
 use App\Models\Priority;
 use App\Models\SlaPolicy;
+use App\Models\Vertical;
 use Illuminate\Database\Seeder;
 
 /** SLA policies (spec §11). Requires PrioritySeeder and OutageTypeSeeder. */
@@ -53,6 +54,36 @@ class SlaPolicySeeder extends Seeder
         // Existing installations still on the old untouched 8-hour default move to 6 hours.
         if ((int) $planned->resolution_minutes === 480 && $planned->updated_by === null) {
             $planned->forceFill(['resolution_minutes' => 360])->save();
+        }
+
+        // 4G: its own targets per severity (vertical + priority). Starting values — set the agreed
+        // times under Configuration → SLA Policies; a policy can also be narrowed to one outage type
+        // (eNodeB / Transmission / Power) or one vendor.
+        $mobility = Vertical::query()->where('code', Vertical::MOBILITY_4G)->value('id');
+
+        // [name, priority, resolution min, pre-breach min, escalate after min]
+        foreach ([
+            ['4G Critical – 4h', Priority::MOBILITY_CRITICAL, 240, 60, 120],
+            ['4G Major – 8h', Priority::MOBILITY_MAJOR, 480, 60, 240],
+            ['4G Minor – 24h', Priority::MOBILITY_MINOR, 1440, 180, null],
+        ] as [$name, $code, $resolution, $preBreach, $escalation]) {
+            if (! $mobility || ! isset($priority[$code])) {
+                continue;
+            }
+
+            SlaPolicy::query()->firstOrCreate(['name' => $name], [
+                'vertical_id' => $mobility,
+                'priority_id' => $priority[$code],
+                'resolution_minutes' => $resolution,
+                'pre_breach_minutes' => $preBreach,
+                'escalation_minutes' => $escalation,
+                'escalation_roles' => $escalation ? ['4G NOC Manager'] : null,
+                'notify_roles' => ['4G NOC Manager'],
+                'notify_credit' => false,
+                'notify_sms' => false,
+                'allow_pause' => true,
+                'is_active' => true,
+            ]);
         }
     }
 }

@@ -73,6 +73,8 @@ class OutageStatusResource extends Resource
             ->columns([
                 TextColumn::make('name')->badge()->color(fn (OutageStatus $record) => $record->color)->searchable(),
                 TextColumn::make('code')->placeholder('custom')->color('gray'),
+                TextColumn::make('workflow')->label('Used by')->badge()->placeholder('FTTH / core / system')
+                    ->formatStateUsing(fn (string $state) => $state === OutageStatus::WORKFLOW_MOBILITY ? '4G NOC' : $state)->color('info'),
                 IconColumn::make('prompt_final_reason')->label('Final reason')->boolean(),
                 IconColumn::make('is_manual_selectable')->label('Manual')->boolean(),
                 IconColumn::make('pauses_sla')->label('Pauses SLA')->boolean(),

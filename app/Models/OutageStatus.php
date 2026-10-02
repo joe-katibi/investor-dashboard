@@ -11,12 +11,15 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Cache;
 
 #[Fillable([
-    'name', 'code', 'description', 'color', 'prompt_final_reason', 'is_closed', 'is_resolved',
+    'name', 'code', 'workflow', 'description', 'color', 'prompt_final_reason', 'is_closed', 'is_resolved',
     'pauses_sla', 'is_manual_selectable', 'is_system', 'sort_order', 'is_active',
 ])]
 class OutageStatus extends Model
 {
     use Auditable, HasAuditColumns;
+
+    /** Statuses of the 4G NOC workflows (workflow column); null = the standard FTTH / core / system flows. */
+    public const WORKFLOW_MOBILITY = 'mobility';
 
     private const CACHE_KEY = 'oms.status-codes';
 
@@ -66,5 +69,15 @@ class OutageStatus extends Model
     public function scopeActive(Builder $query): void
     {
         $query->where('is_active', true);
+    }
+
+    public function scopeStandard(Builder $query): void
+    {
+        $query->whereNull('workflow');
+    }
+
+    public function scopeMobility(Builder $query): void
+    {
+        $query->where('workflow', self::WORKFLOW_MOBILITY);
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Mail;
 
+use App\Filament\Support\OutageLink;
 use App\Models\NotificationLog;
 use App\Models\OutagePhoto;
 use Illuminate\Bus\Queueable;
@@ -28,7 +29,7 @@ class OutageNotificationMail extends Mailable
         return new Content(view: 'emails.outage-notification', with: [
             'subjectLine' => $this->log->subject,
             'body' => $this->log->body,
-            'url' => $this->log->outage_id ? route('filament.admin.resources.outages.view', ['record' => $this->log->outage_id]) : null,
+            'url' => OutageLink::url($this->log->outage_id),
         ]);
     }
 

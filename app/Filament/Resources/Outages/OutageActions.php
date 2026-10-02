@@ -6,6 +6,7 @@ use App\Enums\AssignmentStatus;
 use App\Enums\QueueType;
 use App\Enums\StatusCode;
 use App\Enums\TeamType;
+use App\Filament\Resources\MobilityOutages\MobilityActions;
 use App\Models\ChangeRequest;
 use App\Models\Department;
 use App\Models\MaintenanceApproval;
@@ -49,6 +50,17 @@ use Illuminate\Validation\ValidationException;
  */
 final class OutageActions
 {
+    /**
+     * Every action a ticket can show, FTTH and 4G alike (My Work and the FIFO queue list both kinds).
+     * Each action is hidden unless the policy allows it for that ticket, so only the right ones appear.
+     *
+     * @return list<Action>
+     */
+    public static function all(): array
+    {
+        return [...self::primary(), ...MobilityActions::primary(), ...self::secondary(), ...MobilityActions::secondary()];
+    }
+
     /** @return list<Action> */
     public static function primary(): array
     {
@@ -483,7 +495,7 @@ final class OutageActions
             ->icon(Heroicon::OutlinedChatBubbleLeftEllipsis)
             ->visible(fn (Outage $record) => Auth::user()?->can('addUpdate', $record))
             ->schema([
-                Select::make('type')->options(collect(OutageUpdate::TYPES)->except('system'))->default('progress')->required(),
+                Select::make('type')->options(Arr::only(OutageUpdate::TYPES, OutageUpdate::MANUAL_TYPES))->default('progress')->required(),
                 Textarea::make('body')->label('Update / action taken')->required()->rows(4)->maxLength(5000),
             ])
             ->action(fn (Outage $record, array $data) => self::run($record, fn () => app(OutageWorkflow::class)->addUpdate($record, Auth::user(), $data['body'], $data['type']), 'Update posted'));
@@ -618,7 +630,7 @@ final class OutageActions
             ->visible(fn (Outage $record) => Auth::user()?->can('changeStatus', $record))
             ->schema([
                 Select::make('status_id')->label('Status')->required()->live()
-                    ->options(fn () => OutageStatus::query()->active()->where('is_manual_selectable', true)->orderBy('sort_order')->pluck('name', 'id')),
+                    ->options(fn () => OutageStatus::query()->active()->standard()->where('is_manual_selectable', true)->orderBy('sort_order')->pluck('name', 'id')),
                 Textarea::make('reason')
                     ->label(fn (Get $get) => self::promptsFinalReason($get('status_id')) ? 'Final Reason (required by this status)' : 'Note')
                     ->required(fn (Get $get) => self::promptsFinalReason($get('status_id')))

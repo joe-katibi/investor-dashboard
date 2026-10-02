@@ -12,6 +12,8 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\IconColumn;
@@ -42,11 +44,21 @@ class OutageTypeResource extends Resource
             TextInput::make('name')->required()->maxLength(100),
             TextInput::make('code')->required()->maxLength(30)->unique(ignoreRecord: true)->alphaDash(),
             Select::make('major_outage_type_id')->label('Major outage type')->relationship('majorOutageType', 'name')->required()->preload(),
-            TextInput::make('prefix')->label('Ticket prefix')->required()->maxLength(10)->regex('/^[A-Za-z]{2,10}$/')
-                ->helperText('Letters only, e.g. OUT → OUT-00000000001. Each prefix has its own sequence.'),
-            Toggle::make('is_planned')->label('Planned maintenance'),
-            Toggle::make('is_emergency')->label('Emergency'),
+            TextInput::make('prefix')->label('Ticket prefix')->required()->maxLength(10)->regex('/^[A-Za-z0-9]{2,6}(-[A-Za-z0-9]{2,6})?$/')
+                ->helperText('Letters / digits, optionally in two parts: OUT → OUT-00000000001, 4G-PWR → 4G-PWR-000001. Each prefix has its own sequence.'),
+            Toggle::make('is_planned')->label('Planned maintenance')->hidden(fn (Get $get) => filled($get('workflow'))),
+            Toggle::make('is_emergency')->label('Emergency')->hidden(fn (Get $get) => filled($get('workflow'))),
             TextInput::make('sort_order')->numeric()->default(0),
+            Section::make('4G NOC workflow')
+                ->description('Leave the workflow empty for FTTH / core / system types. A 4G type (fibre cut, battery, generator, microwave…) only needs a workflow, a fault domain and a prefix — no code change. Its severity rules, SLA targets, notification rules and vendor templates can then be set for the type.')
+                ->schema([
+                    Select::make('workflow')->label('Workflow')->options(OutageType::WORKFLOWS)->placeholder('Standard (not a 4G NOC type)')->live(),
+                    Select::make('fault_domain')->label('Fault domain (category for tabs, dashboard and reports)')->options(OutageType::FAULT_DOMAINS)
+                        ->visible(fn (Get $get) => filled($get('workflow')))->required(fn (Get $get) => filled($get('workflow'))),
+                    Select::make('vertical_id')->label('Vertical')->relationship('vertical', 'name')->preload()
+                        ->visible(fn (Get $get) => filled($get('workflow')))->required(fn (Get $get) => filled($get('workflow')))
+                        ->helperText('Decides which severity levels and rules apply.'),
+                ])->columns(3)->columnSpanFull()->collapsed(fn (?OutageType $record) => blank($record?->workflow)),
             AuditFields::description(),
             AuditFields::activeToggle(),
         ])->columns(2);
@@ -60,6 +72,12 @@ class OutageTypeResource extends Resource
                 TextColumn::make('name')->searchable(),
                 TextColumn::make('majorOutageType.name')->label('Major type')->badge(),
                 TextColumn::make('prefix')->badge()->color('gray'),
+                TextColumn::make('workflow')->label('Workflow')->badge()->color('info')->placeholder('Standard')
+                    ->formatStateUsing(fn (string $state) => match ($state) {
+                        OutageType::WORKFLOW_MOBILITY_INTERNAL => '4G: NOC → Engineer → NOC',
+                        OutageType::WORKFLOW_MOBILITY_VENDOR => '4G: NOC → Vendor → NOC',
+                        default => $state,
+                    }),
                 IconColumn::make('is_planned')->label('Planned')->boolean(),
                 IconColumn::make('is_emergency')->label('Emergency')->boolean(),
                 AuditFields::activeColumn(),

@@ -61,7 +61,25 @@ class NotificationMessageFactory
             NotificationEvent::PreventiveApproved => "Preventive maintenance downtime approved: {$ticket}",
             NotificationEvent::PreventiveRejected => "Preventive maintenance rejected: {$ticket}",
             NotificationEvent::CorrectiveRaised => "Corrective maintenance in progress: {$ticket}",
+            NotificationEvent::MobilityVendorNotified => "Vendor notified by e-mail: {$ticket}",
+            NotificationEvent::MobilityVendorMailFailed => "Vendor notification e-mail FAILED: {$ticket}",
+            NotificationEvent::MobilityVendorUpdate => "Vendor update recorded: {$ticket}",
+            NotificationEvent::MobilityVendorSilent => "No vendor update — follow up with the vendor: {$ticket}",
+            NotificationEvent::MobilityVendorEscalation => "ESCALATION — vendor has not updated: {$ticket}",
+            NotificationEvent::MobilityResolvedPending => "Resolved — pending NOC confirmation: {$ticket}",
+            NotificationEvent::MobilityVerificationFailed => "NOC could not verify the fix — back to work: {$ticket}",
+            NotificationEvent::MobilityReopened => "Ticket reopened: {$ticket}",
+            NotificationEvent::MobilityCancelled => "Ticket cancelled: {$ticket}",
+            NotificationEvent::MobilityEscalated => "Ticket escalated by NOC: {$ticket}",
         };
+
+        if ($outage->isMobility()) {
+            return $this->mobility($event, $outage, $context, match ($event) {
+                NotificationEvent::OutageCreated => "New 4G outage ticket: {$ticket}",
+                NotificationEvent::Resolved => "4G outage verified and closed: {$ticket}",
+                default => $title,
+            });
+        }
 
         $owner = $outage->currentAssignee?->name
             ?? collect([$outage->team?->name, $outage->subTeam?->name])->filter()->implode(' / ');
@@ -94,6 +112,55 @@ class NotificationMessageFactory
         if (isset($context['window'])) {
             array_splice($lines, 1, 0, ['Maintenance window: '.$context['window']]);
         }
+
+        return [
+            'title' => $title,
+            'body' => implode("\n", $lines),
+            'sms' => mb_strimwidth($sms, 0, max(70, (int) config('oms.sms.max_length', 306)), '…'),
+        ];
+    }
+
+    /**
+     * 4G NOC ticket: sites / transmission nodes, severity by elements affected, engineer or vendor.
+     *
+     * @return array{title: string, body: string, sms: string}
+     */
+    private function mobility(NotificationEvent $event, Outage $outage, array $context, string $title): array
+    {
+        // Whole models: the workflow keeps using this ticket instance after notifying.
+        $outage->loadMissing(['enodebs', 'transmissionNodes', 'vendor', 'technician:id,name']);
+
+        $owner = $outage->isVendorTicket()
+            ? ($outage->vendor ? 'Vendor '.$outage->vendor->name : null)
+            : ($outage->currentAssignee?->name ?? $outage->technician?->name);
+        $where = $outage->sitesLabel(4) ?: $outage->location;
+        $note = $context['reason'] ?? null;
+
+        $lines = array_filter([
+            "{$outage->ticket_number} — {$outage->title}",
+            'Type: '.collect([$outage->outageType?->name, $outage->vertical?->name])->filter()->implode(' / '),
+            'Severity: '.($outage->priority?->name ?? 'Unset').(($impact = $outage->impactLabel()) ? " | Affected: {$impact}" : ''),
+            'Status: '.$outage->status?->name,
+            $where ? 'Site(s): '.$where : null,
+            ($nodes = $outage->nodesLabel(4)) ? 'Transmission: '.$nodes : null,
+            $owner ? ($outage->isVendorTicket() ? 'With: ' : 'Assigned to: ').$owner : null,
+            $outage->vendor_eta_at && ! $outage->is_closed ? 'Vendor ETA: '.$outage->vendor_eta_at->format('Y-m-d H:i') : null,
+            $outage->sla_due_at && ! $outage->is_closed ? 'SLA due: '.$outage->sla_due_at->format('Y-m-d H:i') : null,
+            $outage->is_closed && $outage->root_cause ? 'Root cause: '.$outage->root_cause : null,
+            $outage->is_closed && $outage->resolution ? 'Resolution: '.$outage->resolution : null,
+            $note ? ($event === NotificationEvent::UpdatePosted ? 'Update: ' : 'Note: ').$note : null,
+            isset($context['queue']) ? 'Queue: '.$context['queue'] : null,
+            'By: '.($context['by'] ?? Auth::user()?->name ?? 'System'),
+        ]);
+
+        $sms = collect([
+            'OMS 4G: '.$title,
+            $outage->title,
+            ($outage->priority?->name ?? 'no severity').($impact ? ', '.$impact : ''),
+            'Status: '.$outage->status?->name,
+            $owner,
+            $note ? str($note)->squish()->limit(80)->toString() : null,
+        ])->filter()->implode('. ');
 
         return [
             'title' => $title,

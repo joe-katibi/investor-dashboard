@@ -21,6 +21,9 @@ class MajorOutageType extends Model
 
     public const SYSTEM = 'system';
 
+    /** 4G NOC tickets (eNodeB / transmission / power): their own workflow, no FTTH NOC confirmation or dispatch. */
+    public const MOBILITY = 'mobility';
+
     protected function casts(): array
     {
         return [

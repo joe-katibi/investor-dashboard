@@ -14,6 +14,7 @@ class DepartmentSeeder extends Seeder
         ['DISPATCH', 'Dispatch', 'Field dispatch and installation'],
         ['INFRA', 'Infrastructure', 'Infrastructure / outage maintenance'],
         ['IT', 'IT', 'Information Technology — first line for system outages'],
+        ['MOBILITY', '4G NOC', '4G network operations: 4G NOC, engineers and technicians'],
         ['MGMT', 'Management', 'Executive and management'],
     ];
 

@@ -47,10 +47,10 @@ class NotificationRuleResource extends Resource
         return $schema->components([
             TextInput::make('name')->required()->maxLength(150),
             Select::make('event')->options(NotificationEvent::class)->required()->searchable(),
-            Section::make('Conditions')->description('Empty = any.')->schema([
+            Section::make('Conditions')->description('Empty = any. Exception: 4G NOC tickets only use rules whose Vertical is 4G, so FTTH rules never notify about 4G sites — set Vertical = 4G on every rule meant for 4G tickets.')->schema([
                 Select::make('major_outage_type_id')->relationship('majorOutageType', 'name')->label('Major type'),
                 Select::make('outage_type_id')->relationship('outageType', 'name')->label('Outage type'),
-                Select::make('vertical_id')->relationship('vertical', 'name'),
+                Select::make('vertical_id')->relationship('vertical', 'name')->placeholder('Any (FTTH / core / system tickets)'),
                 Select::make('priority_id')->relationship('priority', 'name'),
                 Select::make('status_id')->relationship('status', 'name')->label('Status'),
             ])->columns(3)->columnSpanFull(),
@@ -77,11 +77,16 @@ class NotificationRuleResource extends Resource
                 TextColumn::make('event')->badge(),
                 TextColumn::make('channels')->badge()->formatStateUsing(fn (string $state) => NotificationChannel::tryFrom($state)?->getLabel() ?? $state),
                 TextColumn::make('recipient_roles')->label('Roles')->badge()->color('gray'),
+                TextColumn::make('vertical.name')->label('Vertical')->placeholder('Any')->badge()->color('gray'),
                 TextColumn::make('priority.name')->placeholder('Any'),
                 AuditFields::activeColumn(),
                 ...AuditFields::columns(),
             ])
-            ->filters([SelectFilter::make('event')->options(NotificationEvent::class), AuditFields::activeFilter()])
+            ->filters([
+                SelectFilter::make('event')->options(NotificationEvent::class),
+                SelectFilter::make('vertical_id')->label('Vertical')->relationship('vertical', 'name'),
+                AuditFields::activeFilter(),
+            ])
             ->recordActions([EditAction::make()->modalWidth('4xl')]);
     }
 
