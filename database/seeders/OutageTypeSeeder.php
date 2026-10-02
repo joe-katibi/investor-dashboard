@@ -37,9 +37,18 @@ class OutageTypeSeeder extends Seeder
             ]);
         }
 
-        // 4G NOC outage types. More (fibre cut, battery, generator…) can be added under
-        // 4G NOC → 4G Outage Types: each one only picks a workflow, a fault domain and a prefix.
-        $mobility = Vertical::query()->where('code', Vertical::MOBILITY_4G)->value('id');
+        $this->mobility();
+    }
+
+    /**
+     * 4G NOC outage types. More (fibre cut, battery, generator…) can be added under Configuration →
+     * Outage Types: each one only picks a workflow, a fault domain and a prefix.
+     * Created only when missing, so edited types survive re-seeding. Requires the 4G major type.
+     */
+    public function mobility(): void
+    {
+        $major = MajorOutageType::query()->where('code', MajorOutageType::MOBILITY)->value('id');
+        $vertical = Vertical::query()->where('code', Vertical::MOBILITY_4G)->value('id');
 
         // [code, name, prefix, workflow, fault domain, sort, description]
         foreach ([
@@ -50,11 +59,10 @@ class OutageTypeSeeder extends Seeder
             ['mobility_power', 'Power Outage', '4G-PWR', OutageType::WORKFLOW_MOBILITY_VENDOR, OutageType::DOMAIN_POWER, 22,
                 'Power failure at a site, handled by the power vendor (ATC, TOA, UTEL…). 4G NOC → Vendor → NOC records vendor updates → NOC verifies.'],
         ] as [$code, $name, $prefix, $workflow, $domain, $sort, $description]) {
-            // firstOrCreate: these are edited under 4G NOC → 4G Outage Types and must survive re-seeding.
             OutageType::query()->firstOrCreate(['code' => $code], [
                 'name' => $name,
-                'major_outage_type_id' => $major[MajorOutageType::MOBILITY],
-                'vertical_id' => $mobility,
+                'major_outage_type_id' => $major,
+                'vertical_id' => $vertical,
                 'prefix' => $prefix,
                 'workflow' => $workflow,
                 'fault_domain' => $domain,

@@ -25,12 +25,34 @@ class QueueDefinitionSeeder extends Seeder
             [QueueType::ItReview, 'IT Review Queue', 'IT', 15],
             [QueueType::ItConfirmation, 'IT Confirmation Queue', 'IT', 15],
             [QueueType::CxNotify, 'CX Customer Notification Queue', 'CX', 30],
-            // 4G NOC: engineers / technicians are assigned by the NOC; verification goes to the next available NOC user.
-            [QueueType::MobilityEngineer, '4G Engineer / Technician Queue', 'MOBILITY', 30],
-            [QueueType::MobilityNoc, '4G NOC Verification Queue', 'MOBILITY', 15],
         ] as [$type, $name, $departmentCode, $ack]) {
             QueueDefinition::query()->updateOrCreate(['queue_type' => $type->value, 'name' => $name], [
                 'department_id' => $department[$departmentCode] ?? null,
+                'required_permission' => $type->defaultPermission(),
+                'assignment_mode' => 'auto',
+                'ack_timeout_minutes' => $ack,
+                'escalate_after_attempts' => 3,
+                'is_active' => true,
+            ]);
+        }
+
+        $this->mobility();
+    }
+
+    /**
+     * 4G NOC queues: engineers / technicians are assigned by the NOC; verification goes to the next
+     * available NOC user. Created only when missing, so edited queues survive re-seeding.
+     */
+    public function mobility(): void
+    {
+        $department = Department::query()->where('code', QueueType::MobilityNoc->defaultDepartmentCode())->value('id');
+
+        foreach ([
+            [QueueType::MobilityEngineer, '4G Engineer / Technician Queue', 30],
+            [QueueType::MobilityNoc, '4G NOC Verification Queue', 15],
+        ] as [$type, $name, $ack]) {
+            QueueDefinition::query()->firstOrCreate(['queue_type' => $type->value, 'name' => $name], [
+                'department_id' => $department,
                 'required_permission' => $type->defaultPermission(),
                 'assignment_mode' => 'auto',
                 'ack_timeout_minutes' => $ack,

@@ -142,6 +142,44 @@ class RolesAndPermissionsSeeder extends Seeder
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
 
+    public const MOBILITY_ROLES = ['4G NOC Manager', '4G NOC', '4G Engineer', '4G Technician'];
+
+    /**
+     * Only what the 4G NOC module adds, for installations whose roles are already tuned: the new
+     * permissions and the four 4G roles. A role that already exists is left exactly as it is, and
+     * no other role is touched — except that Executive gets "View 4G outages" the first time.
+     */
+    public function mobility(): void
+    {
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+        $all = Permissions::all();
+        $firstTime = ! Permission::query()->where('name', 'mobility.view')->exists();
+
+        foreach ($all as $name) {
+            if (str_starts_with($name, 'mobility.') || str_contains($name, 'work_mobility_')) {
+                Permission::findOrCreate($name, 'web');
+            }
+        }
+
+        $existing = Permission::query()->pluck('name')->all();
+
+        foreach (self::MOBILITY_ROLES as $roleName) {
+            if (Role::query()->where('name', $roleName)->where('guard_name', 'web')->exists()) {
+                continue;
+            }
+
+            // Permissions of other modules are granted only where they already exist here.
+            Role::findOrCreate($roleName, 'web')->givePermissionTo(array_values(array_intersect($this->expand(self::ROLES[$roleName], $all), $existing)));
+        }
+
+        if ($firstTime) {
+            Role::query()->where('name', 'Executive')->where('guard_name', 'web')->first()?->givePermissionTo('mobility.view');
+        }
+
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+    }
+
     /** Supports "*", "group.*" and "!exclusion" patterns. */
     private function expand(array $patterns, array $all): array
     {

@@ -482,6 +482,21 @@ Any time: CANCELLED (duplicates / false alarms, SLA N/A) · Closed tickets: REOP
 * **Roles** — `4G NOC Manager`, `4G NOC`, `4G Engineer`, `4G Technician` (permissions `mobility.*`); put 4G staff in
   the **4G NOC** department. FTTH roles do not see 4G tickets and the other way round (Executive sees both).
 
+**Adding the module to a production system that already holds data** — run the migration, then the 4G-only seeder
+(not `ReferenceDataSeeder` / `RolesAndPermissionsSeeder`, which also re-apply FTTH defaults):
+
+```bash
+php artisan migrate --force
+php artisan db:seed --class=MobilitySeeder --force
+```
+
+`MobilitySeeder` only **creates what is missing** and updates nothing: existing priorities, statuses, outage types,
+queues, SLA policies, notification rules, e-mail templates, departments and role permissions stay exactly as they
+are. It adds the 4G permissions and roles, the 4G NOC department, the 4G outage types, statuses, severity levels and
+rules, SLA policies, queues, notification rules, the hourly template, the vendors (ATC, TOA, UTEL), the vendor
+e-mail templates and the eNodeB sites / transmission nodes. It can be run again safely. *4G Settings & Alerts*
+needs no seeding — it starts from built-in defaults until saved on screen.
+
 ## FIFO assignment engine
 
 Implemented as UI-independent domain services — `App\Services\Fifo\FifoAssignmentEngine` and

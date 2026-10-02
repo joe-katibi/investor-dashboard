@@ -78,20 +78,24 @@ class NotificationRuleSeeder extends Seeder
             ]);
         }
 
-        $this->mobilityRules($all, $inAppAndMail);
+        $this->mobility();
     }
 
     /**
      * 4G NOC rules. A 4G ticket only fires rules whose vertical is 4G, so these are the whole
      * audience of a 4G ticket (plus the 4G alert lists under 4G NOC → 4G Settings).
+     * Created only when missing, so edited rules survive re-seeding.
      */
-    private function mobilityRules(array $all, array $inAppAndMail): void
+    public function mobility(): void
     {
         $vertical = Vertical::query()->where('code', Vertical::MOBILITY_4G)->value('id');
 
         if (! $vertical) {
             return;
         }
+
+        $all = ['database', 'mail', 'sms'];
+        $inAppAndMail = ['database', 'mail'];
 
         $critical = Priority::query()->where('code', Priority::MOBILITY_CRITICAL)->value('id');
         $noc = ['4G NOC', '4G NOC Manager'];

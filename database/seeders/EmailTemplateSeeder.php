@@ -55,6 +55,14 @@ class EmailTemplateSeeder extends Seeder
             'description' => 'Structured table of outages for the reporting period (spec §17), with Excel attachment.',
         ]);
 
+        $this->mobility();
+    }
+
+    /** The hourly 4G update. Created only when missing (inactive until recipients are set). */
+    public function mobility(): void
+    {
+        $recipients = [config('mail.from.address') ?: 'noc@example.com'];
+
         $this->seedTemplate('mobility_hourly_update', [
             'name' => '4G Hourly Outage Update',
             'report_type' => 'mobility_hourly',

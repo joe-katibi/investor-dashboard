@@ -46,8 +46,16 @@ class OutageStatusSeeder extends Seeder
             ]);
         }
 
-        // 4G NOC statuses (spec §10). Which ones a ticket can take depends on its outage type's workflow:
-        // internal (engineer / technician) or vendor. They are driven by the 4G workflow, never by "Set status".
+        $this->mobility();
+    }
+
+    /**
+     * 4G NOC statuses (spec §10). Which ones a ticket can take depends on its outage type's workflow:
+     * internal (engineer / technician) or vendor. They are driven by the 4G workflow, never by "Set status".
+     * Existing statuses keep their name, colour, order and "pauses SLA".
+     */
+    public function mobility(): void
+    {
         // [code, name, colour, closed, resolved, sort]
         foreach ([
             [StatusCode::MobilityNew, 'New', 'gray', false, false, 40],
@@ -70,6 +78,8 @@ class OutageStatusSeeder extends Seeder
             $status->forceFill(['workflow' => OutageStatus::WORKFLOW_MOBILITY, 'is_closed' => $closed, 'is_resolved' => $resolved, 'is_system' => true, 'is_manual_selectable' => false]);
 
             if (! $status->exists) {
+                // Status names are unique: a custom status already called "Open" or "Closed" keeps its name.
+                $name = OutageStatus::query()->where('name', $name)->exists() ? '4G '.$name : $name;
                 $status->forceFill(['name' => $name, 'color' => $color, 'sort_order' => $sort, 'prompt_final_reason' => false, 'pauses_sla' => false, 'is_active' => true]);
             }
 

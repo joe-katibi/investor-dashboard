@@ -56,9 +56,17 @@ class SlaPolicySeeder extends Seeder
             $planned->forceFill(['resolution_minutes' => 360])->save();
         }
 
-        // 4G: its own targets per severity (vertical + priority). Starting values — set the agreed
-        // times under Configuration → SLA Policies; a policy can also be narrowed to one outage type
-        // (eNodeB / Transmission / Power) or one vendor.
+        $this->mobility();
+    }
+
+    /**
+     * 4G: its own targets per severity (vertical + priority). Starting values — set the agreed
+     * times under Configuration → SLA Policies; a policy can also be narrowed to one outage type
+     * (eNodeB / Transmission / Power) or one vendor. Created only when missing.
+     */
+    public function mobility(): void
+    {
+        $priority = Priority::query()->pluck('id', 'code');
         $mobility = Vertical::query()->where('code', Vertical::MOBILITY_4G)->value('id');
 
         // [name, priority, resolution min, pre-breach min, escalate after min]
