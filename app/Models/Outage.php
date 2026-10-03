@@ -349,7 +349,82 @@ class Outage extends Model
     /** Runs the 4G NOC workflow (its own statuses, screens and notification settings). */
     public function isMobility(): bool
     {
-        return $this->workflow !== null;
+        return in_array($this->workflow, OutageType::MOBILITY_WORKFLOWS, true);
+    }
+
+    // ---------------------------------------------------------------- customer tickets / site visits
+
+    /** Customer / visit details (customer tickets and site visits only). */
+    public function ticket(): HasOne
+    {
+        return $this->hasOne(Ticket::class);
+    }
+
+    public function deskMoves(): HasMany
+    {
+        return $this->hasMany(TicketDeskMove::class)->latest('id');
+    }
+
+    public function ticketEvents(): HasMany
+    {
+        return $this->hasMany(TicketEvent::class)->latest('id');
+    }
+
+    public function ticketFollowUps(): HasMany
+    {
+        return $this->hasMany(TicketFollowUp::class)->latest('id');
+    }
+
+    /** Site visits raised from this customer ticket. */
+    public function siteVisits(): HasManyThrough
+    {
+        return $this->hasManyThrough(Outage::class, Ticket::class, 'parent_outage_id', 'id', 'id', 'outage_id');
+    }
+
+    /** A customer ticket or a site visit (not a network outage). */
+    public function isTicket(): bool
+    {
+        return in_array($this->workflow, OutageType::TICKET_WORKFLOWS, true);
+    }
+
+    public function isCxTicket(): bool
+    {
+        return $this->workflow === OutageType::WORKFLOW_CX_TICKET;
+    }
+
+    public function isSiteVisit(): bool
+    {
+        return $this->workflow === OutageType::WORKFLOW_SITE_VISIT;
+    }
+
+    /** Who has a ticket right now: the person, or the desk it is waiting at. */
+    public function ticketOwner(): string
+    {
+        return $this->currentAssignee?->name
+            ?? ($this->current_queue ? $this->current_queue->getLabel().' (queue)' : ($this->is_closed ? '—' : 'Unassigned'));
+    }
+
+    public function scopeTickets(Builder $query): void
+    {
+        $query->whereIn($query->qualifyColumn('workflow'), OutageType::TICKET_WORKFLOWS);
+    }
+
+    public function scopeCxTickets(Builder $query): void
+    {
+        $query->where($query->qualifyColumn('workflow'), OutageType::WORKFLOW_CX_TICKET);
+    }
+
+    public function scopeSiteVisits(Builder $query): void
+    {
+        $query->where($query->qualifyColumn('workflow'), OutageType::WORKFLOW_SITE_VISIT);
+    }
+
+    /** Network outages of every kind (FTTH, core, system, 4G) — everything that is not a customer ticket. */
+    public function scopeNetwork(Builder $query): void
+    {
+        $column = $query->qualifyColumn('workflow');
+
+        $query->where(fn (Builder $q) => $q->whereNull($column)->orWhereIn($column, OutageType::MOBILITY_WORKFLOWS));
     }
 
     /** Worked by an external vendor; the NOC records the vendor's updates. */
@@ -403,10 +478,10 @@ class Outage extends Model
 
     public function scopeMobility(Builder $query): void
     {
-        $query->whereNotNull($query->qualifyColumn('workflow'));
+        $query->whereIn($query->qualifyColumn('workflow'), OutageType::MOBILITY_WORKFLOWS);
     }
 
-    /** Everything that is not a 4G NOC ticket (the FTTH / core / system flows). */
+    /** The FTTH / core / system flows: not a 4G NOC ticket, not a customer ticket. */
     public function scopeStandard(Builder $query): void
     {
         $query->whereNull($query->qualifyColumn('workflow'));

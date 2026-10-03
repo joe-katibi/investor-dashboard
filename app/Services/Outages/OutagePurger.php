@@ -61,6 +61,8 @@ class OutagePurger
 
         Cache::forget('oms.nav.active-outages');
         Cache::forget('oms.nav.active-4g-outages');
+        Cache::forget('oms.nav.open-tickets');
+        Cache::forget('oms.nav.open-visits');
         DashboardMetrics::bump();
 
         return $counts;

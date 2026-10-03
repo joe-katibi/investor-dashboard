@@ -16,7 +16,14 @@ class DepartmentSeeder extends Seeder
         ['IT', 'IT', 'Information Technology — first line for system outages'],
         ['MOBILITY', '4G NOC', '4G network operations: 4G NOC, engineers and technicians'],
         ['MGMT', 'Management', 'Executive and management'],
+        // Customer ticket desks (membership of a desk is by permission; departments just organise people).
+        ['BILLING', 'Billing', 'Billing agents and the Billing Manager'],
+        ['COMMERCIAL', 'Commercial / Sales Admin', 'Refund assessment and sales administration'],
+        ['DESIGN', 'Design', 'Network design and surveys'],
+        ['ACCESS', 'Access Team', 'Property access for construction and installation'],
     ];
+
+    public const TICKETING = ['BILLING', 'COMMERCIAL', 'DESIGN', 'ACCESS'];
 
     public function run(): void
     {

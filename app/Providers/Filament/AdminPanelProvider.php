@@ -84,6 +84,7 @@ class AdminPanelProvider extends PanelProvider
             ->navigationGroups([
                 NavigationGroup::make('Operations'),
                 NavigationGroup::make('4G NOC'),
+                NavigationGroup::make('Customer Care'),
                 NavigationGroup::make('Reporting'),
                 NavigationGroup::make('Topology')->collapsed(),
                 NavigationGroup::make('Configuration')->collapsed(),
@@ -98,6 +99,13 @@ class AdminPanelProvider extends PanelProvider
                     ->sort(12)
                     ->visible(fn () => (bool) Auth::user()?->can('audit.view') && (bool) Auth::user()?->can('mobility.view'))
                     ->url(fn () => AuditLogResource::getUrl('index', ['filters' => ['scope' => ['value' => 'mobility']]])),
+                // The same, for customer tickets, site visits, customers and the ticketing configuration.
+                NavigationItem::make('Ticket Audit Trail')
+                    ->group('Customer Care')
+                    ->icon(Heroicon::OutlinedFingerPrint)
+                    ->sort(31)
+                    ->visible(fn () => (bool) Auth::user()?->can('audit.view') && (bool) Auth::user()?->can('ticket.view'))
+                    ->url(fn () => AuditLogResource::getUrl('index', ['filters' => ['scope' => ['value' => 'ticketing']]])),
             ])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')

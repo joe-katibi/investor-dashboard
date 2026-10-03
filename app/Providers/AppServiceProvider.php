@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Events\AssignmentTimeout;
 use App\Events\OmsBroadcastEvent;
+use App\Events\OutageAccepted;
 use App\Events\OutageAssigned;
 use App\Events\OutageRejected;
 use App\Events\OutageUpdated;
@@ -111,6 +112,20 @@ class AppServiceProvider extends ServiceProvider
                 app(OutageWorkflow::class)->syncMobilityAssignment($event->outageId);
             } catch (Throwable $exception) {
                 // The assignment itself is already committed; the next event (or the sweep) syncs again.
+                report($exception);
+            }
+        });
+
+        // Customer tickets and site visits follow the FIFO item of their desk in the same way: who
+        // holds it, when it was assigned / accepted, the customer SMS when a technician gets a visit.
+        Event::listen([OutageAssigned::class, OutageAccepted::class, OutageRejected::class, AssignmentTimeout::class, OutageUpdated::class], function (OmsBroadcastEvent $event): void {
+            if (! $event->outageId) {
+                return;
+            }
+
+            try {
+                app(OutageWorkflow::class)->syncTicketAssignment($event->outageId);
+            } catch (Throwable $exception) {
                 report($exception);
             }
         });

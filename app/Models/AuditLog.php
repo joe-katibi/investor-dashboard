@@ -75,6 +75,40 @@ class AuditLog extends Model
         return str_starts_with((string) $this->event, self::MOBILITY_PREFIX);
     }
 
+    /** Named actions on customer tickets and site visits: tkt_created, tkt_escalated, tkt_closed… */
+    public const TICKET_PREFIX = 'tkt_';
+
+    /** Records and configuration of the customer ticketing module. */
+    public const TICKET_MODELS = [
+        Customer::class, Region::class, TicketCategory::class, TicketSubcategory::class, VisitType::class,
+        FinalReason::class, DelayReason::class, DeskRoute::class,
+    ];
+
+    /** The customer ticketing audit trail: every ticket / site visit action, customers, and its configuration. */
+    public function scopeTicketing(Builder $query): void
+    {
+        $morph = fn (string $class) => (new $class)->getMorphClass();
+
+        $query->where(fn (Builder $q) => $q
+            ->where('event', 'like', self::TICKET_PREFIX.'%')
+            ->orWhereIn('auditable_type', array_map($morph, self::TICKET_MODELS))
+            ->orWhere(fn (Builder $ticket) => $ticket->where('auditable_type', $morph(Outage::class))
+                ->whereIn('auditable_id', Outage::query()->tickets()->select('id')))
+            ->orWhere(fn (Builder $setting) => $setting->where('auditable_type', $morph(Setting::class))
+                ->whereIn('auditable_id', Setting::query()->where('key', 'like', 'ticketing.%')->select('id'))));
+    }
+
+    public function isTicketAction(): bool
+    {
+        return str_starts_with((string) $this->event, self::TICKET_PREFIX);
+    }
+
+    /** A named workflow action (4G or customer ticket) carrying ticket / status / details. */
+    public function isNamedAction(): bool
+    {
+        return $this->isMobilityAction() || $this->isTicketAction();
+    }
+
     /** "4g_vendor_update" → "4G: Vendor update"; "created" → "Created". */
     public function eventLabel(): string
     {
@@ -83,15 +117,17 @@ class AuditLog extends Model
 
     public static function labelFor(string $event): string
     {
-        return str_starts_with($event, self::MOBILITY_PREFIX)
-            ? '4G: '.Str::of($event)->after(self::MOBILITY_PREFIX)->replace('_', ' ')->ucfirst()->replace('noc', 'NOC')->replace('fifo', 'FIFO')->replace('Fifo', 'FIFO')
-            : Str::of($event)->replace('_', ' ')->ucfirst()->toString();
+        return match (true) {
+            str_starts_with($event, self::MOBILITY_PREFIX) => '4G: '.Str::of($event)->after(self::MOBILITY_PREFIX)->replace('_', ' ')->ucfirst()->replace('noc', 'NOC')->replace('fifo', 'FIFO')->replace('Fifo', 'FIFO'),
+            str_starts_with($event, self::TICKET_PREFIX) => 'Ticket: '.Str::of($event)->after(self::TICKET_PREFIX)->replace('_', ' ')->ucfirst()->replace('noc', 'NOC')->replace('fifo', 'FIFO')->replace('Fifo', 'FIFO')->replace('sms', 'SMS')->replace('Sms', 'SMS'),
+            default => Str::of($event)->replace('_', ' ')->ucfirst()->toString(),
+        };
     }
 
     public function subjectLabel(): string
     {
-        // 4G action entries carry the ticket number, which says more than "Outage #12".
-        if ($this->isMobilityAction() && filled($this->new_values['ticket'] ?? null)) {
+        // Action entries carry the ticket number, which says more than "Outage #12".
+        if ($this->isNamedAction() && filled($this->new_values['ticket'] ?? null)) {
             return (string) $this->new_values['ticket'];
         }
 

@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /** Evidence / file on a ticket (or on one vendor update), stored privately on the local disk. */
-#[Fillable(['outage_id', 'vendor_update_id', 'path', 'original_name', 'note', 'user_id'])]
+#[Fillable(['outage_id', 'vendor_update_id', 'kind', 'path', 'original_name', 'note', 'user_id'])]
 class OutageAttachment extends Model
 {
     use Auditable;

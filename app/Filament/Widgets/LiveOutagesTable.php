@@ -26,7 +26,7 @@ abstract class LiveOutagesTable extends TableWidget
     {
         return $table
             ->query(function (): Builder {
-                $query = Outage::query()->active()->with([
+                $query = Outage::query()->network()->active()->with([
                     'priority:id,name,color', 'status:id,name,color', 'vertical:id,name', 'currentAssignee:id,name', 'olts:id,name', 'fdts:id,name,olt_id',
                 ]);
                 $this->scope($query);

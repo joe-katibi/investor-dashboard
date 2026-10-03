@@ -75,9 +75,12 @@ class NotificationDispatcher
         $settings = app(Settings::class);
 
         // 4G NOC tickets go to the 4G lists (4G NOC → 4G Settings), never to the FTTH ones.
-        [$emailsKey, $eventsKey, $phonesKey, $smsEventsKey] = $outage->workflow !== null
-            ? ['mobility.alert_emails', 'mobility.alert_events', 'mobility.alert_phones', 'mobility.alert_sms_events']
-            : ['alerts.emails', 'alerts.events', 'alerts.phones', 'alerts.sms_events'];
+        // …and customer tickets / site visits to theirs (Customer Care → Ticket Settings).
+        [$emailsKey, $eventsKey, $phonesKey, $smsEventsKey] = match (true) {
+            $outage->isTicket() => ['ticketing.alert_emails', 'ticketing.alert_events', 'ticketing.alert_phones', 'ticketing.alert_sms_events'],
+            $outage->isMobility() => ['mobility.alert_emails', 'mobility.alert_events', 'mobility.alert_phones', 'mobility.alert_sms_events'],
+            default => ['alerts.emails', 'alerts.events', 'alerts.phones', 'alerts.sms_events'],
+        };
 
         if (in_array($event->value, (array) $settings->get($eventsKey), true)) {
             $emails = collect((array) $settings->get($emailsKey))

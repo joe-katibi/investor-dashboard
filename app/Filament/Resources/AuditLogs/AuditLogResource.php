@@ -86,7 +86,7 @@ class AuditLogResource extends Resource
                     ->color(fn (string $state) => match (true) {
                         $state === 'created' => 'success',
                         $state === 'deleted' => 'danger',
-                        str_starts_with($state, AuditLog::MOBILITY_PREFIX) => 'warning',
+                        str_starts_with($state, AuditLog::MOBILITY_PREFIX), str_starts_with($state, AuditLog::TICKET_PREFIX) => 'warning',
                         default => 'info',
                     }),
                 TextColumn::make('changes')->label('What')->state(fn (AuditLog $record) => $record->changeLines())
@@ -100,10 +100,12 @@ class AuditLogResource extends Resource
                         ->mapWithKeys(fn ($type) => [$type => class_basename($type)])->all()),
                 // 4G NOC: ticket actions and changes, vendors, vendor updates, attachments, reopenings, sites,
                 // transmission nodes, severity rules, vendor templates and the 4G settings.
-                SelectFilter::make('scope')->label('Module')->options(['mobility' => '4G NOC', 'other' => 'Everything else'])
+                // Customer Care: ticket and site visit actions, customers, and the ticketing configuration.
+                SelectFilter::make('scope')->label('Module')->options(['mobility' => '4G NOC', 'ticketing' => 'Customer tickets & site visits', 'other' => 'Everything else'])
                     ->query(fn (Builder $query, array $data) => match ($data['value'] ?? null) {
                         'mobility' => $query->mobility(),
-                        'other' => $query->whereNotIn('id', AuditLog::query()->mobility()->select('id')),
+                        'ticketing' => $query->ticketing(),
+                        'other' => $query->whereNotIn('id', AuditLog::query()->mobility()->select('id'))->whereNotIn('id', AuditLog::query()->ticketing()->select('id')),
                         default => $query,
                     }),
                 SelectFilter::make('event')->label('Action')->multiple()

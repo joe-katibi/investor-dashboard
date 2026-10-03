@@ -46,7 +46,7 @@ class MyWork extends Page implements HasTable
 
     public static function canAccess(): bool
     {
-        return (bool) Auth::user()?->canAny(['outage.view', 'mobility.view']);
+        return (bool) Auth::user()?->canAny(['outage.view', 'mobility.view', 'ticket.view']);
     }
 
     public static function getNavigationBadge(): ?string
@@ -100,7 +100,7 @@ class MyWork extends Page implements HasTable
         return $table
             ->query(fn (): Builder => Outage::query()
                 ->whereHas('assignments', fn ($q) => $q->where('user_id', Auth::id())->whereIn('status', AssignmentStatus::activeValues()))
-                ->with(['priority:id,name,color', 'status:id,name,color', 'outageType:id,name', 'activeAssignments', 'openSupportRequest', 'changeRequest', 'vendor',
+                ->with(['priority:id,name,color', 'status:id,name,color', 'outageType:id,name', 'activeAssignments', 'openSupportRequest', 'changeRequest', 'vendor', 'ticket.subcategory', 'ticket.visitType',
                     'assignments' => fn ($q) => $q->where('user_id', Auth::id())->whereIn('status', AssignmentStatus::activeValues())]))
             ->defaultSort('sla_due_at')
             ->poll('30s')

@@ -80,4 +80,14 @@ class OutageStatus extends Model
     {
         $query->where('workflow', self::WORKFLOW_MOBILITY);
     }
+
+    /** Statuses of customer tickets ("ticket") and site visits ("visit"). */
+    public const WORKFLOW_TICKET = 'ticket';
+
+    public const WORKFLOW_VISIT = 'visit';
+
+    public function scopeTicketing(Builder $query, ?string $workflow = null): void
+    {
+        $query->whereIn('workflow', $workflow ? [$workflow] : [self::WORKFLOW_TICKET, self::WORKFLOW_VISIT]);
+    }
 }

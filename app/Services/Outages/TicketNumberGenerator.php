@@ -13,11 +13,17 @@ class TicketNumberGenerator
 {
     public const DIGITS = 11;
 
-    public function next(string $prefix, int $digits = self::DIGITS): string
+    /**
+     * $digits pads the number (1 = no padding: "INS-1"). With $keepCase the prefix is printed as
+     * written ("WiE-12"); the sequence itself is always kept per upper-cased prefix.
+     */
+    public function next(string $prefix, int $digits = self::DIGITS, bool $keepCase = false): string
     {
-        $prefix = strtoupper(trim($prefix));
+        $label = trim($prefix);
+        $prefix = strtoupper($label);
+        $label = $keepCase ? $label : $prefix;
 
-        return DB::transaction(function () use ($prefix, $digits): string {
+        return DB::transaction(function () use ($prefix, $digits, $label): string {
             DB::table('ticket_sequences')->insertOrIgnore([
                 'prefix' => $prefix,
                 'last_number' => 0,
@@ -36,7 +42,7 @@ class TicketNumberGenerator
                 ->where('prefix', $prefix)
                 ->update(['last_number' => $next, 'updated_at' => now()]);
 
-            return $prefix.'-'.str_pad((string) $next, $digits, '0', STR_PAD_LEFT);
+            return $label.'-'.str_pad((string) $next, $digits, '0', STR_PAD_LEFT);
         });
     }
 }

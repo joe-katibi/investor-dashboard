@@ -23,7 +23,7 @@ class RecentOutagesTable extends TableWidget
     public function table(Table $table): Table
     {
         return $table
-            ->query(fn () => Outage::query()->with(['outageType:id,name', 'priority:id,name,color', 'status:id,name,color', 'currentAssignee:id,name', 'team:id,name'])
+            ->query(fn () => Outage::query()->network()->with(['outageType:id,name', 'priority:id,name,color', 'status:id,name,color', 'currentAssignee:id,name', 'team:id,name'])
                 // 4G NOC tickets are listed only for people who may open them.
                 ->when(! Auth::user()?->can('mobility.view'), fn ($query) => $query->standard())
                 ->latest('id'))

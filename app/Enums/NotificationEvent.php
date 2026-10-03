@@ -62,9 +62,44 @@ enum NotificationEvent: string implements HasLabel
     case MobilityCancelled = 'mobility_cancelled';
     case MobilityEscalated = 'mobility_escalated';
 
+    // Customer tickets and site visits
+    case TicketRouted = 'ticket_routed';
+    case TicketReturned = 'ticket_returned';
+    case TicketApproval = 'ticket_approval';
+    case TicketFollowUpDue = 'ticket_follow_up_due';
+    case TicketCreditReady = 'ticket_credit_ready';
+    case TicketReopened = 'ticket_reopened';
+    case TicketIntervention = 'ticket_intervention';
+    case VisitScheduled = 'visit_scheduled';
+    case VisitRescheduled = 'visit_rescheduled';
+    case VisitCompleted = 'visit_completed';
+    case TicketCustomerSms = 'ticket_customer_sms';
+
+    /** Events of the customer ticketing module, in lifecycle order (for its alert settings). */
+    public static function ticketing(): array
+    {
+        return [
+            self::OutageCreated, self::Assigned, self::TicketRouted, self::TicketReturned, self::TicketApproval, self::VisitScheduled,
+            self::VisitRescheduled, self::VisitCompleted, self::UpdatePosted, self::StatusChanged, self::TicketFollowUpDue,
+            self::TicketCreditReady, self::TicketIntervention, self::Resolved, self::TicketReopened, self::AssignmentRejected,
+            self::AssignmentTimeout, self::QueueEscalation, self::SlaPreBreach, self::SlaBreach, self::SlaEscalation,
+        ];
+    }
+
     public function getLabel(): string
     {
         return match ($this) {
+            self::TicketRouted => 'Ticket: Escalated to Another Desk',
+            self::TicketReturned => 'Ticket: Returned to the Previous Desk',
+            self::TicketApproval => 'Ticket: Request Approved / Declined',
+            self::TicketFollowUpDue => 'Ticket: Pending Past the Follow-up Time',
+            self::TicketCreditReady => 'Ticket: Ready for Credit',
+            self::TicketReopened => 'Ticket: Reopened',
+            self::TicketIntervention => 'Ticket: Team Leader Intervention',
+            self::VisitScheduled => 'Site Visit: Technician Assigned / Scheduled',
+            self::VisitRescheduled => 'Site Visit: Rescheduled',
+            self::VisitCompleted => 'Site Visit: Completed by the Technician',
+            self::TicketCustomerSms => 'Customer SMS (ticket)',
             self::MobilityVendorNotified => '4G: Vendor Notification Sent',
             self::MobilityVendorMailFailed => '4G: Vendor Notification Failed',
             self::MobilityVendorUpdate => '4G: Vendor Update Recorded',

@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['name', 'code', 'location', 'vertical_id', 'description', 'is_active'])]
+#[Fillable(['name', 'code', 'location', 'vertical_id', 'region_id', 'description', 'is_active'])]
 class Olt extends Model
 {
     use Auditable, HasAuditColumns;
@@ -24,6 +24,11 @@ class Olt extends Model
     public function vertical(): BelongsTo
     {
         return $this->belongsTo(Vertical::class);
+    }
+
+    public function region(): BelongsTo
+    {
+        return $this->belongsTo(Region::class);
     }
 
     public function fdts(): HasMany

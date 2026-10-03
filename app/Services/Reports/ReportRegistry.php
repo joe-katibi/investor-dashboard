@@ -43,7 +43,7 @@ class ReportRegistry
         'planned_maintenance' => 'Planned Maintenance Report',
         'assignment_history' => 'FIFO Assignment History Report',
         'audit_trail' => 'Audit Trail Report',
-    ] + MobilityReports::REPORTS;
+    ] + MobilityReports::REPORTS + TicketReports::REPORTS;
 
     /** Reports that cover every ticket, whatever its vertical. */
     public const SHARED = ['assignment_history', 'audit_trail'];
@@ -60,6 +60,8 @@ class ReportRegistry
             $user === null => false,
             in_array($key, self::SHARED, true) => true,
             $key === 'mobility_audit' => $user->can('mobility.view') && $user->can('audit.view'),
+            $key === 'ticket_audit' => $user->can('ticket.view') && $user->can('audit.view'),
+            isset(TicketReports::REPORTS[$key]) => $user->can('ticket.view'),
             $key === 'mobility_4g' || isset(MobilityReports::REPORTS[$key]) => $user->can('mobility.view'),
             default => $user->can('outage.view'),
         }, ARRAY_FILTER_USE_KEY);
@@ -69,6 +71,10 @@ class ReportRegistry
     {
         if (isset(MobilityReports::REPORTS[$key])) {
             return app(MobilityReports::class)->run($key, $filters);
+        }
+
+        if (isset(TicketReports::REPORTS[$key])) {
+            return app(TicketReports::class)->run($key, $filters);
         }
 
         return match ($key) {
@@ -549,7 +555,8 @@ class ReportRegistry
     {
         return OutageQuery::make($filters)
             // 4G NOC tickets have their own reports; '_scope' => 'all' lifts this for cross-vertical ones.
-            ->when(($filters['_scope'] ?? null) !== 'all', fn (Builder $q) => $q->standard())
+            // Customer tickets and site visits are never network outages: they stay out either way.
+            ->when(($filters['_scope'] ?? null) !== 'all', fn (Builder $q) => $q->standard(), fn (Builder $q) => $q->network())
             ->when($filters['_major'] ?? null, fn (Builder $q, $code) => $q->ofMajorType($code))
             ->when($filters['_planned'] ?? null, fn (Builder $q) => $q->whereHas('outageType', fn (Builder $t) => $t->where('is_planned', true)));
     }

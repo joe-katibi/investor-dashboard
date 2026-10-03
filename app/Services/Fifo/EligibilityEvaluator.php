@@ -5,9 +5,11 @@ namespace App\Services\Fifo;
 use App\Enums\AssignmentStatus;
 use App\Enums\AvailabilityStatus;
 use App\Enums\QueueType;
+use App\Models\Outage;
 use App\Models\OutageAssignment;
 use App\Models\OutageQueueEntry;
 use App\Models\Team;
+use App\Models\Ticket;
 use App\Models\User;
 use App\Support\Settings;
 use Carbon\CarbonImmutable;
@@ -177,6 +179,11 @@ class EligibilityEvaluator
             $checks['coverage'] = $this->coverageCheck($user, $outage->olts->pluck('id')->all());
         }
 
+        // Customer tickets / site visits: people locked to regions only get tickets of those regions.
+        if ($outage && $entry->queue_type->isTicketing()) {
+            $checks['region'] = $this->regionCheck($user, $outage);
+        }
+
         $limit = $user->max_active_assignments ?? $this->settings->int('fifo.max_active_per_user');
         $workload = $this->workloads[$user->id] ?? 0;
         $bypass = $this->settings->bool('fifo.critical_bypass') && $outage?->priority?->isCritical();
@@ -232,6 +239,7 @@ class EligibilityEvaluator
             'shiftAssignments' => fn ($q) => $q->activeAt($now),
             'leaves' => fn ($q) => $q->approvedAt($now),
             'skills' => fn ($q) => $q->where('is_active', true),
+            'regions',
             'roles.permissions:id,name',
             'permissions:id,name',
         ]);
@@ -292,6 +300,20 @@ class EligibilityEvaluator
             || (! $skill->service_id && $skill->vertical_id && (int) $skill->vertical_id === (int) $verticalId));
 
         return $this->check('Skill', (bool) $matched, $matched ? 'Qualified: '.($matched->skill ?? 'service/vertical skill') : 'No matching service or vertical skill');
+    }
+
+    private function regionCheck(User $user, Outage $outage): array
+    {
+        $regionId = $outage->relationLoaded('ticket') ? $outage->ticket?->region_id : Ticket::query()->where('outage_id', $outage->id)->value('region_id');
+        $locked = ($user->relationLoaded('regions') ? $user->regions : $user->regions()->get())->pluck('id')->all();
+
+        if ($locked === [] || ! $regionId) {
+            return $this->check('Region', true, $locked === [] ? 'All regions' : 'Ticket has no region');
+        }
+
+        $covers = in_array((int) $regionId, array_map('intval', $locked), true);
+
+        return $this->check('Region', $covers, $covers ? 'Covers the ticket region' : 'Locked to other region(s)');
     }
 
     private function coverageCheck(User $user, array $outageOltIds): array

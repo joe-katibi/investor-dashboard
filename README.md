@@ -18,7 +18,7 @@ Repository: <https://github.com/joe-katibi/outagemangementsystem>
 5. [Running the application](#running-the-application)
 6. [Demo accounts](#demo-accounts)
 7. [Features](#features)
-8. [Outage lifecycle](#outage-lifecycle) · [4G NOC module](#4g-noc-module)
+8. [Outage lifecycle](#outage-lifecycle) · [4G NOC module](#4g-noc-module) · [Customer Care: tickets and site visits](#customer-care-tickets-and-site-visits)
 9. [FIFO assignment engine](#fifo-assignment-engine)
 10. [SLA management](#sla-management)
 11. [Notifications](#notifications)
@@ -517,6 +517,101 @@ rules, SLA policies, queues, notification rules, the hourly template, the vendor
 e-mail templates and the eNodeB sites / transmission nodes. It can be run again safely. *4G Settings & Alerts*
 needs no seeding — it starts from built-in defaults until saved on screen.
 
+## Customer Care: tickets and site visits
+
+Customer tickets and site visits live under **Customer Care**. They are `Outage` rows with their own workflow
+(`cx_ticket` / `site_visit`), statuses, screens and alert lists, plus a `tickets` detail row (customer, issue, desk,
+visit, evidence). So the **FIFO engine, SLA engine, notification rules, timeline, attachments, status history,
+reopening history, audit trail, reports and scheduled e-mails are the same ones the outages use** — they never show
+on the outage screens, dashboards or reports, and outage rules / alert lists never fire for them.
+
+**Customer database.** *Customer Care → Customers* holds every account (account number = ONU name, customer name =
+alias name) with its OLT → FDT → Slot → Port, bandwidth, phones and region. *Import customers* takes an .xlsx / .csv
+with the header `Alias Name | ONU Name | OLT | FDT | Slot | Port | Bandwidth` (optional `Phone | Alt Phone |
+Alt Phone 2 | Address | Landmark | Region | Email`); existing OLTs / FDTs / slots / ports are reused, only new ones are
+created, nothing is removed, and a preview mode saves nothing. When an agent raises a ticket the account number is
+looked up: found, the form fills in the customer; **not found, the agent types the details and a provisional customer
+is created — the next import completes it and links the earlier tickets** (position and region).
+
+**Desks.** A ticket is always at one desk (a FIFO queue): CX Tier II, Billing, Billing Manager, Commercial / Sales
+Admin, CX Manager, CX Frontline Follow-up, NOC, Site Visit Dispatch, Site Visit Technician, Infrastructure Support
+Dispatch / Technician, Design, Access, CX Field Support — plus the parallel *Pending Ticket Follow-up* queue. Each desk
+has its own permission (`queue.work_<desk>`); the next available person holding it gets the ticket (FIFO, priority
+first, oldest first) and only that person — or an override holder — can act on it.
+
+**Routing (all configurable).** *Subcategories & Routing* sets, per issue reported: the first desk, the desk that
+approves (refunds, credits), the desk that carries an approved request out, whether a site visit can be raised (and its
+default visit type), whether to check for an ongoing outage, priority and SLA target. *Desk Routes* sets which desk may
+hand a ticket to which other desk; "return to the previous desk" needs no route. Seeded flows:
+
+| Issue | Flow |
+|---|---|
+| Billing | CX raises → **Billing** closes, or escalates to the **Billing Manager** (approve / decline → back to the agent), or sends to **CX Frontline Follow-up** to call the client → back to Billing to close |
+| Refund | CX raises → **Commercial** assesses → approved: **Billing** pays and closes (or closes "refund not done – customer withdrew"); declined: CX calls the customer, closes as *Declined* |
+| Troubleshooting | CX raises → **CX Tier II** vets / troubleshoots → resolved: calls the client and closes; otherwise **NOC** → back to Tier II; or Tier II raises a **site visit** (the ticket waits and closes with the visit) |
+| Credit | CX raises → **CX Tier II** vets usage → **CX Manager** approves → **Billing** applies the credit; declined → Tier II advises the customer |
+
+**Site visits.** Visit types number their own visits — **INS-1, WiE-1, SUP-1, SHI-1** (a locked counter per prefix,
+never `MAX(id)+1`). Dispatch → technician (named, or the technician FIFO queue, optionally one team; a visit booked for a
+later day is only offered on that day) → **the customer is texted** on the calling, primary and alternative numbers
+(technician name and number, ticket number, "will visit today") → *En route* → *Start at customer premise* (timer) →
+*Pause* (mandatory reason) / *Resume* → *Complete* with the final reason, **FAT number, geolocation photo and
+speed-test photo** → back to the dispatcher (*Verify & close*, or *Not done — send back*) → **CX Field Support** calls
+the customer (*confirms* → Successfully Closed / Closed Escalated; *not resolved* → reopened to dispatch). A technician
+who cannot complete sends it to the dispatcher, who escalates to **Infrastructure Support** (dispatcher → technician →
+back up the chain), **Design**, **NOC** or the **Access** team; or to **CX Field Support** (unreachable, reschedule,
+call back), who can **reschedule** to the customer's date and time — the customer gets an SMS — and the visit returns to
+dispatch. Statuses: Visit Open, Pending-Scheduled, Pending Without Team, Visit In Progress, Pending Escalated, Pending
+Dispatcher Verification, Pending Customer Confirmation, Pending Customer (call-back / reschedule), Successfully
+Closed, Closed Escalated, Cancelled, Declined, Duplicate.
+
+**Ongoing outages.** For LOS-type issues the customer's OLT / FDT / slot / port is checked against every open FTTH
+outage — **also those not yet confirmed by NOC**. The agent sees it on the form; the ticket is linked to the outage and
+gets the delay reason "Affected by an outage". *Link to outage* does the same by hand.
+
+**Regions.** *Regions* groups OLTs; customers and tickets take the region of their OLT. People locked to regions
+(on the region) only receive tickets of those regions from FIFO; people locked to none receive all.
+
+**SLA.** Counted on a **business clock**: 07:00–18:00, every day by default; a ticket raised after 18:00 starts counting
+at 07:00 the next working day (*Ticket Settings*: hours, working days, or wall clock). Target: subcategory → visit
+type (Support 3 h, Shifting 72 h) → an SLA policy set for the *Customer Ticket* / *Site Visit* type → default (3 h).
+"At risk" at 67 %. A ticket closed past its SLA needs a **reason for delay** (D01–D14, each flagged *within our control*
+or not). **Team leader intervention** takes a ticket over with its own timer; who closed it is recorded.
+
+**Follow-up and credit.** A ticket pending past **9 SLA hours** (configurable) enters the *Pending Ticket Follow-up*
+FIFO queue so the follow-up team calls the customer, and is marked **ready for credit**; the credit roles / addresses
+get one notification and one e-mail listing the new ones, with the list attached (`oms:ticket-tick`, every 5 minutes).
+
+**Reports** (Reports page, "Tickets: …"): customer ticket and site visit registers (the tracker columns), pending tickets
+& SLA, **TAT / SLA brackets** (3, 6, 9, 12, 15, 18, 21, 24, 48, 72, above — average, median, P90, P95, met / breach %,
+hours lost, by kind, visit type, issue, department, region, OLT, technician, ticket type), escalations by department
+(turnaround), agent / technician performance (time to accept, handling time, closed, breached, calls), reasons for
+delay (preventable hours), customer follow-ups, ready for credit, reopened & repeat work, assignment fairness, ticket
+audit trail. **Scheduled e-mails** (inactive until recipients are set, times editable): *Pending / SLA update* every
+3 hours 07:00–19:00 (SLA per department, OLT and region, issues per OLT, tickets in follow-up, closed, pending list
+attached), *Daily report* 07:00 / 12:00 / 19:00, *Weekly* Monday 07:00, *Monthly* the 1st at 07:00 (movement,
+closed within SLA, pending by SLA, inflow vs closed and SLA % charts, regions, reasons for pending, trend). Charts
+are built from tables, so they show in every mail client.
+
+**Roles** — new: Ticketing Manager, CX Frontline, CX Retention, CX Follow-up Agent, CX Field Support, Billing Agent,
+Billing Manager, Commercial / Sales Admin, Site Visit Dispatcher, Site Visit Technician, Infra Support Dispatcher,
+Infra Support Technician, Design Engineer, Access Officer. Existing CX, NOC, Dispatch and technician roles get their
+desks. To receive tickets a person needs the desk permission, *Available* status and an active shift (FIFO rules).
+
+**Adding the module to a production system that already holds data:**
+
+```bash
+php artisan migrate --force
+php artisan db:seed --class=TicketingSeeder --force
+```
+
+`TicketingSeeder` only **creates what is missing**: the ticketing permissions and roles, the Billing / Commercial /
+Design / Access departments, the *Customer Ticket* major type with the Customer Ticket and Site Visit types and
+statuses, one queue per desk, visit types, categories / subcategories with routing, reasons for delay, final reasons,
+desk routes and the four ticket e-mails. Existing records are never changed — except that, the first time, the
+existing CX / NOC / Dispatch / technician roles get their ticketing permissions. Then add regions, import customers
+and set the recipients of the ticket e-mails.
+
 ## FIFO assignment engine
 
 Implemented as UI-independent domain services — `App\Services\Fifo\FifoAssignmentEngine` and
@@ -894,6 +989,7 @@ tests/Feature/             FIFO, workflow, SLA, reports, panel & security tests
 | `oms:send-scheduled-reports` | every minute | Queue due scheduled e-mails |
 | `oms:maintenance-tick` | every minute | Planned-maintenance reminders, before-start e-mails and "started" alerts |
 | `oms:mobility-tick` | every minute | 4G NOC: remind the NOC / escalate to management when a vendor has not updated a ticket |
+| `oms:ticket-tick` | every 5 minutes | Customer tickets: queue tickets pending past the follow-up time for a customer call; send the ready-for-credit list |
 | `oms:import-4g-topology {file} [--dry-run]` | manual | Import the 4G workbook: eNodeB sites and transmission nodes (RSG → ASG → CSG → SSG) |
 | `oms:prune-expired-cache` (scheduled closure) | hourly | Clean expired rows when the database cache driver is used |
 | `queue:prune-failed`, `queue:prune-batches` | daily | Housekeeping |

@@ -47,6 +47,52 @@ class OutageStatusSeeder extends Seeder
         }
 
         $this->mobility();
+        $this->ticketing();
+    }
+
+    /**
+     * Statuses of customer tickets and site visits. They follow the desk a ticket is at and are set
+     * by the ticket workflow, never by "Set status". Existing statuses keep their name, colour,
+     * order and "pauses SLA".
+     */
+    public function ticketing(): void
+    {
+        $ticket = OutageStatus::WORKFLOW_TICKET;
+        $visit = OutageStatus::WORKFLOW_VISIT;
+
+        // [code, name, colour, closed, resolved, used by, sort]
+        foreach ([
+            [StatusCode::TicketOpen, 'Ticket Open', 'gray', false, false, $ticket, 60],
+            [StatusCode::TicketInProgress, 'Ticket In Progress', 'primary', false, false, $ticket, 61],
+            [StatusCode::TicketEscalated, 'Escalated to Another Desk', 'warning', false, false, $ticket, 62],
+            [StatusCode::TicketPendingApproval, 'Pending Approval', 'warning', false, false, $ticket, 63],
+            [StatusCode::TicketPendingCustomer, 'Pending Customer Call-back', 'info', false, false, $ticket, 64],
+            [StatusCode::TicketSiteVisit, 'Site Visit Raised', 'info', false, false, $ticket, 65],
+            [StatusCode::TicketClosed, 'Ticket Closed', 'success', true, true, $ticket, 66],
+            [StatusCode::TicketDeclined, 'Declined', 'gray', true, false, $ticket, 67],
+            [StatusCode::TicketCancelled, 'Ticket Cancelled', 'gray', true, false, $ticket, 68],
+            [StatusCode::TicketDuplicate, 'Duplicate', 'gray', true, false, $ticket, 69],
+            [StatusCode::VisitOpen, 'Visit Open', 'gray', false, false, $visit, 70],
+            [StatusCode::VisitPendingScheduled, 'Pending-Scheduled', 'info', false, false, $visit, 71],
+            [StatusCode::VisitPendingWithoutTeam, 'Pending Without Team', 'warning', false, false, $visit, 72],
+            [StatusCode::VisitInProgress, 'Visit In Progress', 'primary', false, false, $visit, 73],
+            [StatusCode::VisitPendingEscalated, 'Pending Escalated', 'danger', false, false, $visit, 74],
+            [StatusCode::VisitPendingVerification, 'Pending Dispatcher Verification', 'info', false, false, $visit, 75],
+            [StatusCode::VisitPendingConfirmation, 'Pending Customer Confirmation', 'info', false, false, $visit, 76],
+            [StatusCode::VisitPendingCustomer, 'Pending Customer (Call-back / Reschedule)', 'warning', false, false, $visit, 77],
+            [StatusCode::VisitClosed, 'Successfully Closed', 'success', true, true, $visit, 78],
+            [StatusCode::VisitClosedEscalated, 'Closed Escalated', 'success', true, true, $visit, 79],
+        ] as [$code, $name, $color, $closed, $resolved, $workflow, $sort]) {
+            $status = OutageStatus::query()->firstOrNew(['code' => $code->value]);
+            $status->forceFill(['workflow' => $workflow, 'is_closed' => $closed, 'is_resolved' => $resolved, 'is_system' => true, 'is_manual_selectable' => false]);
+
+            if (! $status->exists) {
+                $name = OutageStatus::query()->where('name', $name)->exists() ? 'Ticket: '.$name : $name;
+                $status->forceFill(['name' => $name, 'color' => $color, 'sort_order' => $sort, 'prompt_final_reason' => false, 'pauses_sla' => false, 'is_active' => true]);
+            }
+
+            $status->save();
+        }
     }
 
     /**

@@ -25,7 +25,7 @@ class OperationalSnapshot
     {
         $now ??= now();
 
-        $active = Outage::query()->active()->with(OutageQuery::RELATIONS)->orderByDesc('customers_affected')->orderBy('start_time')->get();
+        $active = Outage::query()->network()->active()->with(OutageQuery::RELATIONS)->orderByDesc('customers_affected')->orderBy('start_time')->get();
 
         $byMajor = fn (string $code) => $active->filter(fn (Outage $o) => $o->majorOutageType?->code === $code)->values();
         $network = $byMajor(MajorOutageType::NETWORK);
@@ -38,7 +38,7 @@ class OperationalSnapshot
         $major = $active->filter(fn (Outage $o) => in_array($o->priority?->code, [Priority::CRITICAL, Priority::HIGH], true))->values();
         $inPeriod = fn (Builder $q) => $q->where('created_at', '>=', $periodStart)->where('created_at', '<=', $now);
 
-        $closedInPeriod = Outage::query()->with(OutageQuery::RELATIONS)
+        $closedInPeriod = Outage::query()->network()->with(OutageQuery::RELATIONS)
             ->where('is_closed', true)
             ->where('resolved_at', '>=', $periodStart)
             ->where('resolved_at', '<=', $now)
@@ -56,7 +56,7 @@ class OperationalSnapshot
 
             // Executive snapshot
             'active_outages' => $active->count(),
-            'new_outages' => $inPeriod(Outage::query())->count(),
+            'new_outages' => $inPeriod(Outage::query()->network())->count(),
             'resolved_outages' => $closedInPeriod->count(),
             'critical_outages' => $critical->count(),
             'customers_affected' => number_format($active->sum('customers_affected')),
@@ -190,9 +190,9 @@ class OperationalSnapshot
     {
         $start = $now->copy()->subDays($days - 1)->startOfDay();
 
-        $created = Outage::query()->where('start_time', '>=', $start)->get(['start_time', 'customers_affected'])
+        $created = Outage::query()->network()->where('start_time', '>=', $start)->get(['start_time', 'customers_affected'])
             ->groupBy(fn (Outage $o) => $o->start_time->format('Y-m-d'));
-        $resolved = Outage::query()->where('resolved_at', '>=', $start)->get(['resolved_at'])
+        $resolved = Outage::query()->network()->where('resolved_at', '>=', $start)->get(['resolved_at'])
             ->groupBy(fn (Outage $o) => $o->resolved_at->format('Y-m-d'));
 
         $rows = [];

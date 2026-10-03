@@ -24,6 +24,9 @@ class MajorOutageType extends Model
     /** 4G NOC tickets (eNodeB / transmission / power): their own workflow, no FTTH NOC confirmation or dispatch. */
     public const MOBILITY = 'mobility';
 
+    /** Customer tickets and site visits (Customer Care): worked desk by desk, not a network outage. */
+    public const CUSTOMER = 'customer';
+
     protected function casts(): array
     {
         return [

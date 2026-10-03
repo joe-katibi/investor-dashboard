@@ -81,7 +81,11 @@ class FifoQueue extends Page implements HasTable
     {
         $user = Auth::user();
 
-        return array_values(array_filter(QueueType::cases(), fn (QueueType $type) => (bool) $user?->can($type->isMobility() ? 'mobility.view' : 'outage.view')));
+        return array_values(array_filter(QueueType::cases(), fn (QueueType $type) => (bool) $user?->can(match (true) {
+            $type->isTicketing() => 'ticket.view',
+            $type->isMobility() => 'mobility.view',
+            default => 'outage.view',
+        })));
     }
 
     public function queueType(): QueueType

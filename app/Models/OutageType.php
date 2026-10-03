@@ -75,9 +75,35 @@ class OutageType extends Model
         return $this->belongsTo(Vertical::class);
     }
 
+    public const MOBILITY_WORKFLOWS = [self::WORKFLOW_MOBILITY_INTERNAL, self::WORKFLOW_MOBILITY_VENDOR];
+
+    // Customer ticketing: tickets worked desk by desk, and site visits. One system type each.
+    public const WORKFLOW_CX_TICKET = 'cx_ticket';
+
+    public const WORKFLOW_SITE_VISIT = 'site_visit';
+
+    public const TICKET_WORKFLOWS = [self::WORKFLOW_CX_TICKET, self::WORKFLOW_SITE_VISIT];
+
+    public const CODE_CX_TICKET = 'customer_ticket';
+
+    public const CODE_SITE_VISIT = 'site_visit';
+
+    /** Customer tickets are numbered TKT-000123; site visits by their visit type (INS-1, SUP-1…). */
+    public const TICKET_DIGITS = 6;
+
     public function isMobility(): bool
     {
-        return $this->workflow !== null;
+        return in_array($this->workflow, self::MOBILITY_WORKFLOWS, true);
+    }
+
+    public function isTicketing(): bool
+    {
+        return in_array($this->workflow, self::TICKET_WORKFLOWS, true);
+    }
+
+    public function scopeTicketing(Builder $query): void
+    {
+        $query->whereIn('workflow', self::TICKET_WORKFLOWS);
     }
 
     public function usesVendor(): bool
@@ -93,6 +119,6 @@ class OutageType extends Model
 
     public function scopeMobility(Builder $query): void
     {
-        $query->whereNotNull('workflow');
+        $query->whereIn('workflow', self::MOBILITY_WORKFLOWS);
     }
 }

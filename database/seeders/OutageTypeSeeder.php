@@ -38,6 +38,37 @@ class OutageTypeSeeder extends Seeder
         }
 
         $this->mobility();
+        $this->ticketing();
+    }
+
+    /**
+     * The two system types of the customer ticketing module. Customer tickets are numbered
+     * TKT-000123; site visits by their visit type (INS-1, WiE-1, SUP-1, SHI-1).
+     * Created only when missing. Requires the "Customer Ticket" major type.
+     */
+    public function ticketing(): void
+    {
+        $major = MajorOutageType::query()->where('code', MajorOutageType::CUSTOMER)->value('id');
+        $vertical = Vertical::query()->where('code', Vertical::FTTH)->value('id');
+
+        // [code, name, prefix, workflow, sort, description]
+        foreach ([
+            [OutageType::CODE_CX_TICKET, 'Customer Ticket', 'TKT', OutageType::WORKFLOW_CX_TICKET, 30,
+                'Raised by CX for a customer (billing, refund, credit, troubleshooting) and worked desk by desk until closed.'],
+            [OutageType::CODE_SITE_VISIT, 'Site Visit', 'SV', OutageType::WORKFLOW_SITE_VISIT, 31,
+                'Appointment at the customer premises: dispatcher → technician → dispatcher → CX Field Support confirms.'],
+        ] as [$code, $name, $prefix, $workflow, $sort, $description]) {
+            OutageType::query()->firstOrCreate(['code' => $code], [
+                'name' => $name,
+                'major_outage_type_id' => $major,
+                'vertical_id' => $vertical,
+                'prefix' => $prefix,
+                'workflow' => $workflow,
+                'description' => $description,
+                'sort_order' => $sort,
+                'is_active' => true,
+            ]);
+        }
     }
 
     /**

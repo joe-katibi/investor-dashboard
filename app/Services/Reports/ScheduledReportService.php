@@ -6,6 +6,7 @@ use App\Jobs\SendScheduledReportJob;
 use App\Mail\ScheduledReportMail;
 use App\Models\EmailTemplate;
 use App\Models\NotificationLog;
+use App\Services\Tickets\TicketReportData;
 use App\Support\AuditContext;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -93,7 +94,10 @@ class ScheduledReportService
     public function render(EmailTemplate $template, ?CarbonInterface $now = null): array
     {
         $now ??= now();
-        $data = $this->snapshot->build($now->copy()->subHours(max(1, $template->period_hours)), $now);
+        // Ticket e-mails have their own figures (pending / SLA update, daily, weekly, monthly).
+        $data = TicketReportData::handles($template->report_type)
+            ? app(TicketReportData::class)->build($template->report_type, $now, max(1, (int) $template->period_hours))
+            : $this->snapshot->build($now->copy()->subHours(max(1, $template->period_hours)), $now);
 
         return [
             'subject' => Str::limit(trim($this->renderer->renderText($template->subject, $data)), 250),
@@ -116,10 +120,13 @@ class ScheduledReportService
 
         $attachment = null;
         if ($template->attach_excel) {
-            $attachment = $this->exporter->writeXlsx($this->reports->run('summary_report', [
-                'from' => $now->copy()->subHours(max(1, $template->period_hours))->toDateTimeString(),
-                'to' => $now->toDateTimeString(),
-            ]));
+            // Ticket e-mails carry the list of pending tickets; the others the outage summary of the period.
+            $attachment = $this->exporter->writeXlsx(TicketReportData::handles($template->report_type)
+                ? $this->reports->run('ticket_pending')
+                : $this->reports->run('summary_report', [
+                    'from' => $now->copy()->subHours(max(1, $template->period_hours))->toDateTimeString(),
+                    'to' => $now->toDateTimeString(),
+                ]));
         }
 
         $logs = collect(array_merge($to, $cc))->map(fn (string $email) => NotificationLog::query()->create([

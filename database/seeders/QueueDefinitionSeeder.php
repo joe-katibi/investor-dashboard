@@ -37,6 +37,32 @@ class QueueDefinitionSeeder extends Seeder
         }
 
         $this->mobility();
+        $this->ticketing();
+    }
+
+    /**
+     * One queue per customer ticket / site visit desk. No department: who works a desk is decided
+     * by the desk permission (and the regions a person is locked to); set a department or a team
+     * on the queue to narrow it. Created only when missing.
+     */
+    public function ticketing(): void
+    {
+        foreach (QueueType::ticketing() as $desk) {
+            QueueDefinition::query()->firstOrCreate(['queue_type' => $desk->value, 'name' => $desk->getLabel().' Queue'], [
+                'required_permission' => $desk->defaultPermission(),
+                'assignment_mode' => 'auto',
+                // Technicians are given visits ahead of time (often for another day): no acceptance deadline,
+                // the dispatcher re-assigns. The desks take a ticket back when it is not accepted in time.
+                'ack_timeout_minutes' => match (true) {
+                    $desk->isFieldDesk() => 0,
+                    $desk === QueueType::TicketFollowUp => 60,
+                    default => 30,
+                },
+                'escalate_after_attempts' => 3,
+                'sort_order' => 20,
+                'is_active' => true,
+            ]);
+        }
     }
 
     /**

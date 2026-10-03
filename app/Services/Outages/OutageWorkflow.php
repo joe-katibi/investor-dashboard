@@ -31,6 +31,7 @@ use App\Services\Notifications\NotificationDispatcher;
 use App\Services\Outages\Concerns\ManagesFieldMaintenance;
 use App\Services\Outages\Concerns\ManagesMobilityOutages;
 use App\Services\Outages\Concerns\ManagesPlannedMaintenance;
+use App\Services\Outages\Concerns\ManagesTickets;
 use App\Services\Sla\SlaService;
 use App\Support\AuditContext;
 use Illuminate\Support\Arr;
@@ -52,7 +53,7 @@ use Illuminate\Validation\ValidationException;
  */
 class OutageWorkflow
 {
-    use ManagesFieldMaintenance, ManagesMobilityOutages, ManagesPlannedMaintenance;
+    use ManagesFieldMaintenance, ManagesMobilityOutages, ManagesPlannedMaintenance, ManagesTickets;
 
     public function __construct(
         private readonly TicketNumberGenerator $tickets,
@@ -75,6 +76,10 @@ class OutageWorkflow
             // 4G NOC tickets (eNodeB / transmission / power) have their own form, statuses and workflow.
             if ($type->isMobility()) {
                 throw ValidationException::withMessages(['outage_type_id' => '4G outages are reported under “4G NOC → Report 4G outage”.']);
+            }
+
+            if ($type->isTicketing()) {
+                throw ValidationException::withMessages(['outage_type_id' => 'Customer tickets and site visits are raised under “Customer Care”.']);
             }
 
             // Planned maintenance has its own request → CRF → sign-off flow.
@@ -322,6 +327,11 @@ class OutageWorkflow
             if ($outage->isMobility()) {
                 $outage->audit(AuditLog::MOBILITY_PREFIX.'update_posted', [
                     'ticket' => $outage->ticket_number, 'by' => "{$by->name} ({$update->actor_type})",
+                    'type' => OutageUpdate::TYPES[$update->type] ?? $update->type, 'details' => $body,
+                ], userId: $by->id);
+            } elseif ($outage->isTicket()) {
+                $outage->audit(AuditLog::TICKET_PREFIX.'update_posted', [
+                    'ticket' => $outage->ticket_number, 'by' => $by->name,
                     'type' => OutageUpdate::TYPES[$update->type] ?? $update->type, 'details' => $body,
                 ], userId: $by->id);
             }
@@ -886,9 +896,9 @@ class OutageWorkflow
 
         $this->recordHistory($outage, $fromId, $status, $reason, $by);
 
-        // 4G audit trail: every status change with who, previous and new status, and the comment.
-        if ($outage->isMobility() && (int) $fromId !== (int) $status->id) {
-            $outage->audit(AuditLog::MOBILITY_PREFIX.'status_changed', [
+        // 4G and customer ticket audit trails: every status change with who, previous and new status, and the comment.
+        if (($outage->isMobility() || $outage->isTicket()) && (int) $fromId !== (int) $status->id) {
+            $outage->audit(($outage->isTicket() ? AuditLog::TICKET_PREFIX : AuditLog::MOBILITY_PREFIX).'status_changed', [
                 'ticket' => $outage->ticket_number, 'status' => $status->name, 'comment' => $reason,
             ], ['status' => OutageStatus::query()->whereKey($fromId)->value('name')], $by?->id ?? false);
         }

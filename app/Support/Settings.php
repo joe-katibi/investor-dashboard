@@ -91,6 +91,34 @@ class Settings
             'outage_created', 'mobility_resolved_pending', 'resolved', 'mobility_reopened', 'mobility_escalated',
             'mobility_vendor_escalation', 'sla_breach',
         ],
+
+        // Customer tickets and site visits (Customer Care → Ticket Settings). Their own alert lists too.
+        'ticketing.sla_clock' => 'business',           // business | wall
+        'ticketing.day_start' => '07:00',              // SLA counts only between these times…
+        'ticketing.day_end' => '18:00',                // …a ticket raised after the end starts counting next working day
+        'ticketing.working_days' => [1, 2, 3, 4, 5, 6, 7], // ISO days (1 = Monday … 7 = Sunday)
+        'ticketing.sla_minutes' => 180,                // default target when the subcategory / visit type has none
+        'ticketing.at_risk_percent' => 67,             // share of the SLA used before a ticket shows "at risk"
+        'ticketing.dispatch_target_minutes' => 60,     // reported → assigned
+        'ticketing.escalation_target_minutes' => 540,  // escalated → returned
+        'ticketing.sla_tiers' => [3, 6, 9, 12, 15, 18, 21, 24, 48, 72], // TAT brackets in hours (then "above")
+        'ticketing.followup_enabled' => true,
+        'ticketing.followup_minutes' => 540,           // pending this long (SLA clock) → follow-up call + ready for credit
+        'ticketing.credit_notify' => true,
+        'ticketing.credit_roles' => ['CX Manager', 'Billing Manager'],
+        'ticketing.credit_emails' => [],
+        'ticketing.confirm_closure' => true,           // site visits: CX Field Support confirms with the customer before closing
+        'ticketing.require_evidence' => true,          // FAT number + geolocation and speed-test photos to complete a visit
+        'ticketing.max_daily_visits' => 0,             // per technician per day (0 = no limit)
+        'ticketing.company_name' => 'Savanna Fibre',
+        'ticketing.sms_customer' => true,
+        'ticketing.sms_assigned' => 'Dear customer, your ticket {{ticket}} has been assigned to {{technician}} (Tel {{technician_phone}}), who will visit you {{visit_day}}. {{company}}',
+        'ticketing.sms_rescheduled' => 'Dear customer, the visit for your ticket {{ticket}} has been rescheduled to {{visit_time}} as requested. {{company}}',
+        'ticketing.sms_closed' => '',                  // empty = no SMS on closing
+        'ticketing.alert_emails' => [],
+        'ticketing.alert_events' => ['ticket_follow_up_due', 'ticket_credit_ready', 'sla_breach'],
+        'ticketing.alert_phones' => [],
+        'ticketing.alert_sms_events' => [],
     ];
 
     public const MOBILITY_ALERT_EVENTS = [

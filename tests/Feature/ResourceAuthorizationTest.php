@@ -9,7 +9,9 @@ use App\Filament\Resources\Olts\OltResource;
 use App\Filament\Resources\Olts\Pages\ManageOlts;
 use App\Filament\Resources\Outages\OutageResource;
 use App\Filament\Resources\Ports\PortResource;
+use App\Filament\Resources\SiteVisits\SiteVisitResource;
 use App\Filament\Resources\Slots\SlotResource;
+use App\Filament\Resources\Tickets\TicketResource;
 use App\Filament\Resources\Users\UserResource;
 use App\Models\Olt;
 use Filament\Actions\Testing\TestAction;
@@ -40,8 +42,8 @@ class ResourceAuthorizationTest extends TestCase
             $this->actingAs($this->makeUser($role, 'CX', attributes: ['availability_status' => 'offline']));
 
             foreach (Filament::getPanel('admin')->getResources() as $resource) {
-                if ($resource === OutageResource::class) {
-                    continue; // tickets have their own policy and workflow
+                if (in_array($resource, [OutageResource::class, TicketResource::class, SiteVisitResource::class], true)) {
+                    continue; // tickets have their own policy and workflow (CX raises customer tickets and site visits)
                 }
 
                 $model = new ($resource::getModel());

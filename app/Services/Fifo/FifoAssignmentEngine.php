@@ -79,7 +79,7 @@ class FifoAssignmentEngine
      * Place the outage in a queue. Idempotent: an existing open entry of the same type is
      * returned unchanged, preserving its original FIFO timestamp.
      *
-     * @param  array{team_id?: ?int, sub_team_id?: ?int, reason?: ?string, queued_at?: mixed}  $options
+     * @param  array{team_id?: ?int, sub_team_id?: ?int, reason?: ?string, queued_at?: mixed, eligible_from?: mixed}  $options
      */
     public function enqueue(Outage $outage, QueueType $type, array $options = []): OutageQueueEntry
     {
@@ -104,6 +104,8 @@ class FifoAssignmentEngine
                 'team_id' => $options['team_id'] ?? $definition?->team_id,
                 'sub_team_id' => $options['sub_team_id'] ?? null,
                 'queued_at' => $options['queued_at'] ?? now(),
+                // Not offered to anyone before this moment (a site visit booked for a later day).
+                'eligible_from' => $options['eligible_from'] ?? null,
                 'status' => QueueEntryStatus::Pending,
             ]);
 
@@ -157,7 +159,7 @@ class FifoAssignmentEngine
             ->where('queue_type', $type->value)
             ->where('auto_assign_blocked', false)
             ->where(fn ($q) => $q->whereNull('eligible_from')->orWhere('eligible_from', '<=', now()))
-            ->with(['queueDefinition', 'outage.priority', 'outage.olts:id', 'outage.services:id'])
+            ->with(['queueDefinition', 'outage.priority', 'outage.olts:id', 'outage.services:id', 'outage.ticket'])
             ->fifoOrder($this->settings->bool('fifo.priority_aware'))
             ->limit(200)
             ->get();
@@ -479,6 +481,7 @@ class FifoAssignmentEngine
             'shiftAssignments' => fn ($q) => $q->activeAt(now()),
             'leaves' => fn ($q) => $q->approvedAt(now()),
             'skills' => fn ($q) => $q->where('is_active', true),
+            'regions',
         ]));
 
         // Overrides never bypass hard controls: the target must be active and permitted.

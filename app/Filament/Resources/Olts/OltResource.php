@@ -49,6 +49,8 @@ class OltResource extends Resource
             TextInput::make('code')->maxLength(60),
             TextInput::make('location')->maxLength(255),
             Select::make('vertical_id')->relationship('vertical', 'name')->preload(),
+            Select::make('region_id')->label('Region')->relationship('region', 'name')->preload()
+                ->helperText('Customers and customer tickets on this OLT take this region.'),
             Select::make('teams')->label('Covering teams')->relationship('teams', 'name')->multiple()->preload()
                 ->helperText('Optional FIFO coverage: teams listed here are preferred for outages on this OLT.'),
             AuditFields::description(),
@@ -63,6 +65,7 @@ class OltResource extends Resource
                 TextColumn::make('name')->searchable()->sortable(),
                 TextColumn::make('code')->searchable()->placeholder('—'),
                 TextColumn::make('location')->searchable()->placeholder('—'),
+                TextColumn::make('region.name')->label('Region')->placeholder('—')->toggleable(),
                 TextColumn::make('fdts_count')->counts('fdts')->label('FDTs'),
                 TextColumn::make('outages_count')->counts('outages')->label('Outages')->sortable(),
                 TextColumn::make('teams.name')->label('Coverage')->badge()->color('gray'),

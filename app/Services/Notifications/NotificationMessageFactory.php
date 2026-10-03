@@ -71,7 +71,29 @@ class NotificationMessageFactory
             NotificationEvent::MobilityReopened => "Ticket reopened: {$ticket}",
             NotificationEvent::MobilityCancelled => "Ticket cancelled: {$ticket}",
             NotificationEvent::MobilityEscalated => "Ticket escalated by NOC: {$ticket}",
+            NotificationEvent::TicketRouted => 'Ticket escalated to '.($context['queue'] ?? 'another desk').": {$ticket}",
+            NotificationEvent::TicketReturned => 'Ticket returned to '.($context['queue'] ?? 'the previous desk').": {$ticket}",
+            NotificationEvent::TicketApproval => "Request approved / declined: {$ticket}",
+            NotificationEvent::TicketFollowUpDue => "Pending past the follow-up time — call the customer: {$ticket}",
+            NotificationEvent::TicketCreditReady => "Ready for credit: {$ticket}",
+            NotificationEvent::TicketReopened => "Ticket reopened: {$ticket}",
+            NotificationEvent::TicketIntervention => "Team leader intervention: {$ticket}",
+            NotificationEvent::VisitScheduled => "Site visit assigned to a technician: {$ticket}",
+            NotificationEvent::VisitRescheduled => "Site visit rescheduled: {$ticket}",
+            NotificationEvent::VisitCompleted => "Site visit completed — dispatcher to verify: {$ticket}",
+            NotificationEvent::TicketCustomerSms => "Customer SMS: {$ticket}",
         };
+
+        if ($outage->isTicket()) {
+            $kind = $outage->isSiteVisit() ? 'site visit' : 'customer ticket';
+
+            return $this->ticket($event, $outage, $context, match ($event) {
+                NotificationEvent::OutageCreated => 'New '.$kind.": {$ticket}",
+                NotificationEvent::Resolved => ucfirst($kind)." closed: {$ticket}",
+                NotificationEvent::SlaPreBreach => "SLA at risk: {$ticket}",
+                default => $title,
+            });
+        }
 
         if ($outage->isMobility()) {
             return $this->mobility($event, $outage, $context, match ($event) {
@@ -159,6 +181,52 @@ class NotificationMessageFactory
             ($outage->priority?->name ?? 'no severity').($impact ? ', '.$impact : ''),
             'Status: '.$outage->status?->name,
             $owner,
+            $note ? str($note)->squish()->limit(80)->toString() : null,
+        ])->filter()->implode('. ');
+
+        return [
+            'title' => $title,
+            'body' => implode("\n", $lines),
+            'sms' => mb_strimwidth($sms, 0, max(70, (int) config('oms.sms.max_length', 306)), '…'),
+        ];
+    }
+
+    /**
+     * Customer ticket / site visit: who the customer is, what they reported, the desk and person it is with.
+     *
+     * @return array{title: string, body: string, sms: string}
+     */
+    private function ticket(NotificationEvent $event, Outage $outage, array $context, string $title): array
+    {
+        // Whole models: the workflow keeps using this ticket instance after notifying.
+        $outage->loadMissing(['ticket.subcategory', 'ticket.category', 'ticket.visitType', 'ticket.olt', 'ticket.region', 'technician']);
+        $details = $outage->ticket;
+        $desk = $outage->current_queue?->getLabel();
+        $owner = $outage->currentAssignee?->name;
+        $note = $context['reason'] ?? null;
+        $customer = trim(($details?->customer_name ?: 'Customer').($details?->account_number ? " ({$details->account_number})" : ''));
+
+        $lines = array_filter([
+            "{$outage->ticket_number} — {$outage->title}",
+            'Customer: '.$customer.(($phones = implode(', ', $details?->phones() ?? [])) ? ' | Tel: '.$phones : ''),
+            'Issue: '.collect([$details?->category?->name, $details?->subcategory?->name, $details?->visitType?->name])->filter()->implode(' / '),
+            ($where = collect([$details?->region?->name, $details?->olt?->name, $outage->location])->filter()->implode(' | ')) ? 'Where: '.$where : null,
+            'Status: '.$outage->status?->name.($desk ? " | Desk: {$desk}" : ''),
+            $owner ? 'Assigned to: '.$owner : null,
+            $details?->scheduled_at && ! $outage->is_closed ? 'Visit booked for: '.$details->scheduled_at->format('Y-m-d H:i') : null,
+            $outage->sla_due_at && ! $outage->is_closed ? 'SLA due: '.$outage->sla_due_at->format('Y-m-d H:i') : null,
+            $outage->is_closed && $outage->final_reason ? 'Final reason: '.$outage->final_reason : null,
+            $note ? ($event === NotificationEvent::UpdatePosted ? 'Update: ' : 'Note: ').$note : null,
+            isset($context['attempts']) ? 'Attempts: '.$context['attempts'] : null,
+            'By: '.($context['by'] ?? Auth::user()?->name ?? 'System'),
+        ]);
+
+        $sms = collect([
+            'OMS: '.$title,
+            $customer,
+            $details?->subcategory?->name ?? $details?->visitType?->name,
+            'Status: '.$outage->status?->name,
+            $owner ?? $desk,
             $note ? str($note)->squish()->limit(80)->toString() : null,
         ])->filter()->implode('. ');
 

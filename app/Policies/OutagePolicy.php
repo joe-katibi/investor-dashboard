@@ -2,14 +2,17 @@
 
 namespace App\Policies;
 
+use App\Enums\QueueType;
 use App\Enums\StatusCode;
 use App\Models\ChangeRequest;
+use App\Models\DeskRoute;
 use App\Models\MaintenanceApproval;
 use App\Models\MajorOutageType;
 use App\Models\Outage;
 use App\Models\OutageStatus;
 use App\Models\OutageType;
 use App\Models\SupportRequest;
+use App\Models\Ticket;
 use App\Models\User;
 
 /**
@@ -26,7 +29,11 @@ class OutagePolicy
     /** 4G NOC tickets are a separate audience from the FTTH / core / system tickets. */
     public function view(User $user, Outage $outage): bool
     {
-        return $outage->workflow !== null ? $user->can('mobility.view') : $user->can('outage.view');
+        return match (true) {
+            $outage->isTicket() => $user->can('ticket.view'),
+            $outage->isMobility() => $user->can('mobility.view'),
+            default => $user->can('outage.view'),
+        };
     }
 
     public function create(User $user): bool
@@ -71,6 +78,10 @@ class OutagePolicy
 
     public function addUpdate(User $user, Outage $outage): bool
     {
+        if ($outage->isTicket()) {
+            return ! $outage->is_closed && $user->canAny(['ticket.work', 'visit.dispatch', 'visit.work', 'ticket.create', 'ticket.intervene']);
+        }
+
         if ($outage->workflow !== null) {
             return $outage->is_closed
                 ? $user->can('mobility.verify')
@@ -131,7 +142,7 @@ class OutagePolicy
 
     public function mobilityEdit(User $user, Outage $outage): bool
     {
-        return $outage->workflow !== null && ! $outage->is_closed && $user->can('mobility.edit');
+        return $outage->isMobility() && ! $outage->is_closed && $user->can('mobility.edit');
     }
 
     /** NOC assigns (or re-assigns) the engineer / technician of an internal ticket. */
@@ -166,7 +177,7 @@ class OutagePolicy
     /** NOC verifies the restoration and closes (or sends the ticket back). */
     public function mobilityClose(User $user, Outage $outage): bool
     {
-        return $outage->workflow !== null
+        return $outage->isMobility()
             && ! $outage->is_closed
             && $user->can('mobility.verify')
             && $this->statusIs($outage, StatusCode::MobilityResolvedPendingNoc, StatusCode::MobilityVendorResolvedPendingNoc);
@@ -174,7 +185,7 @@ class OutagePolicy
 
     public function mobilitySetStatus(User $user, Outage $outage): bool
     {
-        return $outage->workflow !== null
+        return $outage->isMobility()
             && ! $outage->is_closed
             && $user->canAny(['mobility.verify', 'mobility.work'])
             && ! $this->statusIs($outage, StatusCode::MobilityResolvedPendingNoc, StatusCode::MobilityVendorResolvedPendingNoc);
@@ -205,22 +216,223 @@ class OutagePolicy
 
     public function mobilityReopen(User $user, Outage $outage): bool
     {
-        return $outage->workflow !== null && $outage->is_closed && $user->can('mobility.reopen');
+        return $outage->isMobility() && $outage->is_closed && $user->can('mobility.reopen');
     }
 
     public function mobilityCancel(User $user, Outage $outage): bool
     {
-        return $outage->workflow !== null && ! $outage->is_closed && $user->can('mobility.cancel');
+        return $outage->isMobility() && ! $outage->is_closed && $user->can('mobility.cancel');
     }
 
     public function mobilityEscalate(User $user, Outage $outage): bool
     {
-        return $outage->workflow !== null && ! $outage->is_closed && $user->can('mobility.escalate');
+        return $outage->isMobility() && ! $outage->is_closed && $user->can('mobility.escalate');
     }
 
     public function mobilityAttach(User $user, Outage $outage): bool
     {
-        return $outage->workflow !== null && $this->addUpdate($user, $outage);
+        return $outage->isMobility() && $this->addUpdate($user, $outage);
+    }
+
+    // ------------------------------------------------------------------ customer tickets / site visits
+
+    public function createTicket(User $user): bool
+    {
+        return $user->can('ticket.create');
+    }
+
+    public function createVisit(User $user): bool
+    {
+        return $user->can('visit.create');
+    }
+
+    /** Hand the ticket to another desk. Anyone working tickets may; the FIFO owner check is in the workflow. */
+    public function ticketRoute(User $user, Outage $outage): bool
+    {
+        return $this->openTicketAtDesk($outage)
+            && ! $outage->current_queue->isFieldDesk()
+            && $user->canAny($outage->isSiteVisit() ? ['visit.dispatch', 'ticket.work'] : ['ticket.work'])
+            && DeskRoute::targets($outage->current_queue) !== [];
+    }
+
+    /** Send it back to the desk it came from. */
+    public function ticketReturn(User $user, Outage $outage): bool
+    {
+        return $this->openTicketAtDesk($outage)
+            && $outage->current_queue !== QueueType::VisitTechnician
+            && $outage->current_queue !== $outage->ticket?->home_desk
+            && $user->canAny(['ticket.work', 'visit.dispatch', 'visit.work']);
+    }
+
+    /** Approve / decline a refund, credit or billing request waiting at an approval desk. */
+    public function ticketApprove(User $user, Outage $outage): bool
+    {
+        return $this->openTicketAtDesk($outage)
+            && $outage->isCxTicket()
+            && $outage->current_queue->isApprovalDesk()
+            && $outage->ticket?->approval_state === Ticket::APPROVAL_PENDING
+            && $user->can('ticket.approve');
+    }
+
+    /** Log a call to the customer. */
+    public function ticketFollowUp(User $user, Outage $outage): bool
+    {
+        return $outage->isTicket() && ! $outage->is_closed && $user->canAny(['ticket.work', 'visit.dispatch']);
+    }
+
+    /** Book a site visit for a customer ticket (the ticket then waits for the visit). */
+    public function ticketRaiseVisit(User $user, Outage $outage): bool
+    {
+        return $this->openTicketAtDesk($outage)
+            && $outage->isCxTicket()
+            && $user->can('visit.create')
+            && $user->can('ticket.work');
+    }
+
+    /**
+     * Close with a final reason: a customer ticket at its desk, or a site visit closed without
+     * field work by the dispatcher / CX Field Support.
+     */
+    public function ticketClose(User $user, Outage $outage): bool
+    {
+        if (! $this->openTicketAtDesk($outage)) {
+            return false;
+        }
+
+        if ($outage->isSiteVisit()) {
+            return in_array($outage->current_queue, [QueueType::VisitDispatch, QueueType::CxFieldSupport], true)
+                && $outage->ticket?->completed_at === null
+                && $user->canAny(['visit.dispatch', 'ticket.work']);
+        }
+
+        // A request still waiting for approval is approved or declined first.
+        return $user->can('ticket.work')
+            && ! ($outage->current_queue->isApprovalDesk() && $outage->ticket?->approval_state === Ticket::APPROVAL_PENDING);
+    }
+
+    public function ticketCancel(User $user, Outage $outage): bool
+    {
+        return $outage->isTicket() && ! $outage->is_closed && $user->can('ticket.cancel');
+    }
+
+    public function ticketReopen(User $user, Outage $outage): bool
+    {
+        return $outage->isTicket() && $outage->is_closed && $user->can('ticket.reopen');
+    }
+
+    /** Team leader takes the ticket over at its desk. */
+    public function ticketIntervene(User $user, Outage $outage): bool
+    {
+        return $this->openTicketAtDesk($outage)
+            && $user->can('ticket.intervene')
+            && ! $this->interventionRunning($outage);
+    }
+
+    public function ticketEndIntervention(User $user, Outage $outage): bool
+    {
+        return $outage->isTicket()
+            && ! $outage->is_closed
+            && $this->interventionRunning($outage)
+            && ((int) $outage->ticket?->intervention_by === (int) $user->id || $user->can('queue.override'));
+    }
+
+    public function ticketLinkOutage(User $user, Outage $outage): bool
+    {
+        return $outage->isTicket() && ! $outage->is_closed && $user->canAny(['ticket.work', 'ticket.create', 'visit.dispatch']);
+    }
+
+    public function ticketAttach(User $user, Outage $outage): bool
+    {
+        return $outage->isTicket() && $this->addUpdate($user, $outage);
+    }
+
+    /** Dispatcher assigns (or re-assigns) the technician of a visit. */
+    public function visitAssign(User $user, Outage $outage): bool
+    {
+        return $outage->isSiteVisit()
+            && ! $outage->is_closed
+            && in_array($outage->current_queue, [QueueType::VisitDispatch, QueueType::VisitTechnician], true)
+            && $user->can('visit.dispatch');
+    }
+
+    /** New date / time for the visit: dispatch, or CX Field Support while it holds the visit. */
+    public function visitReschedule(User $user, Outage $outage): bool
+    {
+        return $outage->isSiteVisit()
+            && ! $outage->is_closed
+            && $outage->ticket?->completed_at === null
+            && ($user->can('visit.dispatch') || ($outage->current_queue === QueueType::CxFieldSupport && $user->can('ticket.work')));
+    }
+
+    public function visitEnRoute(User $user, Outage $outage): bool
+    {
+        return $this->visitInField($user, $outage) && $outage->ticket?->en_route_at === null && $outage->ticket?->arrived_at === null;
+    }
+
+    public function visitArrive(User $user, Outage $outage): bool
+    {
+        return $this->visitInField($user, $outage) && $outage->ticket?->arrived_at === null;
+    }
+
+    public function visitPause(User $user, Outage $outage): bool
+    {
+        return $this->visitInField($user, $outage) && $outage->ticket?->arrived_at !== null && $outage->ticket?->paused_at === null;
+    }
+
+    public function visitResume(User $user, Outage $outage): bool
+    {
+        return $this->visitInField($user, $outage) && $outage->ticket?->paused_at !== null;
+    }
+
+    /** Technician: work done (final reason, FAT number, photos). Back to the dispatcher. */
+    public function visitComplete(User $user, Outage $outage): bool
+    {
+        return $this->visitInField($user, $outage) && $outage->current_queue === QueueType::VisitTechnician;
+    }
+
+    public function visitNotCompleted(User $user, Outage $outage): bool
+    {
+        return $this->visitComplete($user, $outage);
+    }
+
+    /** Dispatcher's final close (or rejection) of the completed work. */
+    public function visitVerify(User $user, Outage $outage): bool
+    {
+        return $outage->isSiteVisit()
+            && ! $outage->is_closed
+            && $outage->current_queue === QueueType::VisitDispatch
+            && $outage->ticket?->completed_at !== null
+            && $user->can('visit.dispatch');
+    }
+
+    /** CX Field Support confirms the closure with the customer. */
+    public function visitConfirm(User $user, Outage $outage): bool
+    {
+        return $outage->isSiteVisit()
+            && ! $outage->is_closed
+            && $outage->current_queue === QueueType::CxFieldSupport
+            && $outage->ticket?->verified_at !== null
+            && $user->can('ticket.work');
+    }
+
+    private function openTicketAtDesk(Outage $outage): bool
+    {
+        return $outage->isTicket() && ! $outage->is_closed && $outage->current_queue !== null && $outage->current_queue->isTicketing();
+    }
+
+    private function visitInField(User $user, Outage $outage): bool
+    {
+        return $outage->isSiteVisit()
+            && ! $outage->is_closed
+            && $outage->current_queue !== null
+            && $outage->current_queue->isFieldDesk()
+            && $outage->ticket?->completed_at === null
+            && $user->can('visit.work');
+    }
+
+    private function interventionRunning(Outage $outage): bool
+    {
+        return $outage->ticket?->intervention_started_at !== null && $outage->ticket?->intervention_ended_at === null;
     }
 
     // ------------------------------------------------------------------ NOC reject → CX follow-up

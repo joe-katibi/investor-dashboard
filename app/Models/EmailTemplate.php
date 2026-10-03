@@ -22,6 +22,10 @@ class EmailTemplate extends Model
         'executive' => 'Executive Summary',
         'summary' => 'Summary Report',
         'mobility_hourly' => '4G Hourly Outage Update',
+        'ticket_pending' => 'Tickets: Pending / SLA Update (every 3 hours)',
+        'ticket_daily' => 'Tickets: Daily Report',
+        'ticket_weekly' => 'Tickets: Weekly Report',
+        'ticket_monthly' => 'Tickets: Monthly Report',
         'custom' => 'Custom',
     ];
 

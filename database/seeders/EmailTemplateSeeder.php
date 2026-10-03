@@ -56,7 +56,138 @@ class EmailTemplateSeeder extends Seeder
         ]);
 
         $this->mobility();
+        $this->ticketing();
     }
+
+    /**
+     * Customer ticket e-mails (dashboard tables and charts in the mail): the pending / SLA update
+     * every 3 hours from 07:00 to 19:00, the daily report at 07:00, 12:00 and 19:00, the weekly
+     * report on Monday 07:00 and the monthly report on the 1st at 07:00. Times and recipients are
+     * edited under Configuration → Email Templates. Created only when missing, inactive.
+     */
+    public function ticketing(): void
+    {
+        $recipients = [config('mail.from.address') ?: 'cx@example.com'];
+
+        $this->seedTemplate('ticket_pending_update', [
+            'name' => 'Tickets – Pending / SLA Update',
+            'report_type' => 'ticket_pending',
+            'schedule_type' => 'daily_times',
+            'daily_times' => ['07:00', '10:00', '13:00', '16:00', '19:00'],
+            'period_hours' => 3,
+            'to' => $recipients,
+            'subject' => 'Pending Tickets & SLA – {{report_time}} {{report_date}}',
+            'body' => self::TICKET_PENDING_BODY,
+            'attach_excel' => true,
+            'is_active' => false,
+            'description' => 'Every 3 hours, 07:00–19:00: pending tickets by SLA per department, OLT and region, issues per OLT, tickets in customer follow-up and what was closed. Pending list attached.',
+        ]);
+
+        $this->seedTemplate('ticket_daily_report', [
+            'name' => 'Tickets – Daily Report',
+            'report_type' => 'ticket_daily',
+            'schedule_type' => 'daily_times',
+            'daily_times' => ['07:00', '12:00', '19:00'],
+            'period_hours' => 24,
+            'to' => $recipients,
+            'subject' => 'Daily Ticket Report – {{tk_period_label}}',
+            'body' => self::TICKET_PERIOD_BODY,
+            'is_active' => false,
+            'description' => 'Three times a day: ticket movement, closed within SLA, pending by SLA, inflow vs closed and SLA % charts, regions and reasons for pending.',
+        ]);
+
+        $this->seedTemplate('ticket_weekly_report', [
+            'name' => 'Tickets – Weekly Report',
+            'report_type' => 'ticket_weekly',
+            'schedule_type' => 'cron',
+            'cron_expression' => '0 7 * * 1',
+            'period_hours' => 168,
+            'to' => $recipients,
+            'subject' => 'Weekly Ticket Report – {{tk_period_label}}',
+            'body' => self::TICKET_PERIOD_BODY,
+            'is_active' => false,
+            'description' => 'Every Monday 07:00: the week just ended (Monday to Sunday) against the week before, with the last 12 weeks.',
+        ]);
+
+        $this->seedTemplate('ticket_monthly_report', [
+            'name' => 'Tickets – Monthly Report',
+            'report_type' => 'ticket_monthly',
+            'schedule_type' => 'cron',
+            'cron_expression' => '0 7 1 * *',
+            'period_hours' => 744,
+            'to' => $recipients,
+            'subject' => 'Monthly Ticket Report – {{tk_period_label}}',
+            'body' => self::TICKET_PERIOD_BODY,
+            'is_active' => false,
+            'description' => 'Every 1st of the month 07:00: the month just ended against the month before, with the last 12 months.',
+        ]);
+    }
+
+    public const TICKET_PENDING_BODY = <<<'TXT'
+Hello Team,
+
+Ticket status as at **{{report_time}}, {{report_date}}**. SLA clock: {{tk_sla_clock}}.
+
+{{tk_headline_table}}
+
+**SLA PER DEPARTMENT** (pending tickets by how long they have been open)
+{{tk_sla_per_department_table}}
+
+**SLA PER OLT**
+{{tk_sla_per_olt_table}}
+
+**ISSUE PER OLT**
+{{tk_issue_per_olt_table}}
+
+**SLA PER REGION**
+{{tk_sla_per_region_table}}
+
+**IN CUSTOMER FOLLOW-UP** (pending past the follow-up time — ready for credit)
+{{tk_follow_up_table}}
+
+**CLOSED IN THE LAST {{tk_period_hours}} HOURS**
+{{tk_closed_table}}
+
+Regards,
+Customer Care / Outage Management System
+TXT;
+
+    public const TICKET_PERIOD_BODY = <<<'TXT'
+**{{tk_report_title}} — {{tk_period_label}}**
+Compared with {{tk_previous_label}}. SLA clock: {{tk_sla_clock}}.
+
+{{tk_headline_table}}
+
+**TICKET MOVEMENT** — what came in, what was closed, what is left
+{{tk_movement_table}}
+
+**CLOSED TICKETS** — SLA result
+{{tk_closed_sla_table}}
+
+**PENDING TICKETS** — where they stand against the SLA
+{{tk_pending_sla_table}}
+
+**INFLOW vs CLOSED**
+{{tk_inflow_chart_table}}
+
+**CLOSED WITHIN SLA %**
+{{tk_sla_chart_table}}
+
+**BY REGION**
+{{tk_region_table}}
+
+**BY DEPARTMENT**
+{{tk_sla_per_department_table}}
+
+**REASONS FOR PENDING**
+{{tk_pending_reasons_table}}
+
+**TREND**
+{{tk_trend_table}}
+
+Regards,
+Customer Care / Outage Management System
+TXT;
 
     /** The hourly 4G update. Created only when missing (inactive until recipients are set). */
     public function mobility(): void

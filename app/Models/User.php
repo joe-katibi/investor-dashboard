@@ -101,6 +101,12 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
         return $this->hasMany(Outage::class, 'technician_id');
     }
 
+    /** Regions this user is locked to. None = tickets of every region. */
+    public function regions(): BelongsToMany
+    {
+        return $this->belongsToMany(Region::class);
+    }
+
     public function scopeActive(Builder $query): void
     {
         $query->where('is_active', true);

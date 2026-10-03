@@ -9,10 +9,12 @@ use App\Models\Olt;
 use App\Models\OutageStatus;
 use App\Models\OutageType;
 use App\Models\Priority;
+use App\Models\Region;
 use App\Models\Service;
 use App\Models\Team;
 use App\Models\User;
 use App\Models\Vertical;
+use App\Models\VisitType;
 use App\Services\Reports\ReportExporter;
 use App\Services\Reports\ReportRegistry;
 use App\Services\Reports\ReportResult;
@@ -83,6 +85,8 @@ class Reports extends Page
                     $multi('outage_type_ids', 'Outage type', fn () => OutageType::query()->orderBy('sort_order')->pluck('name', 'id')),
                     $multi('vertical_ids', 'Vertical', fn () => Vertical::query()->pluck('name', 'id')),
                     $multi('olt_ids', 'OLT', fn () => Olt::query()->orderBy('name')->pluck('name', 'id')),
+                    $multi('region_ids', 'Region (ticket reports)', fn () => Region::query()->orderBy('name')->pluck('name', 'id')),
+                    $multi('visit_type_ids', 'Visit type (ticket reports)', fn () => VisitType::query()->orderBy('sort_order')->pluck('name', 'id')),
                     Select::make('fdt_ids')->label('FDT')->multiple()->searchable()->live()
                         ->options(fn (Get $get) => OutageForm::fdtOptions($get('olt_ids') ?? []))
                         ->disabled(fn (Get $get) => empty($get('olt_ids'))),

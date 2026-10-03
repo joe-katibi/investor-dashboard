@@ -9,6 +9,7 @@ use App\Jobs\SendScheduledReportJob;
 use App\Models\EmailTemplate;
 use App\Services\Reports\ScheduledReportService;
 use App\Services\Reports\TemplateRenderer;
+use App\Services\Tickets\TicketReportData;
 use BackedEnum;
 use Cron\CronExpression;
 use Filament\Actions\Action;
@@ -89,7 +90,9 @@ class EmailTemplateResource extends Resource
                         'Values: <code>'.e(implode(', ', TemplateRenderer::placeholders())).'</code><br>'.
                         '<strong>4G NOC:</strong> loops <code>{{#for each active 4G outage}} … {{/for}}</code> (also 4G eNodeB outage, 4G transmission outage, '.
                         '4G power outage, 4G vendor ticket, closed 4G outage) with item keys <code>'.e(implode(', ', TemplateRenderer::MOBILITY_ITEM_KEYS)).'</code>. '.
-                        '4G values: <code>'.e(implode(', ', TemplateRenderer::mobilityPlaceholders())).'</code>'
+                        '4G values: <code>'.e(implode(', ', TemplateRenderer::mobilityPlaceholders())).'</code><br>'.
+                        '<strong>Customer tickets</strong> (report types “Tickets: …”): <code>'.e(implode(', ', TicketReportData::PLACEHOLDERS)).'</code>. '.
+                        'Everything ending in <code>_table</code> is a ready-made table or chart; “Attach … Excel” attaches the list of pending tickets.'
                     )),
                 Toggle::make('attach_excel')->label('Attach summary report as Excel (.xlsx)'),
             ])->columnSpanFull(),

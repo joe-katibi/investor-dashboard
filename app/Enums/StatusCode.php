@@ -56,6 +56,36 @@ enum StatusCode: string
     case MobilityClosed = 'mobility_closed';
     case MobilityCancelled = 'mobility_cancelled';
 
+    // Customer tickets: raised by CX, worked desk by desk (Tier II, Billing, Commercial, NOC…) until closed.
+    case TicketOpen = 'ticket_open';
+    case TicketInProgress = 'ticket_in_progress';
+    case TicketEscalated = 'ticket_escalated';
+    case TicketPendingApproval = 'ticket_pending_approval';
+    case TicketPendingCustomer = 'ticket_pending_customer';
+    case TicketSiteVisit = 'ticket_site_visit';
+    case TicketClosed = 'ticket_closed';
+    case TicketDeclined = 'ticket_declined';
+    case TicketCancelled = 'ticket_cancelled';
+    case TicketDuplicate = 'ticket_duplicate';
+
+    // Site visits: dispatcher → technician → dispatcher → CX Field Support confirms with the customer.
+    case VisitOpen = 'visit_open';
+    case VisitPendingScheduled = 'visit_pending_scheduled';
+    case VisitPendingWithoutTeam = 'visit_pending_no_team';
+    case VisitInProgress = 'visit_in_progress';
+    case VisitPendingEscalated = 'visit_pending_escalated';
+    case VisitPendingVerification = 'visit_pending_verification';
+    case VisitPendingConfirmation = 'visit_pending_confirmation';
+    case VisitPendingCustomer = 'visit_pending_customer';
+    case VisitClosed = 'visit_closed';
+    case VisitClosedEscalated = 'visit_closed_escalated';
+
+    /** Closed without the work being done: no SLA outcome. */
+    public function isTicketVoid(): bool
+    {
+        return in_array($this, [self::TicketCancelled, self::TicketDuplicate, self::TicketDeclined], true);
+    }
+
     /** Resolved by the engineer / vendor and waiting for the NOC to verify and close. */
     public function isMobilityPendingVerification(): bool
     {

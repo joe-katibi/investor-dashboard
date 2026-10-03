@@ -66,7 +66,13 @@ class NotificationRule extends Model
     {
         // 4G NOC tickets have their own audience: only rules set to that vertical apply, so the
         // FTTH rules ("any vertical") never page FTTH teams about a 4G site.
-        if ($outage->workflow !== null && $this->vertical_id === null) {
+        if ($outage->isMobility() && $this->vertical_id === null) {
+            return false;
+        }
+
+        // Customer tickets and site visits are many and have their own audience too: a rule only
+        // applies when it is set to that ticket type (Outage type = Customer Ticket / Site Visit).
+        if ($outage->isTicket() && $this->outage_type_id === null) {
             return false;
         }
 

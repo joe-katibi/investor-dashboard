@@ -7,6 +7,7 @@ use App\Enums\QueueType;
 use App\Enums\StatusCode;
 use App\Enums\TeamType;
 use App\Filament\Resources\MobilityOutages\MobilityActions;
+use App\Filament\Resources\Tickets\TicketActions;
 use App\Models\ChangeRequest;
 use App\Models\Department;
 use App\Models\MaintenanceApproval;
@@ -58,7 +59,10 @@ final class OutageActions
      */
     public static function all(): array
     {
-        return [...self::primary(), ...MobilityActions::primary(), ...self::secondary(), ...MobilityActions::secondary()];
+        return [
+            ...self::primary(), ...MobilityActions::primary(), ...TicketActions::primary(),
+            ...self::secondary(), ...MobilityActions::secondary(), ...TicketActions::secondary(),
+        ];
     }
 
     /** @return list<Action> */

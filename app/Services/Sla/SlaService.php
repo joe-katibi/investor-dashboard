@@ -12,6 +12,7 @@ use App\Models\OutageStatus;
 use App\Models\SlaEvent;
 use App\Models\SlaPolicy;
 use App\Services\Notifications\NotificationDispatcher;
+use App\Services\Tickets\BusinessClock;
 use App\Support\AuditContext;
 use App\Support\Settings;
 use Carbon\CarbonInterface;
@@ -51,6 +52,12 @@ class SlaService
     /** Apply (or re-apply after a priority/type change) the policy and recompute deadlines. */
     public function apply(Outage $outage, string $event = 'started'): void
     {
+        if ($outage->isTicket()) {
+            $this->applyTicket($outage, $event);
+
+            return;
+        }
+
         $policy = $this->resolvePolicy($outage);
 
         $resolution = $policy?->resolution_minutes ?? $this->settings->int('sla.default_resolution_minutes');
@@ -71,6 +78,50 @@ class SlaService
         $outage->save();
 
         $this->event($outage, $event, ['policy' => $policy?->name ?? 'Default', 'resolution_minutes' => $resolution, 'due_at' => $due->toIso8601String()]);
+    }
+
+    /**
+     * Customer tickets and site visits: the target comes from the subcategory, then the visit type,
+     * then an SLA policy set for that ticket type, then the ticket settings — and it is counted on
+     * the ticket SLA clock (working hours only, unless set to wall clock).
+     */
+    private function applyTicket(Outage $outage, string $event): void
+    {
+        $clock = app(BusinessClock::class);
+        $ticket = $outage->ticket()->with(['subcategory:id,sla_minutes', 'visitType:id,default_sla_minutes'])->first();
+
+        // Generic policies ("any type") are for network outages; a ticket only takes one set for its own type.
+        $policy = SlaPolicy::query()->active()
+            ->where('outage_type_id', $outage->outage_type_id)
+            ->where(fn ($q) => $q->whereNull('priority_id')->orWhere('priority_id', $outage->priority_id))
+            ->orderByRaw('priority_id is null')
+            ->orderBy('resolution_minutes')
+            ->first();
+
+        $minutes = (int) ($ticket?->subcategory?->sla_minutes
+            ?: $ticket?->visitType?->default_sla_minutes
+            ?: $policy?->resolution_minutes
+            ?: $this->settings->int('ticketing.sla_minutes'));
+        $minutes = max(1, $minutes);
+        $atRisk = (int) round($minutes * min(100, max(1, $this->settings->int('ticketing.at_risk_percent'))) / 100);
+
+        $due = $clock->add($outage->start_time, $minutes)->addSeconds($outage->sla_paused_seconds);
+
+        $outage->forceFill([
+            'sla_policy_id' => $policy?->id,
+            'sla_due_at' => $due,
+            'sla_pre_breach_at' => $clock->add($outage->start_time, $atRisk)->addSeconds($outage->sla_paused_seconds),
+        ]);
+
+        if (! $outage->is_closed) {
+            $outage->sla_state = $this->stateAt($outage, now());
+        }
+
+        $outage->save();
+
+        $this->event($outage, $event, [
+            'policy' => $policy?->name ?? 'Ticket SLA', 'resolution_minutes' => $minutes, 'clock' => $clock->describe(), 'due_at' => $due->toIso8601String(),
+        ]);
     }
 
     public function stateAt(Outage $outage, CarbonInterface $moment): SlaState
@@ -120,7 +171,8 @@ class SlaService
 
         // Work that never went ahead (not an outage / not approved / cancelled) has no SLA outcome.
         if ($outage->status?->isCode(StatusCode::NocReject) || $outage->status?->isCode(StatusCode::PmRejected)
-            || $outage->status?->isCode(StatusCode::MaintenanceCancelled) || $outage->status?->isCode(StatusCode::MobilityCancelled)) {
+            || $outage->status?->isCode(StatusCode::MaintenanceCancelled) || $outage->status?->isCode(StatusCode::MobilityCancelled)
+            || StatusCode::tryFrom((string) $outage->status?->code)?->isTicketVoid()) {
             $state = SlaState::NotApplicable;
         } else {
             $end = $outage->end_time ?? $outage->restored_at ?? now();
@@ -172,7 +224,10 @@ class SlaService
             'assignee' => true,
             'team_leaders' => true,
         ];
-        $channels = [NotificationChannel::InApp->value, NotificationChannel::Mail->value];
+        // Customer tickets are many and short-lived: SLA notices go in-app; e-mail only through the rules / alert list.
+        $channels = $outage->isTicket()
+            ? [NotificationChannel::InApp->value]
+            : [NotificationChannel::InApp->value, NotificationChannel::Mail->value];
 
         if ($state !== $outage->sla_state) {
             $outage->sla_state = $state;

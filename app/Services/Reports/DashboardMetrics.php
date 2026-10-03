@@ -116,11 +116,11 @@ class DashboardMetrics
     public function liveByMajorType(): array
     {
         return $this->remember('major', [], function (): array {
-            $rows = Outage::query()->active()->toBase()
+            $rows = Outage::query()->network()->active()->toBase()
                 ->selectRaw('major_outage_type_id, count(*) as outages, sum(customers_affected) as customers')
                 ->groupBy('major_outage_type_id')->get()->keyBy('major_outage_type_id');
 
-            return MajorOutageType::query()->orderBy('sort_order')->get()->mapWithKeys(fn ($type) => [$type->code => [
+            return MajorOutageType::query()->where('code', '!=', MajorOutageType::CUSTOMER)->orderBy('sort_order')->get()->mapWithKeys(fn ($type) => [$type->code => [
                 'name' => $type->name,
                 'outages' => (int) ($rows[$type->id]->outages ?? 0),
                 'customers' => (int) ($rows[$type->id]->customers ?? 0),
@@ -213,7 +213,8 @@ class DashboardMetrics
         return $this->remember('queues', [], function (): array {
             $rows = [];
 
-            foreach (QueueType::cases() as $type) {
+            // The desks of the customer ticketing module are on its own dashboard.
+            foreach (array_filter(QueueType::cases(), fn (QueueType $type) => ! $type->isTicketing()) as $type) {
                 $open = OutageQueueEntry::query()->open()->where('queue_type', $type->value);
                 $oldest = (clone $open)->where('status', QueueEntryStatus::Pending->value)->min('queued_at');
 
@@ -235,7 +236,7 @@ class DashboardMetrics
 
     private function scoped(array $filters): Builder
     {
-        return Outage::query()
+        return Outage::query()->network()
             ->when($filters['vertical_id'] ?? null, fn (Builder $q, $v) => $q->where('vertical_id', $v))
             ->when($filters['major_outage_type_id'] ?? null, fn (Builder $q, $v) => $q->where('major_outage_type_id', $v));
     }

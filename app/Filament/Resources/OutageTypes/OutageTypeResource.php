@@ -52,9 +52,15 @@ class OutageTypeResource extends Resource
             Section::make('4G NOC workflow')
                 ->description('Leave the workflow empty for FTTH / core / system types. A 4G type (fibre cut, battery, generator, microwave…) only needs a workflow, a fault domain and a prefix — no code change. Its severity rules, SLA targets, notification rules and vendor templates can then be set for the type.')
                 ->schema([
-                    Select::make('workflow')->label('Workflow')->options(OutageType::WORKFLOWS)->placeholder('Standard (not a 4G NOC type)')->live(),
+                    // The two customer ticketing types are system types: their workflow is shown, not changed.
+                    Select::make('workflow')->label('Workflow')->placeholder('Standard (not a 4G NOC type)')->live()
+                        ->options(fn (?OutageType $record) => OutageType::WORKFLOWS + ($record?->isTicketing() ? [
+                            OutageType::WORKFLOW_CX_TICKET => 'Customer ticket (Customer Care)', OutageType::WORKFLOW_SITE_VISIT => 'Site visit (Customer Care)',
+                        ] : []))
+                        ->disabled(fn (?OutageType $record) => (bool) $record?->isTicketing()),
                     Select::make('fault_domain')->label('Fault domain (category for tabs, dashboard and reports)')->options(OutageType::FAULT_DOMAINS)
-                        ->visible(fn (Get $get) => filled($get('workflow')))->required(fn (Get $get) => filled($get('workflow'))),
+                        ->visible(fn (Get $get) => in_array($get('workflow'), OutageType::MOBILITY_WORKFLOWS, true))
+                        ->required(fn (Get $get) => in_array($get('workflow'), OutageType::MOBILITY_WORKFLOWS, true)),
                     Select::make('vertical_id')->label('Vertical')->relationship('vertical', 'name')->preload()
                         ->visible(fn (Get $get) => filled($get('workflow')))->required(fn (Get $get) => filled($get('workflow')))
                         ->helperText('Decides which severity levels and rules apply.'),
@@ -76,6 +82,8 @@ class OutageTypeResource extends Resource
                     ->formatStateUsing(fn (string $state) => match ($state) {
                         OutageType::WORKFLOW_MOBILITY_INTERNAL => '4G: NOC → Engineer → NOC',
                         OutageType::WORKFLOW_MOBILITY_VENDOR => '4G: NOC → Vendor → NOC',
+                        OutageType::WORKFLOW_CX_TICKET => 'Customer ticket',
+                        OutageType::WORKFLOW_SITE_VISIT => 'Site visit',
                         default => $state,
                     }),
                 IconColumn::make('is_planned')->label('Planned')->boolean(),
