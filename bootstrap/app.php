@@ -9,6 +9,8 @@ use Illuminate\Http\Request;
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
+        // Mobile app (dispatchers, technicians, engineers): token-authenticated JSON under /api/v1.
+        api: __DIR__.'/../routes/api.php',
         commands: __DIR__.'/../routes/console.php',
         channels: __DIR__.'/../routes/channels.php',
         // Load balancer health check endpoint.
@@ -35,4 +37,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withExceptions(function (Exceptions $exceptions): void {
         // Never leak internals on error pages in production (APP_DEBUG=false handles the rest).
         $exceptions->dontReportDuplicates();
+
+        // The API always answers in JSON (401 / 403 / 404 / 422 / 429), never with a redirect or an HTML page.
+        $exceptions->shouldRenderJsonWhen(fn (Request $request) => $request->is('api/*') || $request->expectsJson());
     })->create();

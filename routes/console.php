@@ -30,3 +30,6 @@ Schedule::call(function (): void {
 
 Schedule::command('queue:prune-failed --hours=720')->daily()->onOneServer();
 Schedule::command('queue:prune-batches --hours=168')->daily()->onOneServer();
+
+// Mobile app: sign-ins that expired more than a day ago are removed.
+Schedule::command('sanctum:prune-expired --hours=24')->daily()->onOneServer();

@@ -24,7 +24,7 @@ Repository: <https://github.com/joe-katibi/outagemangementsystem>
 11. [Notifications](#notifications)
 12. [Reports and exports](#reports-and-exports)
 13. [Scheduled e-mails and templates](#scheduled-e-mails-and-templates)
-14. [Real-time updates (Reverb)](#real-time-updates-reverb)
+14. [Real-time updates (Reverb)](#real-time-updates-reverb) · [Mobile app API](#mobile-app-api)
 15. [Roles and permissions](#roles-and-permissions)
 16. [Seeded reference data](#seeded-reference-data)
 17. [Configuration screens](#configuration-screens)
@@ -870,6 +870,90 @@ Broadcast events: `OutageCreated`, `OutageUpdated`, `OutageAssigned`, `OutageAcc
 * Dashboard widgets, outage list / page, FIFO Queues and My Work re-render on events; polling (60–120 s) is only a fallback.
 * Assignees get Filament notifications (bell + toast) in real time.
 * Filament's Echo client is configured in `config/filament.php` from the `REVERB_*` / `VITE_REVERB_*` variables.
+
+## Mobile app API
+
+A JSON API under **`/api/v1`** for the field app (Flutter, in its own repository `oms-mobile`), used by three kinds
+of people only: **dispatchers**, **technicians** and **4G engineers**. Everything else stays on the website.
+
+```
+                       OMS (Laravel)
+   Sanctum API · ticket workflow · authorisation · notification logic
+        ▲                    │                              │
+      HTTPS                Reverb                          FCM
+   /api/v1 (token)      app is open            app in the background / closed
+        │                    │                              │
+        └──────────────── Flutter OMS app (Android / iOS) ──┘
+```
+
+**The phone is an untrusted client.** Who the person is, which tickets they may see and what they may do is
+decided here on every request — never by anything the app sends.
+
+| Endpoint | |
+| --- | --- |
+| `POST auth/login` | username or e-mail + password (+ `code` for accounts with two-step sign-in) → token, expiry, user |
+| `POST auth/logout` | revokes this phone's token and device |
+| `GET me` · `POST me/availability` | profile, mobile role; Available / Busy / On break / Offline (FIFO offers tickets only to Available people) |
+| `GET dashboard` · `GET config` | tiles with counts; Reverb connection details, whether Firebase pushes are on, list filters |
+| `GET tickets` | `scope`, `module`, `priority`, `search`, `page` — paginated |
+| `GET tickets/{id}` | the ticket, its timeline, photos **and the actions this person may take now** |
+| `POST tickets/{id}/actions/{action}` | run one of those actions (multipart: answers + photos) |
+| `GET attachments/{id}` · `GET photos/{id}` | private files, with the token |
+| `GET notifications` · `POST notifications/{id}/read` · `POST notifications/read-all` | the same notifications as the web bell |
+| `POST devices` · `DELETE devices/{id}` | the phones a person is signed in on, each with its Firebase push token |
+| `POST broadcasting/auth` | signs the subscription to the person's own Reverb channel |
+
+* **Sign-in** uses the existing accounts (no second user system): a Sanctum personal access token per phone, valid
+  `OMS_MOBILE_TOKEN_DAYS` (30). Wrong password, unknown and inactive accounts get the same answer; 5 attempts a
+  minute per account and address. Accounts with an authenticator app must send the 6-digit code; with
+  `OMS_REQUIRE_MFA=true` an account that has not set one up cannot use the app. Deactivating a user, or removing
+  their field role, takes effect on their next request and revokes the token.
+* **Who may use it** (`App\Services\Mobile\MobileProfile`), from permissions, not role names — *dispatcher*:
+  `outage.dispatch`, `visit.dispatch` or `queue.work_infra_support_dispatch`; *engineer*: receives 4G tickets and
+  handles transmission; *technician*: any other field queue (outage, support, site visit, infra support, 4G
+  eNodeB). Anyone else gets *"Your account is not authorized to use the mobile application."*
+* **Which tickets** — a dispatcher sees the tickets of the kinds they dispatch; a technician or engineer only the
+  tickets they hold or held. Asking for any other id is a `403` (`404` if it does not exist): knowing an id is
+  never enough.
+* **Server-driven actions** (`App\Services\Mobile\MobileActions`) — the ticket answer lists the actions the
+  person may take *right now* with the form each needs (fields, options, mandatory). The app only draws them.
+  Each action is checked again by the policy and runs through `OutageWorkflow` / the FIFO engine, exactly like
+  the website button: accept / reject an assignment, dispatch, report restored, request / complete support, set
+  status, approve preventive downtime, 4G start / resolve / status / photos, site-visit assign / reschedule /
+  en route / arrive / pause / resume / complete (FAT number, geolocation and speed-test photos) / could not
+  complete / verify / send back, hand over / return / close a ticket, add an update, add photos. A rule changed
+  in the workflow applies to the app at once, with no app release.
+* **Photos** are validated as real images (JPG / PNG / WebP, `OMS_MOBILE_MAX_UPLOAD_KB`), stored on the private
+  disk next to the website's uploads and only served to people who may see the ticket.
+* **Notifications** — every in-app notification (the one the web bell shows) also goes to the person's phones,
+  two ways, from `SendNotificationJob`:
+  * **Reverb, while the app is open** — `mobile.notification` on the person's private channel
+    `App.Models.User.{id}` (`App\Events\MobileNotification`); the app shows a banner at once.
+  * **Firebase Cloud Messaging, while the app is in the background or closed** — `SendPushNotificationJob`
+    pushes to every phone of that person that registered an FCM token (`mobile_devices.push_token`), over the
+    FCM HTTP v1 API (`App\Services\Mobile\FcmSender`); the phone shows the notification itself.
+
+  Both carry only `id`, `type`, `title` (e.g. "Ticket assigned to you: OUT-…"), `ticket_id` and `ticket_number`
+  — never the ticket. Tapping it makes the app call `GET tickets/{id}`, and the server decides then whether this
+  person may see it (signed out: sign-in first, then the same check). The app shows a notification that arrives
+  both ways once. A token Firebase reports as no longer registered is dropped; a token that turns up on another
+  person's sign-in is taken off the previous person's device; signing out removes the device.
+* **Firebase setup** — in the Firebase console: *Project settings → Service accounts → Generate new private key*.
+  Put the JSON on the server outside git (e.g. `storage/app/private/firebase/service-account.json`, readable by
+  the web user) and set `OMS_FCM_CREDENTIALS` to its path; `GET config` then reports `push.enabled: true`.
+  Without it nothing is pushed and notifications only reach an open app. Pushes are sent by the queue worker.
+* **Rate limits** — `mobile` 180 requests / minute per person, `mobile-write` 40 / minute, `mobile-login` 5 / minute.
+* **Old apps** — set `OMS_MOBILE_MIN_VERSION` to refuse versions below it (`426`, "please update").
+* `https://<host>/mobile/tickets/{id}` opened in a browser redirects to the ticket's page on the website.
+
+**Deploying:** `composer install` (adds `laravel/sanctum`), `php artisan migrate --force` (tables
+`personal_access_tokens`, `mobile_devices`), set `OMS_FCM_CREDENTIALS`, `php artisan optimize`,
+`php artisan queue:restart`. Reverb must be reachable from the phones over `wss://` — the app uses the same
+`REVERB_*` / `VITE_REVERB_*` values as the website — and the server must be able to reach
+`oauth2.googleapis.com` and `fcm.googleapis.com` over HTTPS.
+
+**Keeping the app in step:** `OMS_MOBILE_FIXTURES=<folder> php artisan test --filter=MobileApiTest` writes the real
+API answers as JSON; the app's own tests read them (`oms-mobile/test/fixtures/api`).
 
 ## Roles and permissions
 

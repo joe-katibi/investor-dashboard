@@ -64,6 +64,24 @@ return [
         'hsts' => (bool) env('OMS_HSTS', false),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Mobile app (dispatchers, technicians, engineers) — /api/v1
+    |--------------------------------------------------------------------------
+    */
+    'mobile' => [
+        // Days a sign-in on a phone stays valid; after that the app asks for the password again.
+        'token_days' => (int) env('OMS_MOBILE_TOKEN_DAYS', 30),
+        // Oldest app version the API still serves (empty = any). Older apps are told to update.
+        'min_version' => env('OMS_MOBILE_MIN_VERSION', ''),
+        // Uploaded photos: largest file in kilobytes.
+        'max_upload_kb' => (int) env('OMS_MOBILE_MAX_UPLOAD_KB', 12288),
+        // Notifications reach an open app over Reverb; in the background or closed they are pushed through
+        // Firebase Cloud Messaging. Path to the Firebase service-account key (JSON) — keep it outside git,
+        // e.g. storage/app/private/firebase/service-account.json. Empty = no pushes (open app only).
+        'fcm_credentials' => env('OMS_FCM_CREDENTIALS', ''),
+    ],
+
     // Rows rendered on-screen in the reports page; exports always include every row.
     'report_screen_limit' => (int) env('OMS_REPORT_SCREEN_LIMIT', 500),
 ];

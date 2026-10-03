@@ -88,6 +88,14 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('api', fn (Request $request) => Limit::perMinute(60)->by($request->user()?->id ?: $request->ip()));
         RateLimiter::for('exports', fn (Request $request) => Limit::perMinute(10)->by($request->user()?->id ?: $request->ip()));
 
+        // Mobile app: sign-in attempts per account + address, then reads and writes per person.
+        RateLimiter::for('mobile-login', fn (Request $request) => [
+            Limit::perMinute(5)->by('login|'.mb_strtolower((string) $request->input('login')).'|'.$request->ip()),
+            Limit::perMinute(30)->by('login-ip|'.$request->ip()),
+        ]);
+        RateLimiter::for('mobile', fn (Request $request) => Limit::perMinute(180)->by('mobile|'.($request->user()?->id ?: $request->ip())));
+        RateLimiter::for('mobile-write', fn (Request $request) => Limit::perMinute(40)->by('mobile-write|'.($request->user()?->id ?: $request->ip())));
+
         Event::listen(Login::class, function (Login $event): void {
             if ($event->user instanceof User) {
                 $event->user->forceFill(['last_login_at' => now()])->saveQuietly();

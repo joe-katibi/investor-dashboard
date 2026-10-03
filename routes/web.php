@@ -1,9 +1,12 @@
 <?php
 
+use App\Filament\Support\OutageLink;
 use App\Http\Controllers\CrfDocumentController;
 use App\Http\Controllers\CrfSignController;
 use App\Http\Controllers\OutageAttachmentController;
 use App\Http\Controllers\OutagePhotoController;
+use App\Models\Outage;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/admin');
@@ -15,6 +18,14 @@ Route::middleware(['signed', 'throttle:30,1'])->prefix('crf/sign/{signatory}')->
     Route::get('/pdf', [CrfSignController::class, 'pdf'])->name('crf.sign.pdf');
     Route::get('/done', [CrfSignController::class, 'done'])->name('crf.sign.done');
 });
+
+// A ticket link meant for the mobile app (https://…/mobile/tickets/123), opened in a browser instead:
+// go to the ticket's page on the website. The same permission check as everywhere else applies there.
+Route::middleware(['auth', 'throttle:60,1'])->get('/mobile/tickets/{outage}', function (Outage $outage) {
+    Gate::authorize('view', $outage);
+
+    return redirect()->to(OutageLink::url($outage));
+})->whereNumber('outage')->name('mobile.ticket');
 
 // View / download a ticket's CRF (signed-in users).
 Route::middleware(['auth', 'throttle:60,1'])->get('/crf/{outage}/pdf', CrfDocumentController::class)->name('crf.pdf');

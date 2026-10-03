@@ -22,6 +22,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
 
 #[Fillable([
@@ -32,8 +33,8 @@ use Spatie\Permission\Traits\HasRoles;
 class User extends Authenticatable implements FilamentUser, HasAppAuthentication, HasAppAuthenticationRecovery
 {
     /** @use HasFactory<UserFactory> */
-    use Auditable, HasAuditColumns, HasFactory, HasRoles, Notifiable;
-
+    // HasApiTokens: the mobile app signs in with a personal access token (Sanctum); the web panel keeps its session.
+    use Auditable, HasApiTokens, HasAuditColumns, HasFactory, HasRoles, Notifiable;
     use InteractsWithAppAuthentication, InteractsWithAppAuthenticationRecovery;
 
     protected function casts(): array

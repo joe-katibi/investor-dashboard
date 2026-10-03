@@ -3,11 +3,14 @@
 namespace App\Jobs;
 
 use App\Enums\NotificationChannel;
+use App\Events\MobileNotification;
 use App\Filament\Support\OutageLink;
 use App\Mail\MaintenanceMail;
 use App\Mail\OutageNotificationMail;
 use App\Mail\VendorNotificationMail;
+use App\Models\MobileDevice;
 use App\Models\NotificationLog;
+use App\Services\Mobile\FcmSender;
 use App\Services\Notifications\Sms\SmsGateway;
 use App\Services\Outages\OutageWorkflow;
 use Filament\Actions\Action;
@@ -142,10 +145,34 @@ class SendNotificationJob implements ShouldQueue
             ]);
         }
 
+        // What the mobile app needs to open the ticket (it never follows the web link above).
+        $notification->viewData(['oms' => [
+            'type' => $log->event,
+            'ticket_id' => $log->outage_id,
+            'ticket_number' => $log->outage?->ticket_number,
+        ]]);
+
         // Store for the bell now: Filament's sendToDatabase() queues a second job, so without
         // a worker the bell would stay empty. The live refresh + toast over Reverb stay queued.
-        $user->notifyNow($notification->toDatabase());
+        $stored = $notification->toDatabase();
+        $stored->id = (string) Str::uuid();
+        $user->notifyNow($stored);
         DatabaseNotificationsSent::dispatch($user);
         $notification->broadcast($user);
+
+        // The same alert for the phones this person is signed in on with the mobile app, two ways:
+        //   Reverb   — instant, while the app is open;
+        //   Firebase — a push notification, so it also arrives when the app is in the background or closed.
+        // The app shows a notification that reaches it both ways only once.
+        $devices = MobileDevice::query()->where('user_id', $user->id)->get(['id', 'push_token']);
+
+        if ($devices->isNotEmpty()) {
+            $payload = [$user->id, $stored->id, (string) $log->event, (string) $log->subject, $log->outage_id, $log->outage?->ticket_number];
+            MobileNotification::dispatch(...$payload);
+
+            if ($devices->contains(fn (MobileDevice $device) => filled($device->push_token)) && app(FcmSender::class)->configured()) {
+                SendPushNotificationJob::dispatch(...$payload);
+            }
+        }
     }
 }
