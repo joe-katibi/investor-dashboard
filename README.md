@@ -775,6 +775,34 @@ service, team / sub-team, technician, SLA state. Every report exports to **CSV, 
 | Planned Maintenance | CRF window, reschedules, risk, sign-off, outcome, customer notification, SLA |
 | FIFO Assignment History | Every queue / assignment event |
 | Audit Trail | Every recorded change with user, trigger and IP |
+| **Staff Productivity (all modules)** | Per person, module and hour / day / week / month (see below) |
+
+### Staff productivity
+
+*Reporting → Reports → Staff Productivity (all modules)* covers **outages (FTTH / core / system), 4G outages, customer
+tickets and site visits** in one report. Choose *Group by* (hourly, daily, weekly, monthly or the whole period), the
+modules and the people. Each row is one person, one module and one period, plus an **All modules** row for people who
+worked in more than one:
+
+| Column | Meaning |
+|---|---|
+| Created | Tickets the person raised (outages, 4G tickets, customer tickets, site visits) |
+| Assigned / Accepted | FIFO or manager assignments received / accepted, and the average minutes to accept |
+| Rejected / not accepted in time | Assignments rejected or left to time out |
+| Steps done | Queue steps completed (NOC review, dispatch, technician work, a desk's work…) |
+| Avg time to handle / total handling | Assigned → step done, average minutes and total hours |
+| Tickets worked | Each ticket counted once per person and period: accepted, worked, closed, escalated or restored |
+| Closed / avg age at closing | Tickets the person closed (cancelled and duplicates excluded) and how long they had been open |
+| Escalated | Hand-offs to another desk, IT → NOC, the 4G "Escalate" |
+| Field work / time on premises | Restorations reported (outage technicians, 4G engineers) and site visits completed; time on site |
+| Customer calls / updates posted | Calls logged on tickets, progress updates written |
+| Close rate / escalation rate | Closed ÷ worked, escalated ÷ worked |
+
+People only see the modules they may view (outage, 4G, Customer Care). Four **scheduled e-mails** (inactive until
+recipients are set, editable under Email Templates) send it by module and by person with the full report attached:
+*hourly* (last hour), *daily* at 19:00 (the day so far; before 09:00 it covers yesterday), *weekly* on Monday 07:00
+(last Monday–Sunday) and *monthly* on the 1st at 07:00 (last month). On a system that already holds data, create
+them with `php artisan db:seed --class=ProductivitySeeder --force`.
 
 The outage list's **Export Excel** button exports exactly the current tab, filters, search and sort. CSV and
 Excel exports stream (no row limit); PDF is capped at 2,000 rows; on-screen view shows `OMS_REPORT_SCREEN_LIMIT` rows.

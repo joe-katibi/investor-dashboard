@@ -7,6 +7,7 @@ use App\Filament\Resources\EmailTemplates\Pages\ManageEmailTemplates;
 use App\Filament\Support\AuditFields;
 use App\Jobs\SendScheduledReportJob;
 use App\Models\EmailTemplate;
+use App\Services\Reports\ProductivityReport;
 use App\Services\Reports\ScheduledReportService;
 use App\Services\Reports\TemplateRenderer;
 use App\Services\Tickets\TicketReportData;
@@ -92,7 +93,9 @@ class EmailTemplateResource extends Resource
                         '4G power outage, 4G vendor ticket, closed 4G outage) with item keys <code>'.e(implode(', ', TemplateRenderer::MOBILITY_ITEM_KEYS)).'</code>. '.
                         '4G values: <code>'.e(implode(', ', TemplateRenderer::mobilityPlaceholders())).'</code><br>'.
                         '<strong>Customer tickets</strong> (report types “Tickets: …”): <code>'.e(implode(', ', TicketReportData::PLACEHOLDERS)).'</code>. '.
-                        'Everything ending in <code>_table</code> is a ready-made table or chart; “Attach … Excel” attaches the list of pending tickets.'
+                        'Everything ending in <code>_table</code> is a ready-made table or chart; “Attach … Excel” attaches the list of pending tickets.<br>'.
+                        '<strong>Staff productivity</strong> (report types “Staff Productivity: …”): <code>'.e(implode(', ', ProductivityReport::PLACEHOLDERS)).'</code>. '.
+                        '“Last N hours” uses “Period (hours)”; “Attach … Excel” attaches the full report of the period.'
                     )),
                 Toggle::make('attach_excel')->label('Attach summary report as Excel (.xlsx)'),
             ])->columnSpanFull(),

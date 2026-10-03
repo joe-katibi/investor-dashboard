@@ -26,6 +26,10 @@ class EmailTemplate extends Model
         'ticket_daily' => 'Tickets: Daily Report',
         'ticket_weekly' => 'Tickets: Weekly Report',
         'ticket_monthly' => 'Tickets: Monthly Report',
+        'productivity' => 'Staff Productivity: last N hours',
+        'productivity_day' => 'Staff Productivity: Day',
+        'productivity_week' => 'Staff Productivity: Last Week',
+        'productivity_month' => 'Staff Productivity: Last Month',
         'custom' => 'Custom',
     ];
 

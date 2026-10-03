@@ -57,7 +57,63 @@ class EmailTemplateSeeder extends Seeder
 
         $this->mobility();
         $this->ticketing();
+        $this->productivity();
     }
+
+    /**
+     * Staff productivity e-mails across every module: hourly (last hour), daily at 19:00 (the
+     * day so far), weekly on Monday 07:00 (last week) and monthly on the 1st at 07:00 (last month).
+     * Created only when missing, inactive until recipients are set.
+     */
+    public function productivity(): void
+    {
+        $recipients = [config('mail.from.address') ?: 'management@example.com'];
+
+        foreach ([
+            ['productivity_hourly', 'Staff Productivity – Hourly', 'productivity', ['schedule_type' => 'interval', 'interval_minutes' => 60], 1,
+                'Every hour: what each person did in the last hour, in every module.'],
+            ['productivity_daily', 'Staff Productivity – Daily', 'productivity_day', ['schedule_type' => 'daily_times', 'daily_times' => ['19:00']], 24,
+                'At 19:00: the day so far per person and module (sent before 09:00 it covers yesterday).'],
+            ['productivity_weekly', 'Staff Productivity – Weekly', 'productivity_week', ['schedule_type' => 'cron', 'cron_expression' => '0 7 * * 1'], 168,
+                'Monday 07:00: the week just ended (Monday to Sunday).'],
+            ['productivity_monthly', 'Staff Productivity – Monthly', 'productivity_month', ['schedule_type' => 'cron', 'cron_expression' => '0 7 1 * *'], 744,
+                'The 1st at 07:00: the month just ended.'],
+        ] as [$code, $name, $type, $schedule, $hours, $description]) {
+            $this->seedTemplate($code, $schedule + [
+                'name' => $name,
+                'report_type' => $type,
+                'period_hours' => $hours,
+                'to' => $recipients,
+                'subject' => $name.' – {{productivity_period}}',
+                'body' => self::PRODUCTIVITY_BODY,
+                'attach_excel' => true,
+                'is_active' => false,
+                'description' => $description,
+            ]);
+        }
+    }
+
+    public const PRODUCTIVITY_BODY = <<<'TXT'
+Hello Team,
+
+Staff productivity for **{{productivity_period}}** — outages, 4G outages, customer tickets and site visits.
+
+**{{productivity_people}} people · {{productivity_worked}} tickets worked · {{productivity_closed}} closed · {{productivity_escalated}} escalated**
+
+**BY MODULE**
+{{productivity_module_table}}
+
+**BY PERSON**
+{{productivity_table}}
+
+**FIELD WORK** (restorations reported, visits completed)
+{{productivity_field_table}}
+
+Worked = tickets the person accepted, completed a step on, closed, escalated or restored. Close rate and escalation rate are closed ÷ worked and escalated ÷ worked. The full report is attached.
+
+Regards,
+Outage Management System
+TXT;
 
     /**
      * Customer ticket e-mails (dashboard tables and charts in the mail): the pending / SLA update

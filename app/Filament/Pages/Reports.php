@@ -15,6 +15,7 @@ use App\Models\Team;
 use App\Models\User;
 use App\Models\Vertical;
 use App\Models\VisitType;
+use App\Services\Reports\ProductivityReport;
 use App\Services\Reports\ReportExporter;
 use App\Services\Reports\ReportRegistry;
 use App\Services\Reports\ReportResult;
@@ -76,6 +77,15 @@ class Reports extends Page
                     Select::make('report')->label('Report')->options(fn () => ReportRegistry::availableTo(Auth::user()))->required()->live()->columnSpan(2),
                     DatePicker::make('from')->label('From')->live(),
                     DatePicker::make('to')->label('To')->live(),
+                    // Staff productivity: how to group it, which modules and people.
+                    Select::make('group')->label('Group by')->options(ProductivityReport::GROUPS)->default('day')->selectablePlaceholder(false)->live()
+                        ->visible(fn (Get $get) => $get('report') === ProductivityReport::KEY),
+                    Select::make('modules')->label('Modules')->multiple()->live()->placeholder('All modules you can see')
+                        ->options(fn () => array_intersect_key(ProductivityReport::MODULES, array_flip(app(ProductivityReport::class)->modules())))
+                        ->visible(fn (Get $get) => $get('report') === ProductivityReport::KEY),
+                    Select::make('user_ids')->label('People')->multiple()->searchable()->live()->placeholder('Everyone')
+                        ->options(fn () => User::query()->orderBy('name')->pluck('name', 'id'))
+                        ->visible(fn (Get $get) => $get('report') === ProductivityReport::KEY)->columnSpan(2),
                 ])->columns(4),
                 Section::make('Filters')->collapsible()->collapsed()->schema([
                     Select::make('state')->label('State')->options(['active' => 'Active only', 'closed' => 'Closed only'])->placeholder('All')->live(),

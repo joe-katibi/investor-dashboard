@@ -43,7 +43,7 @@ class ReportRegistry
         'planned_maintenance' => 'Planned Maintenance Report',
         'assignment_history' => 'FIFO Assignment History Report',
         'audit_trail' => 'Audit Trail Report',
-    ] + MobilityReports::REPORTS + TicketReports::REPORTS;
+    ] + [ProductivityReport::KEY => 'Staff Productivity (all modules)'] + MobilityReports::REPORTS + TicketReports::REPORTS;
 
     /** Reports that cover every ticket, whatever its vertical. */
     public const SHARED = ['assignment_history', 'audit_trail'];
@@ -59,6 +59,8 @@ class ReportRegistry
         return array_filter(self::REPORTS, fn (string $key) => match (true) {
             $user === null => false,
             in_array($key, self::SHARED, true) => true,
+            // Across modules: each person sees the modules they may view.
+            $key === ProductivityReport::KEY => $user->canAny(['outage.view', 'mobility.view', 'ticket.view']),
             $key === 'mobility_audit' => $user->can('mobility.view') && $user->can('audit.view'),
             $key === 'ticket_audit' => $user->can('ticket.view') && $user->can('audit.view'),
             isset(TicketReports::REPORTS[$key]) => $user->can('ticket.view'),
@@ -75,6 +77,10 @@ class ReportRegistry
 
         if (isset(TicketReports::REPORTS[$key])) {
             return app(TicketReports::class)->run($key, $filters);
+        }
+
+        if ($key === ProductivityReport::KEY) {
+            return app(ProductivityReport::class)->run($filters);
         }
 
         return match ($key) {

@@ -95,9 +95,11 @@ class ScheduledReportService
     {
         $now ??= now();
         // Ticket e-mails have their own figures (pending / SLA update, daily, weekly, monthly).
-        $data = TicketReportData::handles($template->report_type)
-            ? app(TicketReportData::class)->build($template->report_type, $now, max(1, (int) $template->period_hours))
-            : $this->snapshot->build($now->copy()->subHours(max(1, $template->period_hours)), $now);
+        $data = match (true) {
+            TicketReportData::handles($template->report_type) => app(TicketReportData::class)->build($template->report_type, $now, max(1, (int) $template->period_hours)),
+            isset(ProductivityReport::EMAIL_TYPES[$template->report_type]) => app(ProductivityReport::class)->emailData($template->report_type, $now, max(1, (int) $template->period_hours)),
+            default => $this->snapshot->build($now->copy()->subHours(max(1, $template->period_hours)), $now),
+        };
 
         return [
             'subject' => Str::limit(trim($this->renderer->renderText($template->subject, $data)), 250),
@@ -121,12 +123,19 @@ class ScheduledReportService
         $attachment = null;
         if ($template->attach_excel) {
             // Ticket e-mails carry the list of pending tickets; the others the outage summary of the period.
-            $attachment = $this->exporter->writeXlsx(TicketReportData::handles($template->report_type)
-                ? $this->reports->run('ticket_pending')
-                : $this->reports->run('summary_report', [
+            $attachment = $this->exporter->writeXlsx(match (true) {
+                TicketReportData::handles($template->report_type) => $this->reports->run('ticket_pending'),
+                // Productivity e-mails: the full report of the period, per person and module.
+                isset(ProductivityReport::EMAIL_TYPES[$template->report_type]) => $this->reports->run(ProductivityReport::KEY, (function () use ($template, $now): array {
+                    [$from, $to] = app(ProductivityReport::class)->emailPeriod($template->report_type, CarbonImmutable::instance($now), max(1, (int) $template->period_hours));
+
+                    return ['from' => $from->toDateTimeString(), 'to' => $to->toDateTimeString(), 'group' => 'period'];
+                })()),
+                default => $this->reports->run('summary_report', [
                     'from' => $now->copy()->subHours(max(1, $template->period_hours))->toDateTimeString(),
                     'to' => $now->toDateTimeString(),
-                ]));
+                ]),
+            });
         }
 
         $logs = collect(array_merge($to, $cc))->map(fn (string $email) => NotificationLog::query()->create([
