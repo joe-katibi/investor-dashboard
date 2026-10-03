@@ -73,11 +73,11 @@ class UserResource extends Resource
                 TextInput::make('username')->required()->maxLength(60)->alphaDash()->unique(ignoreRecord: true),
                 TextInput::make('email')->email()->required()->maxLength(255)->unique(ignoreRecord: true),
                 TextInput::make('phone')->tel()->maxLength(30)
-                    ->placeholder('+265991234567')
-                    ->helperText('Used for SMS alerts. Local numbers (0991…) are stored in international format.')
+                    ->placeholder('+256772123456')
+                    ->helperText('Used for SMS alerts. Local numbers (0772…) are stored in international format.')
                     ->rule(fn () => function (string $attribute, mixed $value, \Closure $fail): void {
                         if (filled($value) && ! PhoneNumber::isValid((string) $value)) {
-                            $fail('Enter a valid phone number, e.g. +265991234567.');
+                            $fail('Enter a valid phone number, e.g. +256772123456.');
                         }
                     })
                     ->dehydrateStateUsing(fn (?string $state) => PhoneNumber::normalise($state)),

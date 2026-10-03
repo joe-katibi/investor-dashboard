@@ -732,8 +732,8 @@ administrators get no extra e-mail / SMS). Deactivate them under *Configuration 
 * **Send test e-mail / Send test SMS** — check the configuration; the screen warns when mail or SMS is only written
   to the log.
 
-**Phone numbers** are stored in international (E.164) format; local numbers such as `0991 234 567` become
-`+265991234567` using `SMS_DEFAULT_COUNTRY_CODE`. Invalid numbers are rejected on the form and skipped when sending.
+**Phone numbers** are stored in international (E.164) format; local numbers such as `0772 123 456` become
+`+256772123456` using `SMS_DEFAULT_COUNTRY_CODE`. Invalid numbers are rejected on the form and skipped when sending.
 SMS text is short (ticket, stage, title, impact, status, owner) and capped at `SMS_MAX_LENGTH` characters.
 
 **SMS gateways** (`SMS_DRIVER`):
@@ -1019,7 +1019,7 @@ All scheduled tasks use `onOneServer()` and `withoutOverlapping()`.
 | `OMS_REPORT_SCREEN_LIMIT` | `500` | Rows rendered on the Reports page |
 | `OMS_NOTIFICATIONS_QUEUE`, `OMS_REPORTS_QUEUE` | `default` | Dedicated queues for scaling workers |
 | `SMS_DRIVER` | `log` | SMS gateway: `log`, `africastalking`, `twilio` or `http` |
-| `SMS_SENDER`, `SMS_DEFAULT_COUNTRY_CODE`, `SMS_MAX_LENGTH` | `OMS`, `265`, `306` | Sender ID, calling code for local numbers, message length cap |
+| `SMS_SENDER`, `SMS_DEFAULT_COUNTRY_CODE`, `SMS_MAX_LENGTH` | `OMS`, `256`, `306` | Sender ID, calling code for local numbers, message length cap |
 | `AFRICASTALKING_USERNAME`, `AFRICASTALKING_API_KEY`, `AFRICASTALKING_SANDBOX` | `sandbox`, —, `true` | Africa's Talking credentials |
 | `TWILIO_SID`, `TWILIO_TOKEN`, `TWILIO_FROM` | — | Twilio credentials |
 | `SMS_URL`, `SMS_TOKEN` | — | Generic HTTP provider |

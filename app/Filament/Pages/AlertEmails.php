@@ -151,8 +151,8 @@ class AlertEmails extends Page
                         ->schema([
                             TagsInput::make('phones')
                                 ->label('Alert phone numbers')
-                                ->placeholder('+265991234567')
-                                ->helperText('International format (+265…) or local (0991…) — local numbers use country code +'.config('oms.sms.default_country_code').'. Press Enter after each number.')
+                                ->placeholder('+256772123456')
+                                ->helperText('International format (+256…) or local (0772…) — local numbers use country code +'.config('oms.sms.default_country_code').'. Press Enter after each number.')
                                 ->nestedRecursiveRules([fn () => function (string $attribute, mixed $value, \Closure $fail): void {
                                     if (! PhoneNumber::isValid((string) $value)) {
                                         $fail("\"{$value}\" is not a valid phone number.");

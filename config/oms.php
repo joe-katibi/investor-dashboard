@@ -26,8 +26,8 @@ return [
         'driver' => env('SMS_DRIVER', 'log'),
         // Sender ID / short code / from-number shown to recipients (provider-specific rules apply).
         'sender' => env('SMS_SENDER', 'OMS'),
-        // Local numbers like 0991234567 become +265991234567 using this calling code (no "+").
-        'default_country_code' => env('SMS_DEFAULT_COUNTRY_CODE', '265'),
+        // Local numbers like 0772123456 become +256772123456 using this calling code (no "+").
+        'default_country_code' => env('SMS_DEFAULT_COUNTRY_CODE', '256'),
         // Hard cap per message; longer texts are trimmed (keeps multi-part SMS costs predictable).
         'max_length' => (int) env('SMS_MAX_LENGTH', 306),
 

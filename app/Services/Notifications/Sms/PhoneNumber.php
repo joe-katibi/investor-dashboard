@@ -3,7 +3,7 @@
 namespace App\Services\Notifications\Sms;
 
 /**
- * Normalises phone numbers to E.164 (+265991234567) for SMS gateways.
+ * Normalises phone numbers to E.164 (+256772123456) for SMS gateways.
  * Local numbers with a leading 0 get the configured default country code.
  */
 final class PhoneNumber

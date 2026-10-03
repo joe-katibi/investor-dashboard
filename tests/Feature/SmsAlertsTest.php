@@ -48,8 +48,8 @@ class SmsAlertsTest extends TestCase
             }
         });
 
-        config(['oms.sms.default_country_code' => '265']);
-        app(Settings::class)->set(['alerts.phones' => ['+265991000001', '0881 000 002']]);
+        config(['oms.sms.default_country_code' => '256']);
+        app(Settings::class)->set(['alerts.phones' => ['+256991000001', '0881 000 002']]);
     }
 
     private function smsTo(string $phone, string $event): bool
@@ -61,11 +61,11 @@ class SmsAlertsTest extends TestCase
     {
         $agent = $this->makeUser('CX Agent', 'CX');
         $lead = $this->makeUser('NOC Team Leader', 'NOC', attributes: ['phone' => '0999000100', 'availability_status' => 'offline']);
-        $noc = $this->makeUser('NOC Tier II', 'NOC', attributes: ['phone' => '+265999000101']);
+        $noc = $this->makeUser('NOC Tier II', 'NOC', attributes: ['phone' => '+256999000101']);
         $team = $this->makeTeam('Field Ops', 'INFRA');
         $crew = $this->makeTeam('Crew', 'INFRA', $team);
-        $dispatcher = $this->makeUser('Infrastructure Dispatcher', 'INFRA', [$team], ['phone' => '+265999000102']);
-        $tech = $this->makeUser('Outage Technician', 'INFRA', [$crew], ['phone' => '+265999000103']);
+        $dispatcher = $this->makeUser('Infrastructure Dispatcher', 'INFRA', [$team], ['phone' => '+256999000102']);
+        $tech = $this->makeUser('Outage Technician', 'INFRA', [$crew], ['phone' => '+256999000103']);
         $workflow = app(OutageWorkflow::class);
 
         $outage = $this->reportOutage($agent);
@@ -80,20 +80,20 @@ class SmsAlertsTest extends TestCase
         $outage = $workflow->confirmRestoration($outage, $noc);
         $workflow->resolve($outage, $noc, 'Fibre cut');
 
-        // Alert list (local number normalised to +265)
+        // Alert list (local number normalised to +256)
         foreach (['outage_created', 'noc_escalation', 'infrastructure_escalation', 'dispatched', 'update_posted', 'restore_reported', 'resolved'] as $event) {
-            $this->assertTrue($this->smsTo('+265991000001', $event), "list number 1 gets {$event}");
-            $this->assertTrue($this->smsTo('+265881000002', $event), "list number 2 gets {$event}");
+            $this->assertTrue($this->smsTo('+256991000001', $event), "list number 1 gets {$event}");
+            $this->assertTrue($this->smsTo('+256881000002', $event), "list number 2 gets {$event}");
         }
 
         // Assignees at each stage
-        $this->assertTrue($this->smsTo('+265999000101', 'assigned'), 'NOC assignee');
-        $this->assertTrue($this->smsTo('+265999000102', 'assigned'), 'Infrastructure dispatcher');
-        $this->assertTrue($this->smsTo('+265999000103', 'assigned'), 'technician');
+        $this->assertTrue($this->smsTo('+256999000101', 'assigned'), 'NOC assignee');
+        $this->assertTrue($this->smsTo('+256999000102', 'assigned'), 'Infrastructure dispatcher');
+        $this->assertTrue($this->smsTo('+256999000103', 'assigned'), 'technician');
 
         // Role-based rules (NOC Team Leader) by SMS too
-        $this->assertTrue($this->smsTo('+265999000100', 'outage_created'));
-        $this->assertTrue($this->smsTo('+265999000100', 'restore_reported'));
+        $this->assertTrue($this->smsTo('+256999000100', 'outage_created'));
+        $this->assertTrue($this->smsTo('+256999000100', 'restore_reported'));
 
         // Messages are short and identify the ticket
         $this->assertNotEmpty($this->sent);
@@ -107,22 +107,22 @@ class SmsAlertsTest extends TestCase
     {
         app(Settings::class)->set(['alerts.sms_events' => ['resolved'], 'alerts.sms_assignee' => false, 'alerts.emails' => ['ops@example.com']]);
         $agent = $this->makeUser('CX Agent', 'CX');
-        $this->makeUser('NOC Tier I', 'NOC', attributes: ['phone' => '+265999000200']);
+        $this->makeUser('NOC Tier I', 'NOC', attributes: ['phone' => '+256999000200']);
 
         $this->reportOutage($agent);
 
-        $this->assertFalse($this->smsTo('+265991000001', 'outage_created'));
-        $this->assertFalse($this->smsTo('+265999000200', 'assigned'));
+        $this->assertFalse($this->smsTo('+256991000001', 'outage_created'));
+        $this->assertFalse($this->smsTo('+256999000200', 'assigned'));
         $this->assertTrue(NotificationLog::query()->where('channel', 'mail')->where('event', 'outage_created')->exists(), 'e-mail alerts unaffected');
     }
 
     public function test_phone_numbers_are_normalised_and_invalid_ones_rejected(): void
     {
-        config(['oms.sms.default_country_code' => '265']);
+        config(['oms.sms.default_country_code' => '256']);
 
-        $this->assertSame('+265991234567', PhoneNumber::normalise('0991 234 567'));
-        $this->assertSame('+265991234567', PhoneNumber::normalise('+265 99-123-4567'));
-        $this->assertSame('+265991234567', PhoneNumber::normalise('00265991234567'));
+        $this->assertSame('+256991234567', PhoneNumber::normalise('0991 234 567'));
+        $this->assertSame('+256991234567', PhoneNumber::normalise('+256 99-123-4567'));
+        $this->assertSame('+256991234567', PhoneNumber::normalise('00256991234567'));
         $this->assertNull(PhoneNumber::normalise('12'));
         $this->assertNull(PhoneNumber::normalise('abc'));
         $this->assertNull(PhoneNumber::normalise(''));
@@ -137,25 +137,25 @@ class SmsAlertsTest extends TestCase
         ]);
         $gateway = new AfricasTalkingSmsGateway('oms', 'secret-key', 'OMSALERT', sandbox: false);
 
-        $gateway->send('+265991234567', 'hello');
+        $gateway->send('+256991234567', 'hello');
 
         Http::assertSent(fn (Request $request) => $request->url() === 'https://api.africastalking.com/version1/messaging'
             && $request->hasHeader('apiKey', 'secret-key')
-            && $request['to'] === '+265991234567'
+            && $request['to'] === '+256991234567'
             && $request['username'] === 'oms'
             && $request['from'] === 'OMSALERT');
 
         $this->expectException(RuntimeException::class);
-        $gateway->send('+265991234567', 'hello again');
+        $gateway->send('+256991234567', 'hello again');
     }
 
     public function test_twilio_gateway_posts_form_with_basic_auth(): void
     {
         Http::fake(['api.twilio.com/*' => Http::response(['sid' => 'SM1'], 201)]);
 
-        (new TwilioSmsGateway('AC123', 'tok', '+15005550006'))->send('+265991234567', 'hello');
+        (new TwilioSmsGateway('AC123', 'tok', '+15005550006'))->send('+256991234567', 'hello');
 
         Http::assertSent(fn (Request $request) => str_contains($request->url(), '/Accounts/AC123/Messages.json')
-            && $request['To'] === '+265991234567' && $request['From'] === '+15005550006' && $request['Body'] === 'hello');
+            && $request['To'] === '+256991234567' && $request['From'] === '+15005550006' && $request['Body'] === 'hello');
     }
 }

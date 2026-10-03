@@ -201,7 +201,7 @@ class NotificationDispatcher
                 $address = match ($channel) {
                     NotificationChannel::InApp => $recipient['user']?->id,
                     NotificationChannel::Mail => strtolower((string) ($recipient['email'] ?? $recipient['user']?->email)) ?: null,
-                    // E.164, so "0991 234 567" and "+265991234567" are the same recipient; invalid numbers are skipped.
+                    // E.164, so "0772 123 456" and "+256772123456" are the same recipient; invalid numbers are skipped.
                     NotificationChannel::Sms => PhoneNumber::normalise($recipient['phone'] ?? $recipient['user']?->phone),
                 };
 
