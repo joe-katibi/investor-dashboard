@@ -2,7 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Filament\Resources\Fdts\Pages\ManageFdts;
 use App\Filament\Resources\Olts\Pages\ManageOlts;
+use App\Filament\Resources\Ports\Pages\ManagePorts;
+use App\Filament\Resources\Slots\Pages\ManageSlots;
 use App\Models\Fdt;
 use App\Models\Olt;
 use App\Models\Port;
@@ -166,11 +169,58 @@ CSV;
         Livewire::test(ManageOlts::class)
             ->callAction(TestAction::make('importTopology'), [
                 'file' => UploadedFile::fake()->createWithContent('mapping.csv', self::CSV),
-                'dry_run' => false,
+                'dry_run' => 0,
             ])
             ->assertHasNoFormErrors()
             ->assertNotified();
 
         $this->assertSame(7, Port::query()->count());
+    }
+
+    public function test_one_file_fills_fdts_slots_and_ports_and_a_preview_is_never_mistaken_for_an_import(): void
+    {
+        // The shape of an OLT export: PON slot / port per row (ports start at 0), the FDT each one feeds.
+        $csv = "OLT,FDT,SLOT,PORT\nKABOWA-HW-OLT,FDT-2,1,0\nKABOWA-HW-OLT,FDT-7,1,1\nKABOWA-HW-OLT,FDT-8,1,2\nKABOWA-HW-OLT,FDT-8,1,3\nKABOWA-HW-OLT,FDT-2,2,0\n";
+        $this->actingAs($this->makeUser('Infrastructure Manager', 'INFRA', attributes: ['availability_status' => 'offline']));
+
+        // The choice between preview and import has no default.
+        Livewire::test(ManageOlts::class)
+            ->callAction(TestAction::make('importTopology'), ['file' => UploadedFile::fake()->createWithContent('kabowa.csv', $csv)])
+            ->assertHasFormErrors(['dry_run']);
+
+        // Preview: says so, and saves nothing — not even the OLT.
+        Livewire::test(ManageOlts::class)
+            ->callAction(TestAction::make('importTopology'), ['file' => UploadedFile::fake()->createWithContent('kabowa.csv', $csv), 'dry_run' => 1])
+            ->assertHasNoFormErrors()
+            ->assertNotified('PREVIEW ONLY — nothing was saved');
+        $this->assertSame(0, Olt::query()->where('name', 'KABOWA-HW-OLT')->count());
+
+        // Import — also offered on the FDT screen — saves every level.
+        Livewire::test(ManageFdts::class)
+            ->callAction(TestAction::make('importTopology'), ['file' => UploadedFile::fake()->createWithContent('kabowa.csv', $csv), 'dry_run' => 0])
+            ->assertHasNoFormErrors()
+            ->assertNotified('Topology imported and saved');
+
+        $olt = Olt::query()->where('name', 'KABOWA-HW-OLT')->firstOrFail();
+        $this->assertSame(['FDT-2', 'FDT-7', 'FDT-8'], Fdt::query()->where('olt_id', $olt->id)->orderBy('name')->pluck('name')->all());
+        $this->assertSame(4, Slot::query()->whereIn('fdt_id', $olt->fdts()->pluck('id'))->count());
+        $this->assertSame(5, Port::query()->count());
+        $this->assertSame('KABOWA-HW-OLT › FDT-2 › Slot 1 › Port 0', Port::query()->with('slot.fdt.olt')->where('name', '0')->orderBy('id')->first()->path);
+
+        // The report reads back what the OLT now holds.
+        $report = app(TopologyImporter::class)->import($this->file($csv, 'kabowa.csv'));
+        $this->assertSame(['KABOWA-HW-OLT' => ['fdts' => 3, 'slots' => 4, 'ports' => 5]], $report['olts']);
+        $this->assertSame(0, array_sum($report['created']), 'importing the same file again adds nothing');
+
+        // Slot and port names are only numbers: the lists are narrowed to an OLT to find what was imported.
+        $other = Port::query()->create(['slot_id' => Slot::query()->create(['fdt_id' => Fdt::query()->create(['olt_id' => $this->makeOlt('OTHER OLT')->id, 'name' => 'FDT-2', 'is_active' => true])->id, 'name' => '1', 'is_active' => true])->id, 'name' => '0', 'is_active' => true]);
+        $mine = Port::query()->whereHas('slot.fdt', fn ($fdt) => $fdt->where('olt_id', $olt->id))->get();
+
+        Livewire::test(ManagePorts::class)->assertActionVisible(TestAction::make('importTopology'))
+            ->filterTable('olt', $olt->id)->assertCanSeeTableRecords($mine)->assertCanNotSeeTableRecords([$other])
+            ->resetTableFilters()->searchTable('KABOWA')->assertCanSeeTableRecords($mine)->assertCanNotSeeTableRecords([$other]);
+        Livewire::test(ManageSlots::class)->assertActionVisible(TestAction::make('importTopology'))
+            ->filterTable('olt', $olt->id)->assertCanSeeTableRecords(Slot::query()->where('id', '!=', $other->slot_id)->get())->assertCanNotSeeTableRecords([$other->slot]);
+        Livewire::test(ManageOlts::class)->assertTableColumnStateSet('slots_count', 4, $olt);
     }
 }

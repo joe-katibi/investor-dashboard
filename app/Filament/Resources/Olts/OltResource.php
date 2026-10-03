@@ -67,6 +67,7 @@ class OltResource extends Resource
                 TextColumn::make('location')->searchable()->placeholder('—'),
                 TextColumn::make('region.name')->label('Region')->placeholder('—')->toggleable(),
                 TextColumn::make('fdts_count')->counts('fdts')->label('FDTs'),
+                TextColumn::make('slots_count')->counts('slots')->label('Slots'),
                 TextColumn::make('outages_count')->counts('outages')->label('Outages')->sortable(),
                 TextColumn::make('teams.name')->label('Coverage')->badge()->color('gray'),
                 AuditFields::activeColumn(),

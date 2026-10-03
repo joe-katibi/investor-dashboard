@@ -903,7 +903,16 @@ php artisan oms:import-topology /path/to/MAPPING.xlsx --dry-run
 php artisan oms:import-topology /path/to/MAPPING.xlsx --missing=remove
 ```
 
-…or **Configuration → OLTs → Import topology** (permission `topology.manage`) with a *Preview only* switch.
+…or **Import topology** on the **OLT, FDT, Slot or Port** screen (permission `topology.manage`) — the same button
+everywhere, because one file fills all four levels. The form asks *What should happen?* and has no default:
+**Import** saves the file, **Preview only** checks it and saves nothing (the result then reads *PREVIEW ONLY — nothing
+was saved*, in amber). After an import the message lists what each OLT of the file now holds (FDTs / slots / ports) and
+links to the FDT, slot and port lists already filtered to that OLT; a database error is shown as *Import failed —
+nothing was saved*.
+
+Newly imported rows sit at the **end** of the FDT / Slot / Port lists, and slot and port names are only numbers — use
+the **OLT filter** (or search the OLT / FDT name) on those screens, or the *FDTs → Slots → Ports* arrows on a row. The
+OLT list shows each OLT's FDT and slot counts.
 
 * **Safe to re-run** — existing items are matched case-insensitively and reused; only missing ones are created.
 * **Tidying** — names are trimmed and spaces collapsed; FDT names are upper-cased so `Ntd FDT 1` / `NTD FDT 1` become

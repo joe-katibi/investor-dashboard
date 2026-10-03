@@ -7,7 +7,7 @@ use App\Services\Topology\MobilityTopologyImporter;
 use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Forms\Components\FileUpload;
-use Filament\Forms\Components\Toggle;
+use Filament\Forms\Components\Radio;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ManageRecords;
 use Filament\Support\Icons\Heroicon;
@@ -35,7 +35,9 @@ class ManageEnodebs extends ManageRecords
                             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv', 'text/plain', 'application/vnd.ms-excel',
                         ])
                         ->maxSize(20480),
-                    Toggle::make('dry_run')->label('Preview only (nothing is saved)')->default(true),
+                    // No default: a preview must never be mistaken for an import.
+                    Radio::make('dry_run')->label('What should happen?')->required()
+                        ->options([0 => 'Import — save the file', 1 => 'Preview only — check the file; nothing is saved']),
                 ])
                 ->modalSubmitActionLabel('Import')
                 ->action(function (array $data): void {
@@ -61,12 +63,13 @@ class ManageEnodebs extends ManageRecords
 
                     [$sites, $nodes] = [$report['sites'], $report['nodes']];
                     Notification::make()
-                        ->title($report['dry_run'] ? 'Preview — nothing saved' : '4G topology imported')
+                        ->title($report['dry_run'] ? 'PREVIEW ONLY — nothing was saved' : '4G topology imported and saved')
                         ->body("eNodeB sites: {$sites['rows']} rows, {$sites['created']} created, {$sites['updated']} updated. "
                             ."Transmission nodes: {$nodes['rows']} rows, {$nodes['created']} created (incl. CSG / ASG / RSG), {$nodes['updated']} updated; "
                             ."{$nodes['linked']} SSGs linked to a site, {$nodes['inactive']} created inactive (no site yet)."
-                            .($report['dry_run'] ? ' Import again with “Preview only” off to save.' : ''))
-                        ->success()->persistent()->send();
+                            .($report['dry_run'] ? ' Run it again and choose “Import” to save.' : ''))
+                        ->color($report['dry_run'] ? 'warning' : 'success')->icon($report['dry_run'] ? 'heroicon-o-eye' : 'heroicon-o-check-circle')
+                        ->persistent()->send();
                 }),
             CreateAction::make(),
         ];

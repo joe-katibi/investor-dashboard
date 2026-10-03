@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
 #[Fillable(['name', 'code', 'location', 'vertical_id', 'region_id', 'description', 'is_active'])]
 class Olt extends Model
@@ -34,6 +35,11 @@ class Olt extends Model
     public function fdts(): HasMany
     {
         return $this->hasMany(Fdt::class);
+    }
+
+    public function slots(): HasManyThrough
+    {
+        return $this->hasManyThrough(Slot::class, Fdt::class);
     }
 
     public function teams(): BelongsToMany

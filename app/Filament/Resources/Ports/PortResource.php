@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Ports;
 use App\Filament\Concerns\GuardsWithPermission;
 use App\Filament\Resources\Ports\Pages\ManagePorts;
 use App\Filament\Support\AuditFields;
+use App\Models\Olt;
 use App\Models\Port;
 use App\Models\Slot;
 use BackedEnum;
@@ -60,14 +61,19 @@ class PortResource extends Resource
         return $table
             ->modifyQueryUsing(fn ($query) => $query->with('slot.fdt.olt:id,name'))
             ->columns([
-                TextColumn::make('slot.fdt.olt.name')->label('OLT'),
-                TextColumn::make('slot.fdt.name')->label('FDT'),
+                TextColumn::make('slot.fdt.olt.name')->label('OLT')->searchable(),
+                TextColumn::make('slot.fdt.name')->label('FDT')->searchable(),
                 TextColumn::make('slot.name')->label('Slot'),
                 TextColumn::make('name')->label('Port')->searchable()->sortable(),
                 AuditFields::activeColumn(),
                 ...AuditFields::columns(),
             ])
             ->filters([
+                // Port names are just numbers, so a newly imported OLT is found by filtering on it.
+                SelectFilter::make('olt')->label('OLT')->options(fn () => Olt::query()->orderBy('name')->pluck('name', 'id')->all())->searchable()
+                    ->query(fn ($query, array $data) => ($id = (int) ($data['value'] ?? 0)) > 0
+                        ? $query->whereHas('slot.fdt', fn ($fdt) => $fdt->where('olt_id', $id))
+                        : $query),
                 SelectFilter::make('slot_id')->label('Slot')->options(fn () => static::slotOptions())->searchable(),
                 AuditFields::activeFilter(),
             ])

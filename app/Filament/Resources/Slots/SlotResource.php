@@ -7,6 +7,7 @@ use App\Filament\Resources\Ports\PortResource;
 use App\Filament\Resources\Slots\Pages\ManageSlots;
 use App\Filament\Support\AuditFields;
 use App\Models\Fdt;
+use App\Models\Olt;
 use App\Models\Slot;
 use BackedEnum;
 use Filament\Actions\Action;
@@ -62,14 +63,19 @@ class SlotResource extends Resource
         return $table
             ->modifyQueryUsing(fn ($query) => $query->with('fdt.olt:id,name'))
             ->columns([
-                TextColumn::make('fdt.olt.name')->label('OLT')->sortable(),
-                TextColumn::make('fdt.name')->label('FDT')->sortable(),
+                TextColumn::make('fdt.olt.name')->label('OLT')->searchable()->sortable(),
+                TextColumn::make('fdt.name')->label('FDT')->searchable()->sortable(),
                 TextColumn::make('name')->label('Slot')->searchable()->sortable(),
                 TextColumn::make('ports_count')->counts('ports')->label('Ports'),
                 AuditFields::activeColumn(),
                 ...AuditFields::columns(),
             ])
             ->filters([
+                // Slot names are just numbers, so a newly imported OLT is found by filtering on it.
+                SelectFilter::make('olt')->label('OLT')->options(fn () => Olt::query()->orderBy('name')->pluck('name', 'id')->all())->searchable()
+                    ->query(fn ($query, array $data) => ($id = (int) ($data['value'] ?? 0)) > 0
+                        ? $query->whereHas('fdt', fn ($fdt) => $fdt->where('olt_id', $id))
+                        : $query),
                 SelectFilter::make('fdt_id')->label('FDT')->options(fn () => static::fdtOptions())->searchable(),
                 AuditFields::activeFilter(),
             ])

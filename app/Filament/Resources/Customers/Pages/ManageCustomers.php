@@ -7,7 +7,7 @@ use App\Services\Tickets\CustomerImporter;
 use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Forms\Components\FileUpload;
-use Filament\Forms\Components\Toggle;
+use Filament\Forms\Components\Radio;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ManageRecords;
 use Filament\Support\Icons\Heroicon;
@@ -33,7 +33,9 @@ class ManageCustomers extends ManageRecords
                         ->disk('local')->directory('customer-imports')->visibility('private')
                         ->acceptedFileTypes(['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv', 'text/plain', 'application/vnd.ms-excel'])
                         ->maxSize(51200),
-                    Toggle::make('dry_run')->label('Preview only (nothing is saved)')->default(true),
+                    // No default: a preview must never be mistaken for an import.
+                    Radio::make('dry_run')->label('What should happen?')->required()
+                        ->options([0 => 'Import — save the file', 1 => 'Preview only — check the file; nothing is saved']),
                 ])
                 ->modalSubmitActionLabel('Import')
                 ->action(function (array $data): void {
@@ -59,12 +61,13 @@ class ManageCustomers extends ManageRecords
 
                     $topology = $report['topology'];
                     Notification::make()
-                        ->title($report['dry_run'] ? 'Preview — nothing saved' : 'Customers imported')
+                        ->title($report['dry_run'] ? 'PREVIEW ONLY — nothing was saved' : 'Customers imported and saved')
                         ->body("{$report['rows']} rows: {$report['created']} new customers, {$report['updated']} updated, {$report['unchanged']} unchanged. "
                             ."New on the network: {$topology['olts']} OLTs, {$topology['fdts']} FDTs, {$topology['slots']} slots, {$topology['ports']} ports"
                             .($report['regions'] ? ", {$report['regions']} regions" : '').". {$report['tickets_linked']} earlier ticket(s) linked to their customer."
-                            .($report['dry_run'] ? ' Import again with “Preview only” off to save.' : ''))
-                        ->success()->persistent()->send();
+                            .($report['dry_run'] ? ' Run it again and choose “Import” to save.' : ''))
+                        ->color($report['dry_run'] ? 'warning' : 'success')->icon($report['dry_run'] ? 'heroicon-o-eye' : 'heroicon-o-check-circle')
+                        ->persistent()->send();
                 }),
             // Entered here by someone managing customers: a confirmed record, not a provisional one from a ticket.
             CreateAction::make()->mutateDataUsing(fn (array $data) => $data + ['verified_at' => now()]),

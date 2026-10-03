@@ -42,7 +42,7 @@ class TopologyImporter
     public const REMOVE = 'remove';
 
     /**
-     * @return array{rows: int, created: array<string, int>, reactivated: int, deactivated: array<string, int>, removed: array<string, int>, errors: list<string>, dry_run: bool}
+     * @return array{rows: int, created: array<string, int>, reactivated: int, deactivated: array<string, int>, removed: array<string, int>, errors: list<string>, dry_run: bool, olts: array<string, array{fdts: int, slots: int, ports: int}>}
      */
     public function import(string $path, bool $dryRun = false, string $missing = self::KEEP): array
     {
@@ -246,6 +246,7 @@ class TopologyImporter
         }
 
         $report = $this->report(count($rows), $created, $reactivated, $deactivated, [], $dryRun, $removed);
+        $report['olts'] = $this->totals(array_keys($seen['olts']));
 
         if (! $dryRun) {
             AuditLog::query()->create([
@@ -260,6 +261,31 @@ class TopologyImporter
         }
 
         return $report;
+    }
+
+    /**
+     * What the OLTs of the file hold once the import is applied (active items), read back from the
+     * database: the check that every level arrived, not just the OLT.
+     *
+     * @param  list<int>  $oltIds
+     * @return array<string, array{fdts: int, slots: int, ports: int}> OLT name => counts
+     */
+    private function totals(array $oltIds): array
+    {
+        $totals = [];
+
+        foreach (Olt::query()->whereIn('id', $oltIds ?: [0])->orderBy('name')->get(['id', 'name']) as $olt) {
+            $fdtIds = Fdt::query()->where('olt_id', $olt->id)->where('is_active', true)->pluck('id');
+            $slotIds = Slot::query()->whereIn('fdt_id', $fdtIds->all() ?: [0])->where('is_active', true)->pluck('id');
+
+            $totals[$olt->name] = [
+                'fdts' => $fdtIds->count(),
+                'slots' => $slotIds->count(),
+                'ports' => $slotIds->chunk(1000)->sum(fn ($ids) => Port::query()->whereIn('slot_id', $ids->all())->where('is_active', true)->count()),
+            ];
+        }
+
+        return $totals;
     }
 
     /** @return array<string, int> column key => index */
@@ -296,6 +322,7 @@ class TopologyImporter
             'removed' => $removed + ['olts' => 0, 'fdts' => 0, 'slots' => 0, 'ports' => 0],
             'errors' => $errors,
             'dry_run' => $dryRun,
+            'olts' => [],
         ];
     }
 }
