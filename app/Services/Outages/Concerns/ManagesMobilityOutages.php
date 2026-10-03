@@ -45,6 +45,8 @@ use Illuminate\Validation\ValidationException;
  *
  *   INTERNAL (eNodeB, Transmission):  4G NOC creates → assigns an Engineer / Technician → engineer
  *   investigates and marks "Resolved – Pending NOC Confirmation" → NOC verifies → Closed.
+ *   Transmission outages go to the 4G engineers, eNodeB outages to the 4G technicians
+ *   (OutageType::HANDLERS): FIFO only offers a ticket to, and the NOC can only pick, such a person.
  *
  *   VENDOR (Power): 4G NOC creates and selects the vendor → the vendor is e-mailed automatically →
  *   the vendor works outside the system and the NOC records every vendor update by hand → the vendor
@@ -229,7 +231,7 @@ trait ManagesMobilityOutages
                 $outage->forceFill(['technician_id' => $assignment->user_id, 'acknowledged_at' => $outage->acknowledged_at ?? now()]);
 
                 $how = $assignment->assignment_type === AssignmentType::AutoFifo
-                    ? 'automatically by FIFO (next available engineer / technician)'
+                    ? 'automatically by FIFO (next available '.$this->mobilityHandler($outage).')'
                     : 'by '.($assignment->assignedBy?->name ?? 'a manager');
 
                 // A new engineer starts at "Assigned", also when the previous one had already begun.
@@ -249,8 +251,9 @@ trait ManagesMobilityOutages
 
             if ($this->statusIs($outage, StatusCode::MobilityAssigned, StatusCode::MobilityInProgress, StatusCode::MobilityMonitoring)) {
                 $outage->forceFill(['technician_id' => null]);
-                $this->transition($outage, StatusCode::MobilityOpen, null, 'Back in the 4G engineer queue');
-                $this->addMobilityUpdate($outage, 'No engineer is on the ticket any more (assignment rejected, not accepted in time, or the engineer became unavailable). It is back in the 4G engineer queue for the next available engineer / technician.', null, action: 'fifo_returned');
+                $who = $this->mobilityHandler($outage);
+                $this->transition($outage, StatusCode::MobilityOpen, null, 'Back in the 4G queue');
+                $this->addMobilityUpdate($outage, "Nobody is on the ticket any more (assignment rejected, not accepted in time, or the person became unavailable). It is back in the 4G queue for the next available {$who}.", null, action: 'fifo_returned');
             }
         }));
     }
@@ -788,6 +791,11 @@ trait ManagesMobilityOutages
             throw ValidationException::withMessages(['engineer_id' => "{$engineer->name} cannot receive 4G tickets (inactive, or not a 4G engineer / technician)."]);
         }
 
+        // Transmission outages are worked by the 4G engineers, eNodeB outages by the 4G technicians.
+        if (($handles = OutageType::handlerPermission($outage->fault_domain)) && ! $engineer->checkPermissionTo($handles)) {
+            throw ValidationException::withMessages(['engineer_id' => "{$engineer->name} does not handle {$outage->domainLabel()} outages: these go to a {$this->mobilityHandler($outage)}."]);
+        }
+
         // Re-assignment: the previous engineer's item is released first.
         $this->fifo->complete($outage, QueueType::MobilityEngineer, $by, 'Reassigned to '.$engineer->name);
 
@@ -800,10 +808,17 @@ trait ManagesMobilityOutages
         $this->addMobilityUpdate($outage, "Assigned to {$engineer->name}.".($note ? " {$note}" : ''), $by, action: 'engineer_assigned');
     }
 
+    /** Who works this ticket: "4G engineer" (transmission), "4G technician" (eNodeB), else "engineer / technician". */
+    private function mobilityHandler(Outage $outage): string
+    {
+        return OutageType::handlerLabel($outage->fault_domain);
+    }
+
     /**
-     * Put the ticket in the 4G engineer FIFO queue: the next available engineer / technician gets
-     * it (and the one after, if it is rejected or not accepted in time). Any engineer currently on
-     * it is released first.
+     * Put the ticket in the 4G engineer / technician FIFO queue: the next available person who
+     * handles this kind of outage gets it — a 4G engineer for transmission, a 4G technician for
+     * eNodeB — and the one after, if it is rejected or not accepted in time. Anyone currently on it
+     * is released first.
      */
     private function queueForEngineer(Outage $outage, User $by, ?int $teamId, ?string $note = null): void
     {
@@ -811,21 +826,22 @@ trait ManagesMobilityOutages
             throw ValidationException::withMessages(['engineer_id' => 'This outage type is handled by a vendor, not an engineer.']);
         }
 
-        $this->fifo->complete($outage, QueueType::MobilityEngineer, $by, 'Returned to the 4G engineer queue');
+        $who = $this->mobilityHandler($outage);
+        $this->fifo->complete($outage, QueueType::MobilityEngineer, $by, 'Returned to the 4G queue');
 
         // Nobody is on it until FIFO assigns; a team, when given, limits who it is offered to.
         $outage->forceFill(['technician_id' => null, 'team_id' => $teamId ?? $outage->team_id])->save();
 
-        $this->fifo->enqueue($outage, QueueType::MobilityEngineer, ['team_id' => $teamId, 'reason' => 'Placed in the 4G engineer queue by '.$by->name]);
+        $this->fifo->enqueue($outage, QueueType::MobilityEngineer, ['team_id' => $teamId, 'reason' => "Placed in the 4G queue by {$by->name} for the next available {$who}"]);
         $outage->refresh();
 
-        // Someone was working it: it is open again until FIFO hands it to the next engineer.
+        // Someone was working it: it is open again until FIFO hands it to the next person.
         if ($this->statusIs($outage, StatusCode::MobilityAssigned, StatusCode::MobilityInProgress, StatusCode::MobilityMonitoring)) {
-            $this->transition($outage, StatusCode::MobilityOpen, $by, $note ?: 'Returned to the 4G engineer queue');
+            $this->transition($outage, StatusCode::MobilityOpen, $by, $note ?: 'Returned to the 4G queue');
         }
 
         $team = $teamId ? Team::query()->whereKey($teamId)->value('name') : null;
-        $this->addMobilityUpdate($outage, 'Placed in the 4G engineer queue (FIFO)'.($team ? " for team {$team}" : '').': the next available engineer / technician is assigned automatically.'.($note ? " {$note}" : ''), $by, action: 'queued_for_engineer');
+        $this->addMobilityUpdate($outage, 'Placed in the 4G queue (FIFO)'.($team ? " for team {$team}" : '').": the next available {$who} is assigned automatically.".($note ? " {$note}" : ''), $by, action: 'queued_for_engineer');
     }
 
     /** A team may limit who FIFO offers the ticket to; only an active team counts. */

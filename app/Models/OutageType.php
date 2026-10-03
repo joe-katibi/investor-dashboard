@@ -67,6 +67,28 @@ class OutageType extends Model
         self::DOMAIN_POWER => 'Power',
     ];
 
+    /**
+     * Who works an internal 4G ticket, by fault domain: transmission outages go to the 4G engineers,
+     * eNodeB outages to the 4G technicians. Fault domain => [permission the person needs, what they are called].
+     * A domain that is not listed is open to everyone in the 4G engineer / technician queue.
+     */
+    public const HANDLERS = [
+        self::DOMAIN_TRANSMISSION => ['mobility.handle_transmission', '4G engineer'],
+        self::DOMAIN_ENODEB => ['mobility.handle_enodeb', '4G technician'],
+    ];
+
+    /** The permission a person needs to be given a ticket of this fault domain (null: no restriction). */
+    public static function handlerPermission(?string $domain): ?string
+    {
+        return self::HANDLERS[$domain][0] ?? null;
+    }
+
+    /** "4G engineer", "4G technician" — or "engineer / technician" where the domain is open to both. */
+    public static function handlerLabel(?string $domain): string
+    {
+        return self::HANDLERS[$domain][1] ?? 'engineer / technician';
+    }
+
     /** 4G ticket numbers are short: 4G-PWR-000123. */
     public const MOBILITY_TICKET_DIGITS = 6;
 

@@ -107,11 +107,13 @@ final class MobilityOutageForm
                         ->visible(fn (Get $get) => (bool) self::type($get('outage_type_id'))?->usesVendor())
                         ->required(fn (Get $get) => (bool) self::type($get('outage_type_id'))?->usesVendor())
                         ->helperText('The vendor is e-mailed automatically when the ticket is created. Vendors do not use this system: record their replies with “Add vendor update”.'),
-                    Select::make('engineer_id')->label('Assign to engineer / technician')->searchable()->live()
-                        ->placeholder('Automatic — next available engineer / technician (FIFO)')
-                        ->options(fn () => MobilityActions::engineerOptions())
+                    // Transmission outages go to the 4G engineers, eNodeB outages to the 4G technicians.
+                    Select::make('engineer_id')->label(fn (Get $get) => 'Assign to '.self::handler($get))->searchable()->live()
+                        ->placeholder(fn (Get $get) => 'Automatic — next available '.self::handler($get).' (FIFO)')
+                        ->options(fn (Get $get) => MobilityActions::engineerOptions(self::type($get('outage_type_id'))?->fault_domain))
                         ->visible(fn (Get $get) => self::isInternal($get('outage_type_id')))
-                        ->helperText('Left on automatic, the ticket goes to the 4G engineer FIFO queue: the next available engineer / technician gets it, and the one after if it is rejected or not accepted in time.'),
+                        ->helperText(fn (Get $get) => trim(MobilityActions::handlerRule(self::type($get('outage_type_id'))?->fault_domain)
+                            .' Left on automatic, the ticket goes to the 4G FIFO queue: the next available '.self::handler($get).' gets it, and the one after if it is rejected or not accepted in time.')),
                     Select::make('team_id')->label('Only offer it to this team (optional)')
                         ->options(fn () => MobilityActions::teamOptions())
                         ->visible(fn (Get $get) => self::isInternal($get('outage_type_id')) && blank($get('engineer_id')) && MobilityActions::teamOptions() !== []),
@@ -195,6 +197,12 @@ final class MobilityOutageForm
     private static function isInternal(mixed $typeId): bool
     {
         return ($type = self::type($typeId)) !== null && ! $type->usesVendor();
+    }
+
+    /** "4G engineer" for a transmission type, "4G technician" for an eNodeB type. */
+    private static function handler(Get $get): string
+    {
+        return OutageType::handlerLabel(self::type($get('outage_type_id'))?->fault_domain);
     }
 
     private static function type(mixed $id): ?OutageType

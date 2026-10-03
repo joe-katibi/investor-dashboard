@@ -398,8 +398,9 @@ ticket is an outage whose type carries a 4G workflow; it is listed under **4G NO
 
 ```
 INTERNAL (eNodeB Outage 4G-ENB-…, Transmission Outage 4G-TRX-…)
-  4G NOC creates → NEW → 4G ENGINEER FIFO QUEUE → next available Engineer / Technician (or one the NOC picks) → ASSIGNED
-     └─ rejected / not accepted in time / engineer unavailable → OPEN, back in the queue → the next one → ASSIGNED
+  4G NOC creates → NEW → 4G FIFO QUEUE → next available person who handles it (or one the NOC picks) → ASSIGNED
+        Transmission outage → a 4G ENGINEER          eNodeB outage → a 4G TECHNICIAN
+     └─ rejected / not accepted in time / person unavailable → OPEN, back in the queue → the next one → ASSIGNED
   → engineer accepts and investigates → IN PROGRESS (→ MONITORING)
   → engineer records root cause + resolution → RESOLVED – PENDING NOC CONFIRMATION → 4G NOC VERIFICATION FIFO QUEUE
      ├─ NOC verifies the service → CLOSED
@@ -425,6 +426,16 @@ Any time: CANCELLED (duplicates / false alarms, SLA N/A) · Closed tickets: REOP
   **Assign / Reassign**, send a ticket back to the queue, or limit the queue to one team of the 4G NOC department
   (e.g. Transmission). Set the queue to *Manual* under *Configuration → FIFO Queues* (4G Engineer / Technician Queue) to always assign by hand.
   Power tickets are with the vendor, so they only enter FIFO for the NOC verification step.
+* **Engineers work transmission, technicians work eNodeB.** A *Transmission Outage* is only offered to people with
+  the permission *Receive transmission outages* (role **4G Engineer**), an *eNodeB Outage* only to people with
+  *Receive eNodeB outages* (role **4G Technician**). FIFO never crosses over — with no technician available an
+  eNodeB ticket waits in the queue rather than going to an engineer — and the NOC's *Assign / Reassign* list (and
+  the engineer / technician field on the form) only shows the people who handle that kind of outage. Someone who
+  should work both gets both permissions under *People → Roles* (or on the user); *4G NOC → Engineers /
+  Technicians* shows what each person handles, and *FIFO Queues → Why?* shows the rule as "Handles … outages".
+  A 4G outage type of your own with another fault domain is open to both. On a running system the migration
+  `split_mobility_ticket_handlers` grants the two permissions to the existing roles (a role of your own that
+  already received 4G tickets keeps receiving both).
 * **Only the NOC closes.** Engineers and technicians (`mobility.work`) can accept, update, attach files and mark a
   ticket *Resolved – Pending NOC Confirmation*; *Verify & close* needs `mobility.verify`. Vendors are **records, not
   users** — no login; only the NOC (`mobility.vendor_update`) records what they say.
@@ -499,7 +510,8 @@ Any time: CANCELLED (duplicates / false alarms, SLA N/A) · Closed tickets: REOP
 * **New 4G outage types** (fibre cut, battery, generator, microwave…) — *Configuration → Outage Types*: pick one of
   the two workflows, a fault domain and a prefix; then add its severity rules, SLA policy, notification rules and
   vendor template. No code change.
-* **Roles** — `4G NOC Manager`, `4G NOC`, `4G Engineer`, `4G Technician` (permissions `mobility.*`); put 4G staff in
+* **Roles** — `4G NOC Manager`, `4G NOC`, `4G Engineer` (transmission outages), `4G Technician` (eNodeB outages)
+  (permissions `mobility.*`); put 4G staff in
   the **4G NOC** department. FTTH roles do not see 4G tickets and the other way round (Executive sees both).
 
 **Adding the module to a production system that already holds data** — run the migration, then the 4G-only seeder

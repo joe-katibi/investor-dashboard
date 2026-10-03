@@ -95,7 +95,9 @@ class MobilitySeederTest extends TestCase
         $this->assertNotContains('outage.create', $grants['NOC Tier I']);
         $this->assertEqualsCanonicalizing([...array_keys($grantsBefore), ...RolesAndPermissionsSeeder::MOBILITY_ROLES], array_keys($grants));
         $this->assertContains('mobility.verify', $grants['4G NOC']);
-        $this->assertSame(['mobility.view', 'mobility.work', 'queue.work_mobility_engineer'], $grants['4G Engineer']);
+        $this->assertEqualsCanonicalizing(['mobility.view', 'mobility.work', 'queue.work_mobility_engineer', 'mobility.handle_transmission'], $grants['4G Engineer']);
+        $this->assertEqualsCanonicalizing(['mobility.view', 'mobility.work', 'queue.work_mobility_engineer', 'mobility.handle_enodeb'], $grants['4G Technician']);
+        $this->assertNotContains('mobility.handle_enodeb', $grants['4G NOC Manager'], 'the NOC assigns, it is not handed tickets to fix');
 
         // The 4G module is complete.
         $vertical = Vertical::query()->where('code', Vertical::MOBILITY_4G)->value('id');
@@ -142,6 +144,30 @@ class MobilitySeederTest extends TestCase
             $this->assertEquals($rows, $this->rows($table), "{$table} changed on the second run");
         }
         $this->assertSame($grantsAgain, $this->grants());
+    }
+
+    public function test_a_running_system_gets_the_engineer_technician_split_from_the_migration(): void
+    {
+        $this->seedReference();
+
+        // How production looks before this release: everyone in the 4G queue receives every 4G ticket.
+        $handlers = ['mobility.handle_transmission', 'mobility.handle_enodeb'];
+        Permission::query()->whereIn('name', $handlers)->get()->each->delete();
+        Role::findOrCreate('4G Field Lead', 'web')->givePermissionTo('queue.work_mobility_engineer');
+        $direct = $this->makeUser('CX Agent', 'CX');
+        $direct->givePermissionTo('queue.work_mobility_engineer');
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+        $migration = require database_path('migrations/2026_10_03_200001_split_mobility_ticket_handlers.php');
+        $migration->up();
+        $migration->up(); // running it twice changes nothing
+
+        $handles = fn (string $role) => array_values(array_intersect($this->grants()[$role], $handlers));
+        $this->assertSame(['mobility.handle_transmission'], $handles('4G Engineer'));
+        $this->assertSame(['mobility.handle_enodeb'], $handles('4G Technician'));
+        $this->assertEqualsCanonicalizing($handlers, $handles('4G Field Lead'), 'a role of your own keeps receiving both, as before');
+        $this->assertSame([], $handles('4G NOC'));
+        $this->assertEqualsCanonicalizing($handlers, array_values(array_intersect($direct->refresh()->getDirectPermissions()->pluck('name')->all(), $handlers)));
     }
 
     // ------------------------------------------------------------------ helpers

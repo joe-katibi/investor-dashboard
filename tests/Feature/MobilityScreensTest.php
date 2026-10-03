@@ -71,7 +71,8 @@ class MobilityScreensTest extends TestCase
         Mail::fake();
         $this->workflow = app(OutageWorkflow::class);
         $this->noc = $this->makeUser('4G NOC', 'MOBILITY');
-        $this->engineer = $this->makeUser('4G Engineer', 'MOBILITY');
+        // These screens are exercised with eNodeB tickets, which the 4G technicians work.
+        $this->engineer = $this->makeUser('4G Technician', 'MOBILITY');
     }
 
     private function type(string $code): int

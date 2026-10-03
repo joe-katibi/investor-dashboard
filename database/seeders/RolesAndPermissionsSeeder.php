@@ -105,7 +105,8 @@ class RolesAndPermissionsSeeder extends Seeder
         // 4G NOC: its own tickets, statuses, vendors and alert lists. Only the NOC closes a ticket;
         // engineers / technicians work it and mark it "Resolved – Pending NOC Confirmation".
         '4G NOC Manager' => [
-            'mobility.*', 'queue.view', 'queue.work_mobility_noc', 'queue.override', 'reports.view', 'reports.export', 'audit.view',
+            'mobility.*', '!mobility.handle_transmission', '!mobility.handle_enodeb',
+            'queue.view', 'queue.work_mobility_noc', 'queue.override', 'reports.view', 'reports.export', 'audit.view',
             'workforce.manage', 'sla.manage', 'notifications.manage', 'templates.manage',
         ],
         '4G NOC' => [
@@ -113,8 +114,10 @@ class RolesAndPermissionsSeeder extends Seeder
             'mobility.verify', 'mobility.reopen', 'mobility.cancel', 'mobility.escalate',
             'queue.view', 'queue.work_mobility_noc', 'reports.view',
         ],
-        '4G Engineer' => ['mobility.view', 'mobility.work', 'queue.work_mobility_engineer'],
-        '4G Technician' => ['mobility.view', 'mobility.work', 'queue.work_mobility_engineer'],
+        // Both sit in the 4G engineer / technician queue; which tickets each one is given is a permission:
+        // transmission outages go to the engineers, eNodeB outages to the technicians.
+        '4G Engineer' => ['mobility.view', 'mobility.work', 'queue.work_mobility_engineer', 'mobility.handle_transmission'],
+        '4G Technician' => ['mobility.view', 'mobility.work', 'queue.work_mobility_engineer', 'mobility.handle_enodeb'],
 
         // Customer Care: customer tickets worked desk by desk, and site visits. One desk permission per desk.
         'Ticketing Manager' => [

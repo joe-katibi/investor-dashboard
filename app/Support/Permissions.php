@@ -45,6 +45,8 @@ final class Permissions
             'mobility.assign' => 'Assign engineers / technicians and vendors',
             'mobility.vendor_update' => 'Record vendor updates and send vendor notifications',
             'mobility.work' => 'Engineer / technician: accept, investigate and mark resolved (cannot close)',
+            'mobility.handle_transmission' => 'Receive transmission outages (4G Engineer)',
+            'mobility.handle_enodeb' => 'Receive eNodeB outages (4G Technician)',
             'mobility.verify' => 'NOC: verify restoration, close tickets and set statuses',
             'mobility.reopen' => 'Reopen closed 4G tickets',
             'mobility.cancel' => 'Cancel 4G tickets',

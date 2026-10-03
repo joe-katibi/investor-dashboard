@@ -47,7 +47,7 @@ class MobilityEngineers extends Page implements HasTable
 
     public function getSubheading(): ?string
     {
-        return 'Users with the 4G Engineer or 4G Technician role (permission “Receive 4G tickets as engineer / technician”). Add or change them under People → Users.';
+        return '4G Engineers receive transmission outages, 4G Technicians receive eNodeB outages (see “Handles”). Add or change people under People → Users; what a role receives is set under People → Roles.';
     }
 
     public function table(Table $table): Table
@@ -56,7 +56,7 @@ class MobilityEngineers extends Page implements HasTable
 
         return $table
             ->query(fn (): Builder => User::permission(QueueType::MobilityEngineer->defaultPermission())
-                ->with(['roles:id,name', 'department:id,name'])
+                ->with(['roles:id,name', 'roles.permissions:id,name', 'permissions:id,name', 'department:id,name'])
                 ->withCount([
                     'activeAssignments',
                     'technicianOutages as open_tickets_count' => fn ($q) => $internal($q)->where('is_closed', false),
@@ -70,6 +70,11 @@ class MobilityEngineers extends Page implements HasTable
                 TextColumn::make('name')->searchable()->sortable()->weight('bold')
                     ->description(fn (User $record) => $record->email),
                 TextColumn::make('roles.name')->label('Role')->badge()->color('gray'),
+                // Which outages FIFO gives this person (and the NOC may assign to them).
+                TextColumn::make('handles')->label('Handles')->badge()->color('info')->placeholder('Nothing — no outage type')
+                    ->state(fn (User $record) => collect(OutageType::HANDLERS)
+                        ->filter(fn (array $handler) => $record->checkPermissionTo($handler[0]))
+                        ->keys()->map(fn (string $domain) => OutageType::FAULT_DOMAINS[$domain])->all()),
                 TextColumn::make('department.name')->label('Department')->placeholder('—')->visibleFrom('lg'),
                 TextColumn::make('phone')->placeholder('—')->visibleFrom('md'),
                 TextColumn::make('availability_status')->label('Availability')->badge(),

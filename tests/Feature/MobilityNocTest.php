@@ -6,6 +6,7 @@ use App\Enums\AvailabilityStatus;
 use App\Enums\QueueType;
 use App\Enums\SlaState;
 use App\Enums\StatusCode;
+use App\Filament\Resources\MobilityOutages\MobilityActions;
 use App\Mail\VendorNotificationMail;
 use App\Models\AuditLog;
 use App\Models\Enodeb;
@@ -194,11 +195,12 @@ class MobilityNocTest extends TestCase
 
     public function test_enodeb_ticket_goes_noc_engineer_noc_and_only_the_noc_closes(): void
     {
-        $engineer = $this->makeUser('4G Engineer', 'MOBILITY');
+        // eNodeB outages are worked by the 4G technicians ($engineer / $other: the people working this ticket).
+        $engineer = $this->makeUser('4G Technician', 'MOBILITY');
         $other = $this->makeUser('4G Technician', 'MOBILITY');
         $site = $this->site('4624', 'Nsambya Kevina');
 
-        // No engineer picked: FIFO gives it to the engineer who has waited longest.
+        // Nobody picked: FIFO gives it to the technician who has waited longest.
         $ticket = $this->ticket('mobility_enodeb', ['enodeb_ids' => [$site->id], 'cells_down' => 3]);
 
         $this->assertSame('4G-ENB-000001', $ticket->ticket_number);
@@ -294,8 +296,60 @@ class MobilityNocTest extends TestCase
 
         // The timeline says who did what.
         $actors = OutageUpdate::query()->where('outage_id', $ticket->id)->pluck('actor_type')->unique()->values()->all();
-        $this->assertEqualsCanonicalizing([OutageUpdate::ACTOR_NOC, OutageUpdate::ACTOR_ENGINEER, OutageUpdate::ACTOR_SYSTEM], $actors);
+        $this->assertEqualsCanonicalizing([OutageUpdate::ACTOR_NOC, OutageUpdate::ACTOR_TECHNICIAN, OutageUpdate::ACTOR_SYSTEM], $actors);
         $this->assertTrue(OutageUpdate::query()->where('outage_id', $ticket->id)->where('body', 'like', 'Assigned to%')->exists());
+    }
+
+    public function test_transmission_outages_go_to_engineers_and_enodeb_outages_to_technicians(): void
+    {
+        $fifo = app(FifoAssignmentEngine::class);
+        // The engineer has waited longest: without the rule, FIFO would hand them the eNodeB ticket.
+        $engineer = $this->makeUser('4G Engineer', 'MOBILITY');
+        $technician = $this->makeUser('4G Technician', 'MOBILITY');
+
+        $enodeb = $this->ticket('mobility_enodeb', ['enodeb_ids' => [$this->site('4624', 'Nsambya Kevina')->id]]);
+        $transmission = $this->ticket('mobility_transmission', ['transmission_type' => 'fibre', 'transmission_link_id' => 'LNK-9']);
+
+        $this->assertSame($technician->id, $enodeb->current_assignee_id, 'eNodeB outage → 4G technician');
+        $this->assertSame($engineer->id, $transmission->current_assignee_id, 'transmission outage → 4G engineer');
+        $this->assertTrue(OutageUpdate::query()->where('outage_id', $enodeb->id)->where('body', 'like', '%next available 4G technician is assigned automatically.')->exists());
+        $this->assertTrue(OutageUpdate::query()->where('outage_id', $transmission->id)->where('body', 'like', '%next available 4G engineer is assigned automatically.')->exists());
+
+        // The FIFO explanation names the rule.
+        $check = fn (Outage $ticket, User $user) => $fifo->explain($ticket->openQueueEntries()->where('queue_type', QueueType::MobilityEngineer->value)->first())
+            ->first(fn (array $row) => $row['user']->id === $user->id)['checks']['fault_domain'];
+        $this->assertFalse($check($enodeb, $engineer)['passed']);
+        $this->assertSame('Handles eNodeB outages', $check($enodeb, $engineer)['label']);
+        $this->assertTrue($check($transmission, $engineer)['passed']);
+
+        // The NOC cannot hand a ticket to the wrong side either…
+        foreach ([[$enodeb, $engineer, 'eNodeB outages: these go to a 4G technician'], [$transmission, $technician, 'Transmission outages: these go to a 4G engineer']] as [$ticket, $wrong, $message]) {
+            try {
+                $this->workflow->assignMobilityEngineer($ticket, $this->noc, $wrong->id);
+                $this->fail('assigned across the engineer / technician split');
+            } catch (ValidationException $exception) {
+                $this->assertStringContainsString($message, $exception->errors()['engineer_id'][0]);
+            }
+        }
+
+        // …and the assign form only lists the people who handle that kind of outage.
+        $this->assertSame([$technician->id], array_keys(MobilityActions::engineerOptions($enodeb->fault_domain)));
+        $this->assertSame([$engineer->id], array_keys(MobilityActions::engineerOptions($transmission->fault_domain)));
+        $this->assertEqualsCanonicalizing([$engineer->id, $technician->id], array_keys(MobilityActions::engineerOptions()));
+
+        // With no technician available an eNodeB ticket waits: it is never given to an engineer.
+        $fifo->setAvailability($technician, AvailabilityStatus::Offline, $technician);
+        $this->assertNull($enodeb->refresh()->current_assignee_id);
+        $waiting = $this->ticket('mobility_enodeb');
+        $this->assertNull($waiting->current_assignee_id);
+        $this->assertSame(StatusCode::MobilityNew->value, $waiting->status->code);
+        $this->assertSame(1, $engineer->refresh()->activeAssignments()->count(), 'the engineer still only has the transmission ticket');
+
+        // A person given both permissions (People → Roles / Users) works both kinds.
+        $technician->givePermissionTo('mobility.handle_transmission');
+        $fifo->setAvailability($technician, AvailabilityStatus::Available, $technician);
+        $fifo->setAvailability($engineer, AvailabilityStatus::Offline, $engineer);
+        $this->assertSame($technician->id, $transmission->refresh()->current_assignee_id);
     }
 
     public function test_fifo_assigns_4g_engineers_and_follows_timeouts_teams_and_manual_mode(): void
@@ -304,7 +358,7 @@ class MobilityNocTest extends TestCase
         $inQueue = fn (Outage $ticket) => $ticket->refresh()->openQueueEntries()->where('queue_type', QueueType::MobilityEngineer->value)->exists();
 
         // Nobody available: the ticket waits in the 4G engineer queue as "New".
-        $away = $this->makeUser('4G Engineer', 'MOBILITY', attributes: ['availability_status' => 'offline']);
+        $away = $this->makeUser('4G Technician', 'MOBILITY', attributes: ['availability_status' => 'offline']);
         $ticket = $this->ticket('mobility_enodeb');
         $this->assertSame(StatusCode::MobilityNew->value, $ticket->status->code);
         $this->assertSame(QueueType::MobilityEngineer, $ticket->current_queue);
@@ -327,11 +381,11 @@ class MobilityNocTest extends TestCase
         $this->assertNull($ticket->current_assignee_id);
         $this->assertNull($ticket->technician_id);
         $this->assertTrue($inQueue($ticket));
-        $this->assertTrue(OutageUpdate::query()->where('outage_id', $ticket->id)->where('body', 'like', 'No engineer is on the ticket any more%')->exists());
+        $this->assertTrue(OutageUpdate::query()->where('outage_id', $ticket->id)->where('body', 'like', 'Nobody is on the ticket any more%next available 4G technician.')->exists());
 
         // FIFO can be limited to one team (e.g. Transmission): only its members are offered the ticket.
         $transmission = $this->makeTeam('4G Transmission', 'MOBILITY');
-        $ran = $this->makeUser('4G Engineer', 'MOBILITY');
+        $ran = $this->makeUser('4G Technician', 'MOBILITY');
         $tx = $this->makeUser('4G Technician', 'MOBILITY', [$transmission]);
         Auth::setUser($this->noc);
         $ticket = $this->workflow->assignMobilityEngineer($ticket, $this->noc, null, 'Microwave side', $transmission->id);
@@ -474,7 +528,7 @@ class MobilityNocTest extends TestCase
 
     public function test_closed_tickets_can_be_reopened_with_a_reason_and_cancelled_tickets_have_no_sla(): void
     {
-        $engineer = $this->makeUser('4G Engineer', 'MOBILITY');
+        $engineer = $this->makeUser('4G Technician', 'MOBILITY');
         $ticket = $this->ticket('mobility_enodeb', ['engineer_id' => $engineer->id]);
         $this->assertSame(StatusCode::MobilityAssigned->value, $ticket->status->code, 'engineer chosen on the form');
 
@@ -567,7 +621,7 @@ class MobilityNocTest extends TestCase
     public function test_every_4g_action_is_in_the_audit_trail(): void
     {
         Storage::fake('local');
-        $engineer = $this->makeUser('4G Engineer', 'MOBILITY');
+        $engineer = $this->makeUser('4G Technician', 'MOBILITY');
         $events = fn (Outage $ticket) => AuditLog::query()->where('auditable_type', $ticket->getMorphClass())->where('auditable_id', $ticket->id)
             ->where('event', 'like', '4g_%')->orderBy('id')->pluck('event')->all();
 

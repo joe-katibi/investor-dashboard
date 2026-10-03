@@ -8,9 +8,11 @@ use App\Enums\QueueType;
 use App\Models\Outage;
 use App\Models\OutageAssignment;
 use App\Models\OutageQueueEntry;
+use App\Models\OutageType;
 use App\Models\Team;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Support\Permissions;
 use App\Support\Settings;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -147,6 +149,15 @@ class EligibilityEvaluator
 
         $permission = $this->permissionFor($entry);
         $checks['permission'] = $this->check('Permission', $user->hasPermissionTo($permission), $permission);
+
+        // 4G: transmission outages go to the engineers, eNodeB outages to the technicians.
+        if ($outage && $entry->queue_type === QueueType::MobilityEngineer && ($handles = OutageType::handlerPermission($outage->fault_domain))) {
+            $checks['fault_domain'] = $this->check(
+                'Handles '.(OutageType::FAULT_DOMAINS[$outage->fault_domain] ?? $outage->fault_domain).' outages',
+                $user->checkPermissionTo($handles),
+                Permissions::label($handles),
+            );
+        }
 
         $userTeamIds = $user->teams->pluck('id')->all();
 

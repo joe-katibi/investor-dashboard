@@ -9,6 +9,7 @@ use App\Models\Department;
 use App\Models\Outage;
 use App\Models\OutageAttachment;
 use App\Models\OutageStatus;
+use App\Models\OutageType;
 use App\Models\Team;
 use App\Models\User;
 use App\Models\Vendor;
@@ -24,6 +25,7 @@ use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Auth;
+use Spatie\Permission\Exceptions\PermissionDoesNotExist;
 
 /**
  * 4G NOC workflow actions, shared by the 4G ticket page, the 4G list, My Work and the FIFO queue.
@@ -55,15 +57,16 @@ final class MobilityActions
     public static function assignEngineer(): Action
     {
         return Action::make('mobilityAssign')
-            ->label(fn (Outage $record) => $record->technician_id || $record->current_queue ? 'Reassign' : 'Assign engineer / technician')
+            ->label(fn (Outage $record) => $record->technician_id || $record->current_queue ? 'Reassign' : 'Assign '.OutageType::handlerLabel($record->fault_domain))
             ->icon(Heroicon::OutlinedUserPlus)
             ->color('warning')
             ->visible(fn (Outage $record) => Auth::user()?->can('mobilityAssign', $record))
-            ->modalDescription('Pick a person, or leave it on automatic: the ticket then goes to the 4G engineer FIFO queue and the next available engineer / technician gets it (and the one after, if it is rejected or not accepted in time).')
+            ->modalDescription(fn (Outage $record) => self::handlerRule($record->fault_domain).' Pick a person, or leave it on automatic: the ticket then goes to the 4G FIFO queue and the next available '
+                .OutageType::handlerLabel($record->fault_domain).' gets it (and the one after, if it is rejected or not accepted in time).')
             ->schema([
-                Select::make('engineer_id')->label('Engineer / technician')->searchable()->live()
-                    ->placeholder('Automatic — next available engineer / technician (FIFO)')
-                    ->options(fn () => self::engineerOptions()),
+                Select::make('engineer_id')->label(fn (Outage $record) => ucfirst(OutageType::handlerLabel($record->fault_domain)))->searchable()->live()
+                    ->placeholder(fn (Outage $record) => 'Automatic — next available '.OutageType::handlerLabel($record->fault_domain).' (FIFO)')
+                    ->options(fn (Outage $record) => self::engineerOptions($record->fault_domain)),
                 Select::make('team_id')->label('Only offer it to this team (optional)')
                     ->options(fn () => self::teamOptions())
                     ->visible(fn (Get $get) => blank($get('engineer_id')) && self::teamOptions() !== []),
@@ -72,7 +75,7 @@ final class MobilityActions
             ->action(fn (Outage $record, array $data) => OutageActions::run($record, fn () => app(OutageWorkflow::class)->assignMobilityEngineer(
                 $record, Auth::user(), filled($data['engineer_id'] ?? null) ? (int) $data['engineer_id'] : null, $data['note'] ?? null,
                 filled($data['team_id'] ?? null) ? (int) $data['team_id'] : null,
-            ), filled($data['engineer_id'] ?? null) ? 'Ticket assigned' : 'Placed in the 4G engineer queue (FIFO)'));
+            ), filled($data['engineer_id'] ?? null) ? 'Ticket assigned' : 'Placed in the 4G queue (FIFO)'));
     }
 
     public static function startWork(): Action
@@ -270,10 +273,31 @@ final class MobilityActions
 
     // ------------------------------------------------------------------ helpers
 
-    /** Active users who can receive 4G tickets, with their availability and current workload. */
-    public static function engineerOptions(): array
+    /** "Transmission outages are handled by a 4G engineer." — empty for a domain open to both. */
+    public static function handlerRule(?string $domain): string
     {
-        return User::permission(QueueType::MobilityEngineer->defaultPermission())
+        return OutageType::handlerPermission($domain)
+            ? (OutageType::FAULT_DOMAINS[$domain] ?? ucfirst((string) $domain)).' outages are handled by a '.OutageType::handlerLabel($domain).'.'
+            : '';
+    }
+
+    /**
+     * Active users who can receive this kind of 4G ticket — 4G engineers for transmission outages,
+     * 4G technicians for eNodeB outages — with their availability and current workload.
+     */
+    public static function engineerOptions(?string $domain = null): array
+    {
+        try {
+            $query = User::permission(QueueType::MobilityEngineer->defaultPermission());
+
+            if ($handles = OutageType::handlerPermission($domain)) {
+                $query->permission($handles);
+            }
+        } catch (PermissionDoesNotExist) {
+            return [];
+        }
+
+        return $query
             ->active()
             ->with('roles:id,name')
             ->withCount('activeAssignments')
