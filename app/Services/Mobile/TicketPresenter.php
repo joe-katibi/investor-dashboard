@@ -98,6 +98,9 @@ final class TicketPresenter
                 'name' => $ticket->customer_name,
                 'account' => $ticket->account_number,
                 'phones' => $ticket->phones(),
+                // Calling, primary and alternative numbers, each named: if one is unreachable
+                // the person in the field picks another.
+                'contacts' => $ticket->contacts(),
                 'address' => $ticket->address,
                 'landmark' => $ticket->landmark,
                 'region' => $ticket->region?->name,

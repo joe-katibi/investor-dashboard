@@ -119,12 +119,19 @@ class VendorNotifier
             ?? app(SlaService::class)->resolvePolicy($outage)?->resolution_minutes
             ?? $this->settings->int('sla.default_resolution_minutes');
         $end = $outage->restored_at ?? $outage->end_time;
+        // The vendor's own reference for a site: what their engineer looks the site up by.
+        $towerIds = $sites->filter(fn ($site) => filled($site->tower_co_site_id));
 
         return array_merge([
             'ticket_number' => $outage->ticket_number,
             'site_id' => $sites->isNotEmpty() ? $sites->first()->site_id.$more : '—',
             'site_name' => $sites->isNotEmpty() ? $sites->first()->name.$more : ($outage->location ?: $outage->title),
-            'affected_sites' => $sites->map(fn ($site) => $site->site_id.' '.$site->name)->implode(', ') ?: '—',
+            'tower_co_id' => match (true) {
+                $towerIds->isEmpty() => '—',
+                $sites->count() === 1 => $towerIds->first()->tower_co_site_id,
+                default => $towerIds->map(fn ($site) => $site->tower_co_site_id.' ('.$site->site_id.')')->implode(', '),
+            },
+            'affected_sites' => $sites->map(fn ($site) => $site->site_id.' '.$site->name.(filled($site->tower_co_site_id) ? ' (Tower CO ID '.$site->tower_co_site_id.')' : ''))->implode(', ') ?: '—',
             'affected_nodes' => $outage->transmissionNodes->map(fn ($node) => $node->label())->implode(', ') ?: '—',
             'location' => $outage->location ?: '—',
             'outage_type' => $outage->outageType?->name,
@@ -153,7 +160,8 @@ class VendorNotifier
     public function sampleData(): array
     {
         return [
-            'ticket_number' => '4G-PWR-000123', 'site_id' => '4624', 'site_name' => 'Nsambya Kevina', 'affected_sites' => '4624 Nsambya Kevina',
+            'ticket_number' => '4G-PWR-000123', 'site_id' => '4624', 'site_name' => 'Nsambya Kevina', 'tower_co_id' => 'ATC-KLA-0412',
+            'affected_sites' => '4624 Nsambya Kevina (Tower CO ID ATC-KLA-0412)',
             'affected_nodes' => 'SSG-1111 — Nsambya Kevina', 'location' => 'Nsambya, Kampala', 'outage_type' => 'Power Outage', 'priority' => '4G Minor',
             'outage_start_time' => now()->subMinutes(20)->format('d/m/Y H:i'), 'detection_time' => now()->subMinutes(15)->format('d/m/Y H:i'),
             'affected_services' => 'Mobile Data, Voice', 'description' => 'Site is down on mains failure; batteries depleted.', 'service_impact' => '4G coverage lost around the site.',

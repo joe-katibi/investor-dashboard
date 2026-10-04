@@ -318,7 +318,9 @@ class MobileApiTest extends TestCase
         $visit = $this->workflow->createSiteVisit([
             'visit_type_id' => VisitType::query()->where('code_prefix', 'SUP')->value('id'),
             'subcategory_id' => TicketSubcategory::query()->where('name', 'LOS Flashing Red')->value('id'),
-            'account_number' => 'SF2659301', 'customer_name' => 'John Customer', 'calling_number' => '0772000010', 'address' => 'Lukuli water pump',
+            'account_number' => 'SF2659301', 'customer_name' => 'John Customer', 'address' => 'Lukuli water pump',
+            // Called from the number on the account; a second number to try if that one is off.
+            'calling_number' => '0772000010', 'primary_number' => '0772000010', 'alt_number_1' => '0701000020',
         ], $tier2);
 
         // Dispatcher: assign from the app.
@@ -329,7 +331,13 @@ class MobileApiTest extends TestCase
         // Technician: the customer's details, then the visit step by step.
         $detail = $this->api($technician, 'GET', "tickets/{$visit->id}")->assertOk();
         $detail->assertJsonPath('ticket.module', 'site_visit')->assertJsonPath('ticket.customer.name', 'John Customer')
-            ->assertJsonPath('ticket.customer.phones', ['0772000010'])->assertJsonPath('ticket.customer.address', 'Lukuli water pump');
+            ->assertJsonPath('ticket.customer.phones', ['0772000010', '0701000020'])->assertJsonPath('ticket.customer.address', 'Lukuli water pump')
+            // Each number named, none dropped for repeating another: the technician chooses which to call.
+            ->assertJsonPath('ticket.customer.contacts', [
+                ['key' => 'calling', 'label' => 'Calling number', 'number' => '0772000010'],
+                ['key' => 'primary', 'label' => 'Primary number', 'number' => '0772000010'],
+                ['key' => 'alt_1', 'label' => 'Alternative number 1', 'number' => '0701000020'],
+            ]);
         $this->assertContains('visit_en_route', array_column($detail->json('ticket.actions'), 'key'));
         $this->api($stranger, 'GET', "tickets/{$visit->id}")->assertForbidden();
 

@@ -466,7 +466,9 @@ Any time: CANCELLED (duplicates / false alarms, SLA N/A) · Closed tickets: REOP
   Assigned*, the timeline and the NOC are told, and **Send vendor notification** retries.
 * **Vendor e-mails** (*4G NOC → Vendor E-mail Templates*) — editable subject / body per trigger (ticket created,
   vendor changed, reminder, reopened, closed, cancelled, manual), to the vendor's e-mail + CC plus any fixed
-  addresses, with `{{ticket_number}}`, `{{site_id}}`, `{{site_name}}`, `{{location}}`, `{{outage_type}}`,
+  addresses, with `{{ticket_number}}`, `{{site_id}}`, `{{site_name}}`, `{{tower_co_id}}` (the tower company's own
+  reference for the site, from the eNodeB record — what the vendor's engineer looks the site up by),
+  `{{location}}`, `{{outage_type}}`,
   `{{priority}}`, `{{outage_start_time}}`, `{{detection_time}}`, `{{affected_services}}`, `{{description}}`,
   `{{vendor_name}}`, `{{sla}}`, `{{noc_contact}}`, `{{ticket_url}}` and more. Every e-mail is in the notification
   log (ticket, vendor, recipient, CC, subject, template, time, status, error) and on the ticket timeline.

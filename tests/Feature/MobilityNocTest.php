@@ -418,6 +418,7 @@ class MobilityNocTest extends TestCase
     {
         $vendor = $this->vendor();
         $site = $this->site('4624', 'Nsambya Kevina', $vendor);
+        $site->update(['tower_co_site_id' => 'ATC-KLA-0412']);
         app(Settings::class)->set(['mobility.noc_contact' => '+256 700 000 000']);
 
         $ticket = $this->ticket('mobility_power', ['enodeb_ids' => [$site->id], 'vendor_id' => $vendor->id, 'description' => 'Mains failure', 'location' => 'Nsambya']);
@@ -446,6 +447,9 @@ class MobilityNocTest extends TestCase
         $this->assertSame('4G Power Outage – Vendor Notification', $log->meta['template']);
         $this->assertStringContainsString('Mains failure', $log->body);
         $this->assertStringContainsString('+256 700 000 000', $log->body);
+        // The tower company's own reference for the site: what the vendor's engineer searches by.
+        $this->assertStringContainsString('Tower CO ID: ATC-KLA-0412', $log->body);
+        $this->assertStringContainsString('4624 Nsambya Kevina (Tower CO ID ATC-KLA-0412)', $log->body);
         $this->assertTrue(OutageUpdate::query()->where('outage_id', $ticket->id)->where('actor_type', 'System')->where('body', 'like', 'Vendor notification e-mail sent to ops@atc.example%')->exists());
 
         // The vendor has no seat: an engineer cannot be put on a vendor ticket.
@@ -479,6 +483,44 @@ class MobilityNocTest extends TestCase
 
         // The vendor is told it is closed (its own template).
         $this->assertTrue(NotificationLog::query()->where('event', VendorNotifier::EVENT)->where('outage_id', $ticket->id)->where('subject', 'like', '[RESTORED]%')->where('status', 'sent')->exists());
+    }
+
+    public function test_templates_of_a_running_system_get_the_tower_co_id_line(): void
+    {
+        $migration = require database_path('migrations/2026_10_04_100001_add_tower_co_id_to_vendor_templates.php');
+        $body = fn (string $code) => VendorTemplate::query()->where('code', $code)->value('body');
+        $set = fn (string $code, string $text) => VendorTemplate::query()->where('code', $code)->update(['body' => $text]);
+
+        // As they were before: no Tower CO ID. One was edited in a browser (CRLF), one names the
+        // site inside a sentence, one was rewritten by an administrator without a site line.
+        $set('power_vendor_notification', "Dear team,\r\n\r\n**Site ID:** {{site_id}}\r\n**Site name:** {{site_name}}\r\n");
+        $set('vendor_reminder', "**Ticket number:** {{ticket_number}}\n**Site:** {{site_id}} {{site_name}}\n**Priority:** {{priority}}");
+        $set('vendor_cancelled', 'Ticket {{ticket_number}} for site {{site_id}} {{site_name}} has been cancelled.');
+        $set('vendor_closed', 'Our own wording, {{ticket_number}}.');
+        $reopened = $body('vendor_reopened');
+
+        $migration->up();
+        $migration->up(); // running it twice adds nothing twice
+
+        $this->assertSame("Dear team,\r\n\r\n**Site ID:** {{site_id}}\r\n**Tower CO ID:** {{tower_co_id}}\r\n**Site name:** {{site_name}}\r\n", $body('power_vendor_notification'));
+        $this->assertSame("**Ticket number:** {{ticket_number}}\n**Site:** {{site_id}} {{site_name}}\n**Tower CO ID:** {{tower_co_id}}\n**Priority:** {{priority}}", $body('vendor_reminder'));
+        $this->assertSame('Ticket {{ticket_number}} for site {{site_id}} {{site_name}} (Tower CO ID {{tower_co_id}}) has been cancelled.', $body('vendor_cancelled'));
+        $this->assertSame('Our own wording, {{ticket_number}}.', $body('vendor_closed'), 'no site line: left as written');
+        $this->assertSame($reopened, $body('vendor_reopened'), 'already has the placeholder');
+
+        // Several sites: each tower company reference with the site it belongs to.
+        $vendor = $this->vendor();
+        $one = tap($this->site('4624', 'Nsambya Kevina', $vendor))->update(['tower_co_site_id' => 'ATC-1']);
+        $two = $this->site('4625', 'Kabowa', $vendor);
+        $three = tap($this->site('4626', 'Lukuli', $vendor))->update(['tower_co_site_id' => 'ATC-3']);
+        $ticket = $this->ticket('mobility_power', ['enodeb_ids' => [$one->id, $two->id, $three->id], 'vendor_id' => $vendor->id]);
+
+        $data = app(VendorNotifier::class)->data($ticket);
+        $this->assertSame('ATC-1 (4624), ATC-3 (4626)', $data['tower_co_id']);
+        $this->assertSame('4624 Nsambya Kevina (Tower CO ID ATC-1), 4625 Kabowa, 4626 Lukuli (Tower CO ID ATC-3)', $data['affected_sites']);
+
+        $migration->down();
+        $this->assertSame("**Ticket number:** {{ticket_number}}\n**Site:** {{site_id}} {{site_name}}\n**Priority:** {{priority}}", $body('vendor_reminder'));
     }
 
     public function test_vendor_problems_are_visible_and_inactive_vendors_cannot_be_selected(): void

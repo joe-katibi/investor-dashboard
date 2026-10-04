@@ -47,7 +47,7 @@ class VendorTemplate extends Model
 
     /** Placeholders available in vendor templates. */
     public const PLACEHOLDERS = [
-        'ticket_number', 'site_id', 'site_name', 'location', 'outage_type', 'priority', 'outage_start_time', 'detection_time',
+        'ticket_number', 'site_id', 'site_name', 'tower_co_id', 'location', 'outage_type', 'priority', 'outage_start_time', 'detection_time',
         'affected_services', 'affected_sites', 'affected_nodes', 'description', 'service_impact', 'vendor_name',
         'vendor_contact', 'sla', 'sla_due', 'status', 'noc_contact', 'ticket_url', 'reason', 'outage_duration',
         'restoration_time', 'root_cause', 'resolution',

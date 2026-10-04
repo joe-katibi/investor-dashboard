@@ -42,6 +42,7 @@ We have a power outage affecting our 4G site below. Kindly attend to it urgently
 
 **Ticket number:** {{ticket_number}}
 **Site ID:** {{site_id}}
+**Tower CO ID:** {{tower_co_id}}
 **Site name:** {{site_name}}
 **Affected sites:** {{affected_sites}}
 **Location:** {{location}}
@@ -72,6 +73,7 @@ We have not received an update on the power outage below. {{reason}}
 
 **Ticket number:** {{ticket_number}}
 **Site:** {{site_id}} {{site_name}}
+**Tower CO ID:** {{tower_co_id}}
 **Outage start time:** {{outage_start_time}}
 **Outage duration so far:** {{outage_duration}}
 **Priority:** {{priority}}
@@ -96,6 +98,7 @@ The ticket below has been reopened: the site is not (fully) restored.
 
 **Ticket number:** {{ticket_number}}
 **Site:** {{site_id}} {{site_name}}
+**Tower CO ID:** {{tower_co_id}}
 **Location:** {{location}}
 **Outage start time:** {{outage_start_time}}
 **Priority:** {{priority}}
@@ -117,6 +120,7 @@ We confirm that the site below is restored and the ticket is now closed. Thank y
 
 **Ticket number:** {{ticket_number}}
 **Site:** {{site_id}} {{site_name}}
+**Tower CO ID:** {{tower_co_id}}
 **Outage start time:** {{outage_start_time}}
 **Restoration time:** {{restoration_time}}
 **Outage duration:** {{outage_duration}}
@@ -132,7 +136,7 @@ TXT, 'Sent to the vendor when the NOC has verified the restoration and closed th
                 <<<'TXT'
 Dear {{vendor_name}} team,
 
-Please note that ticket **{{ticket_number}}** for site {{site_id}} {{site_name}} has been cancelled. No further action is required.
+Please note that ticket **{{ticket_number}}** for site {{site_id}} {{site_name}} (Tower CO ID {{tower_co_id}}) has been cancelled. No further action is required.
 
 **Reason:** {{reason}}
 

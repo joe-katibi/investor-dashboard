@@ -188,6 +188,27 @@ class Ticket extends Model
         ))));
     }
 
+    /**
+     * The same numbers named by what they are, for someone choosing which one to call. A number
+     * that repeats another is kept: "primary" being the calling number is worth seeing too.
+     *
+     * @return list<array{key: string, label: string, number: string}>
+     */
+    public function contacts(): array
+    {
+        $numbers = [
+            'calling' => ['Calling number', $this->calling_number],
+            'primary' => ['Primary number', $this->primary_number],
+            'alt_1' => ['Alternative number 1', $this->alt_number_1],
+            'alt_2' => ['Alternative number 2', $this->alt_number_2],
+        ];
+
+        return collect($numbers)
+            ->map(fn (array $entry, string $key) => ['key' => $key, 'label' => $entry[0], 'number' => trim((string) $entry[1])])
+            ->filter(fn (array $entry) => $entry['number'] !== '')
+            ->values()->all();
+    }
+
     /** "Nsambya › FDT 6 › Slot 3 › Port 15" */
     public function topologyPath(): string
     {
