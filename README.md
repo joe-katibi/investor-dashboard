@@ -954,6 +954,49 @@ decided here on every request — never by anything the app sends.
 `REVERB_*` / `VITE_REVERB_*` values as the website — and the server must be able to reach
 `oauth2.googleapis.com` and `fcm.googleapis.com` over HTTPS.
 
+**Phones outside the company network.** The website is internal; the app is used on mobile data. Publish
+the API only — a separate nginx `server` on its own port, which the load balancer (it holds the public
+certificate and forwards plain HTTP) points at. Everything but `/api/v1/` answers 404 there, so the web
+panel stays internal:
+
+```nginx
+server {
+    listen 5301;
+    listen [::]:5301;
+    server_name oms.savannafibre.co.ug;
+
+    root /home/nms/www/outagemangementsystem/public;
+    server_tokens off;
+    client_max_body_size 64M;          # photos from the app
+
+    location / { return 404; }
+
+    location ^~ /api/v1/ {
+        try_files $uri /index.php?$query_string;
+    }
+
+    location = /index.php {
+        internal;
+        fastcgi_pass unix:/var/run/php/php8.3-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include fastcgi_params;
+    }
+}
+```
+
+* No `ssl` on that listener when the load balancer speaks plain HTTP to it (a `400` for every request in
+  its access log means the two disagree). No `error_page 404 /index.php` — it would hand every path to
+  the application.
+* The app's address is the public one with its port (`https://oms.savannafibre.co.ug:5301/api/v1`); the
+  links the API returns (photos, attachments) follow the address the phone called.
+* `APP_URL` stays the **internal** website address: links in e-mails and notifications are built from it.
+* Uploads: PHP-FPM `upload_max_filesize` ≥ `OMS_MOBILE_MAX_UPLOAD_KB` and `post_max_size` to match
+  `client_max_body_size` (the stock 2M / 8M refuse photos).
+* Behind the load balancer every phone has its address: set `TRUSTED_PROXIES` to it (and have it send
+  `X-Forwarded-For`), or all phones share the per-address sign-in limit.
+* The in-app live channel (Reverb) is not published by this: phones outside get their notifications
+  through Firebase until the socket is published too.
+
 **Keeping the app in step:** `OMS_MOBILE_FIXTURES=<folder> php artisan test --filter=MobileApiTest` writes the real
 API answers as JSON; the app's own tests read them (`oms-mobile/test/fixtures/api`).
 
