@@ -240,6 +240,33 @@ REPORT → SUPPORT UNCONFIRMED → NOC FIFO QUEUE → NOC REVIEW → NOC CONFIRM
 
 System outages follow their own flow — see [System outages: IT first](#system-outages-it-first).
 
+### Site photos (Emergency and Regular outages)
+
+An Emergency or Regular outage is **reported restored with three photos**, in this order:
+
+| Photo | Shows |
+|---|---|
+| **Findings on ground** | the fault as the team found it, before any work |
+| **After restoration** | the finished work, once the service is back |
+| **Power readings** | the power meter with the reading after restoration |
+
+* **Required.** *Report restored* is refused — on the website and in the app — until all three are on the
+  ticket; the message names the ones missing. A refused restoration saves nothing.
+* **As the work goes.** *Site photos (n of 3)* adds any of them while the ticket is with the field team, so the
+  findings are on the ticket before the repair starts; *Report restored* then only asks for those still missing.
+  A photo added again replaces the earlier one.
+* **Website:** chosen from the computer. **Mobile app:** only the camera — nothing from the gallery or anywhere
+  else — and the date and time the photo was taken are stamped on the picture and stored with it
+  (`outage_photos.taken_at`, `source` = `camera` / `upload`).
+* **Which outages:** the types with *Site photos required* (Configuration → Outage Types; on for Regular and
+  Emergency), when the major outage type sends the outage to Infrastructure — an outage restored remotely by the
+  NOC has nothing to photograph. Core, system, planned and 4G tickets are unaffected.
+* The photos are shown on the outage page (*Site photos*), each with who took it and when, are private like every
+  other attachment, and each addition is on the timeline.
+
+Preventive and corrective maintenance keep their own two "after" photos (outside with the label, inside); in the
+mobile app those too can only be taken with the camera and carry the time stamp.
+
 ### NOC reject → CX Tier II follow-up
 
 ```
@@ -914,6 +941,10 @@ decided here on every request — never by anything the app sends.
   `outage.dispatch`, `visit.dispatch` or `queue.work_infra_support_dispatch`; *engineer*: receives 4G tickets and
   handles transmission; *technician*: any other field queue (outage, support, site visit, infra support, 4G
   eNodeB). Anyone else gets *"Your account is not authorized to use the mobile application."*
+* **Camera-only photos** — a photo field with `"capture": "camera"` (the three site photos of an Emergency /
+  Regular outage, the two "after" photos of field maintenance) must be taken there and then: the app offers no
+  gallery, stamps the time on the picture and sends it as `{field}_taken_at`. A time in the future (a phone whose
+  clock runs ahead) is replaced by the server's own. Other photo fields say `"capture": "any"`.
 * **Which tickets** — a dispatcher sees the tickets of the kinds they dispatch; a technician or engineer only the
   tickets they hold or held. Asking for any other id is a `403` (`404` if it does not exist): knowing an id is
   never enough.

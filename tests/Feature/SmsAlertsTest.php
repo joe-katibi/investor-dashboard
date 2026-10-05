@@ -75,7 +75,7 @@ class SmsAlertsTest extends TestCase
         $outage = $workflow->dispatch($outage, ['team_id' => $team->id, 'sub_team_id' => $crew->id], $dispatcher);
         Auth::setUser($tech);
         $workflow->addUpdate($outage, $tech, 'Crew on site');
-        $outage = $workflow->reportRestored($outage, $tech, 'Spliced');
+        $outage = $workflow->reportRestored($this->withSitePhotos($outage, $tech), $tech, 'Spliced');
         Auth::setUser($noc);
         $outage = $workflow->confirmRestoration($outage, $noc);
         $workflow->resolve($outage, $noc, 'Fibre cut');

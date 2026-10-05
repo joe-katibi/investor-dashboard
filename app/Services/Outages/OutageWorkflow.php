@@ -344,13 +344,50 @@ class OutageWorkflow
     }
 
     /**
-     * @param  array{outside?: string, inside?: string}  $afterPhotos  field maintenance: photos of the finished work
+     * Site photos of an Emergency / Regular outage, added while the work is going on (the findings
+     * are photographed before anything is touched). Any of the three; a photo taken again replaces
+     * the earlier one.
+     *
+     * @param  array<string, mixed>  $photos  see {@see ManagesFieldMaintenance::storeOutagePhotos()}
      */
-    public function reportRestored(Outage $outage, User $by, string $note, ?string $restoredAt = null, array $afterPhotos = []): Outage
+    public function addSitePhotos(Outage $outage, User $by, array $photos): Outage
+    {
+        return DB::transaction(function () use ($outage, $by, $photos): Outage {
+            $outage = $this->lock($outage);
+            Gate::forUser($by)->authorize('addSitePhotos', $outage);
+
+            if ($outage->majorOutageType?->requires_infrastructure) {
+                $this->fifo->authorizeWork($outage, QueueType::Technician, $by);
+            }
+
+            $stored = $this->storeOutagePhotos($outage, $by, $photos);
+
+            if ($stored->isEmpty()) {
+                throw ValidationException::withMessages(['photos' => 'Add at least one photo.']);
+            }
+
+            $left = $outage->missingSitePhotos();
+            $this->addSystemUpdate(
+                $outage,
+                'Site photo added — '.$stored->map(fn (OutagePhoto $photo) => $photo->label())->implode(', ').'. '
+                    .($left === [] ? 'All three site photos are on the ticket.' : 'Still to take: '.implode(', ', $left).'.'),
+                $by,
+            );
+            event(new OutageUpdated($outage->id, $outage->ticket_number));
+
+            return $outage->refresh();
+        });
+    }
+
+    /**
+     * @param  array<string, mixed>  $photos  field maintenance: the two "after" photos (outside, inside);
+     *                                        Emergency / Regular outage: any of the three site photos not on the ticket yet
+     */
+    public function reportRestored(Outage $outage, User $by, string $note, ?string $restoredAt = null, array $photos = []): Outage
     {
         $this->requireText($note, 'note', 'Describe the restoration performed.');
 
-        $result = DB::transaction(function () use ($outage, $by, $note, $restoredAt, $afterPhotos): Outage {
+        $result = DB::transaction(function () use ($outage, $by, $note, $restoredAt, $photos): Outage {
             $outage = $this->lock($outage);
             Gate::forUser($by)->authorize('reportRestored', $outage);
 
@@ -365,12 +402,21 @@ class OutageWorkflow
 
             // Preventive / corrective maintenance closes with two "after" photos (outside with the label, inside).
             if ($outage->maintenance_kind) {
-                if ($afterPhotos !== []) {
-                    $this->storeSitePhotos($outage, $by, OutagePhoto::AFTER, $afterPhotos);
+                if (array_filter(array_intersect_key($photos, OutagePhoto::POSITIONS)) !== []) {
+                    $this->storeSitePhotos($outage, $by, OutagePhoto::AFTER, $photos);
                 }
 
                 if (! $this->hasAfterPhotos($outage)) {
                     throw ValidationException::withMessages(['photos' => 'Add the two “after” photos (outside the FAT / FDT with the label, and inside) showing the finished work.']);
+                }
+            }
+
+            // Emergency / Regular outage: findings on ground, after restoration and the power readings.
+            if ($outage->requiresSitePhotos()) {
+                $this->storeOutagePhotos($outage, $by, $photos);
+
+                if (($missing = $outage->missingSitePhotos()) !== []) {
+                    throw ValidationException::withMessages(['photos' => 'The outage is reported restored with three site photos. Still missing: '.implode(', ', $missing).'.']);
                 }
             }
 

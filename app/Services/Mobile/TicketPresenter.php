@@ -250,7 +250,8 @@ final class TicketPresenter
                 'label' => $photo->label(),
                 'is_image' => true,
                 'url' => route('api.v1.photos.show', $photo),
-                'at' => $this->iso($photo->created_at),
+                // When the camera took it; for a photo uploaded on the website, when it was uploaded.
+                'at' => $this->iso($photo->takenAt()),
             ]);
 
         return $photos->concat($files)->values()->all();

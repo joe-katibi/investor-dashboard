@@ -72,7 +72,7 @@ final class OutageActions
             self::accept(), self::rejectAssignment(), self::nocConfirm(), self::nocReject(), self::cxFollowUp(),
             self::itEscalateToNoc(), self::itResolve(), self::nocReturnToIt(), self::itReturnToNoc(),
             self::prepareCrf(), self::viewCrf(), self::approvePreventive(), self::rejectPreventive(),
-            self::dispatch(), self::requestSupport(), self::completeSupport(),
+            self::dispatch(), self::requestSupport(), self::completeSupport(), self::addSitePhotos(),
             self::reportRestored(), self::confirmRestoration(), self::rejectRestoration(), self::notifyCustomers(), self::resolve(),
         ];
     }
@@ -527,14 +527,64 @@ final class OutageActions
                         self::photoUpload('after_inside', 'After — inside', OutagePhoto::POSITIONS['inside']),
                     ]),
                 ] : []),
+                // Emergency / Regular outage: the three site photos — those not on the ticket yet are required.
+                ...($record->requiresSitePhotos() ? [self::sitePhotoUploads($record, requireMissing: true)] : []),
             ])
             ->action(fn (Outage $record, array $data) => self::run($record, fn () => app(OutageWorkflow::class)->reportRestored(
                 $record, Auth::user(), $data['note'], $data['restored_at'] ?? null,
-                $record->maintenance_kind ? [
-                    'outside' => $data['after_outside'] ?? null, 'inside' => $data['after_inside'] ?? null,
-                    'outside_name' => $data['after_outside_name'] ?? null, 'inside_name' => $data['after_inside_name'] ?? null,
-                ] : [],
+                match (true) {
+                    (bool) $record->maintenance_kind => [
+                        'outside' => $data['after_outside'] ?? null, 'inside' => $data['after_inside'] ?? null,
+                        'outside_name' => $data['after_outside_name'] ?? null, 'inside_name' => $data['after_inside_name'] ?? null,
+                    ],
+                    $record->requiresSitePhotos() => self::sitePhotoData($data),
+                    default => [],
+                },
             ), 'Work reported — awaiting NOC confirmation'));
+    }
+
+    /**
+     * Site photos of an Emergency / Regular outage, added while the work is going on — so the
+     * findings are on the ticket before the repair starts. On the website they are chosen from the
+     * computer; in the mobile app they can only be taken with the camera.
+     */
+    public static function addSitePhotos(): Action
+    {
+        return Action::make('addSitePhotos')
+            ->label(fn (Outage $record) => 'Site photos ('.(count(OutagePhoto::SITE_PHOTOS) - count($record->missingSitePhotos())).' of '.count(OutagePhoto::SITE_PHOTOS).')')
+            ->icon(Heroicon::OutlinedCamera)
+            ->color('gray')
+            ->visible(fn (Outage $record) => Auth::user()?->can('addSitePhotos', $record))
+            ->modalDescription('The outage is reported restored with all three photos. Add each one when it is taken; a photo added again replaces the earlier one.')
+            ->schema(fn (Outage $record) => [self::sitePhotoUploads($record, requireMissing: false)])
+            ->action(fn (Outage $record, array $data) => self::run($record, fn () => app(OutageWorkflow::class)->addSitePhotos($record, Auth::user(), self::sitePhotoData($data)), 'Site photos saved'));
+    }
+
+    /** The three upload fields; each says what is already on the ticket. */
+    private static function sitePhotoUploads(Outage $record, bool $requireMissing): Grid
+    {
+        $taken = $record->sitePhotos();
+
+        return Grid::make(['default' => 1, 'md' => 3])->schema(collect(OutagePhoto::SITE_PHOTOS)
+            ->map(fn (array $photo, string $position) => self::photoUpload(
+                'site_'.$position,
+                $photo[0],
+                $taken[$position] ? 'On the ticket ('.$taken[$position]->caption().') — choose a file only to replace it.' : $photo[1],
+                required: $requireMissing && $taken[$position] === null,
+            ))->values()->all());
+    }
+
+    /** Form state of {@see sitePhotoUploads()} → what the workflow stores. */
+    private static function sitePhotoData(array $data): array
+    {
+        $photos = ['source' => OutagePhoto::SOURCE_UPLOAD];
+
+        foreach (array_keys(OutagePhoto::SITE_PHOTOS) as $position) {
+            $photos[$position] = $data['site_'.$position] ?? null;
+            $photos[$position.'_name'] = $data['site_'.$position.'_name'] ?? null;
+        }
+
+        return $photos;
     }
 
     // ------------------------------------------------------------------ field maintenance
@@ -568,10 +618,10 @@ final class OutageActions
         return ($user = Auth::user()) ? MaintenanceApproval::openSlotFor($record, $user) : null;
     }
 
-    public static function photoUpload(string $name, string $label, string $hint): FileUpload
+    public static function photoUpload(string $name, string $label, string $hint, bool $required = true): FileUpload
     {
         return FileUpload::make($name)->label($label)->helperText($hint)
-            ->image()->required()
+            ->image()->required($required)
             ->disk('local')->directory('outage-photos/'.now()->format('Y/m'))->visibility('private')
             ->maxSize(12288)
             ->storeFileNamesIn($name.'_name');

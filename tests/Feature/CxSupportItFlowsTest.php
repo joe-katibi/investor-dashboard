@@ -176,7 +176,7 @@ class CxSupportItFlowsTest extends TestCase
         $this->assertTrue($this->inApp($tech, 'support_completed'), 'requester is told the support work is done');
 
         Auth::setUser($tech);
-        $outage = $this->workflow->reportRestored($outage, $tech, 'Live line spliced; customer online');
+        $outage = $this->workflow->reportRestored($this->withSitePhotos($outage, $tech), $tech, 'Live line spliced; customer online');
         $this->assertTrue($outage->status->isCode(StatusCode::RestoreReported));
     }
 
@@ -194,7 +194,7 @@ class CxSupportItFlowsTest extends TestCase
         $this->assertSame($tech->id, $outage->current_assignee_id);
 
         Auth::setUser($tech);
-        $outage = $this->workflow->reportRestored($outage, $tech, 'Live line spliced');
+        $outage = $this->workflow->reportRestored($this->withSitePhotos($outage, $tech), $tech, 'Live line spliced');
         $this->assertTrue($outage->status->isCode(StatusCode::RestoreReported));
     }
 

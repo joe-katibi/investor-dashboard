@@ -8,10 +8,11 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Cache;
 
 #[Fillable([
-    'name', 'code', 'major_outage_type_id', 'vertical_id', 'prefix', 'is_planned', 'is_emergency', 'maintenance_kind',
-    'workflow', 'fault_domain', 'description', 'sort_order', 'is_active',
+    'name', 'code', 'major_outage_type_id', 'vertical_id', 'prefix', 'is_planned', 'is_emergency', 'requires_site_photos',
+    'maintenance_kind', 'workflow', 'fault_domain', 'description', 'sort_order', 'is_active',
 ])]
 class OutageType extends Model
 {
@@ -22,13 +23,29 @@ class OutageType extends Model
         return [
             'is_planned' => 'boolean',
             'is_emergency' => 'boolean',
+            'requires_site_photos' => 'boolean',
             'is_active' => 'boolean',
         ];
     }
 
+    public const SITE_PHOTOS_CACHE_KEY = 'oms.outage-types.site-photos.v1';
+
     protected static function booted(): void
     {
         static::saving(fn (OutageType $type) => $type->prefix = strtoupper(trim((string) $type->prefix)));
+        static::saved(fn () => Cache::forget(self::SITE_PHOTOS_CACHE_KEY));
+        static::deleted(fn () => Cache::forget(self::SITE_PHOTOS_CACHE_KEY));
+    }
+
+    /**
+     * Is an outage of this type reported restored with the three site photos? Cached by id, so
+     * policies can decide per table row without a query (and whatever columns the type was loaded with).
+     */
+    public static function requiresSitePhotos(?int $id): bool
+    {
+        $ids = Cache::rememberForever(self::SITE_PHOTOS_CACHE_KEY, fn () => static::query()->where('requires_site_photos', true)->pluck('id')->all());
+
+        return $id !== null && in_array($id, $ids, true);
     }
 
     public function majorOutageType(): BelongsTo

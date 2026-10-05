@@ -109,6 +109,10 @@ final class MobileActions
         $can = fn (string $ability) => $user->can($ability, $outage);
         $ticket = $outage->isTicket() ? $outage->ticket : null;
         $approvalSlot = $can('approvePreventive') ? MaintenanceApproval::openSlotFor($outage, $user) : null;
+        // Emergency / Regular outage worked by a field team: position => photo on the ticket (or null).
+        $sitePhotos = $outage->requiresSitePhotos() ? $outage->sitePhotos() : null;
+        $missingPhotos = collect($sitePhotos ?? [])->filter(fn (?OutagePhoto $photo) => $photo === null)
+            ->map(fn ($photo, string $position) => OutagePhoto::SITE_PHOTOS[$position][0])->all();
 
         return [
             // ---------------------------------------------------------- FIFO: my assignment
@@ -188,12 +192,42 @@ final class MobileActions
             ],
 
             // ---------------------------------------------------------- FTTH outage: technician
+            // Emergency / Regular outage: the three site photos, each taken with the camera when it
+            // happens — the findings before the repair, the rest after it.
+            'site_photos' => [
+                'visible' => $sitePhotos !== null && $can('addSitePhotos') && $holding,
+                'label' => 'Site photos ('.count(array_filter($sitePhotos ?? [])).' of '.count(OutagePhoto::SITE_PHOTOS).')',
+                'style' => $missingPhotos === [] ? 'neutral' : 'warning',
+                'primary' => $missingPhotos !== [],
+                'description' => $missingPhotos === []
+                    ? 'All three photos are on the ticket. Take one again only to replace it.'
+                    : 'Still to take: '.implode(', ', $missingPhotos).'. The outage cannot be reported restored without all three.',
+                'fields' => fn () => collect(OutagePhoto::SITE_PHOTOS)->map(fn (array $photo, string $position) => $this->photo(
+                    'site_'.$position,
+                    $photo[0],
+                    ($sitePhotos[$position] ?? null) ? 'On the ticket — '.$sitePhotos[$position]->caption().'. Take it again only to replace it.' : $photo[1],
+                    camera: true,
+                ))->values()->all(),
+                'handle' => function (array $data) use ($outage, $user): string {
+                    $photos = $this->cameraPhotos($data, $this->sitePhotoFields());
+
+                    if ($photos === []) {
+                        throw ValidationException::withMessages(['photos' => 'Take at least one photo.']);
+                    }
+
+                    $left = $this->workflow->addSitePhotos($outage, $user, $photos)->missingSitePhotos();
+
+                    return $left === [] ? 'Saved — all three photos are on the ticket' : 'Saved — still to take: '.implode(', ', $left);
+                },
+            ],
             'report_restored' => [
                 'visible' => $can('reportRestored') && $holding,
                 'label' => $outage->maintenance_kind ? 'Report work completed' : 'Report restored',
                 'style' => 'success',
                 'primary' => true,
-                'description' => 'The NOC then confirms the restoration.',
+                'description' => $missingPhotos === []
+                    ? 'The NOC then confirms the restoration.'
+                    : 'Needs the three site photos — still to take: '.implode(', ', $missingPhotos).'. The NOC then confirms the restoration.',
                 'disabled_reason' => $outage->openSupportRequest !== null
                     ? 'Waiting for the support technician to finish the drop cable / premises work (or for the request to be cancelled).'
                     : null,
@@ -202,18 +236,16 @@ final class MobileActions
                     $this->textarea('note', $outage->maintenance_kind ? 'Work done' : 'Restoration details', required: true, max: 5000),
                     // Field maintenance closes with two photos of the finished work.
                     ...($outage->maintenance_kind ? [
-                        $this->photo('after_outside', 'After — outside', OutagePhoto::POSITIONS['outside'], required: true),
-                        $this->photo('after_inside', 'After — inside', OutagePhoto::POSITIONS['inside'], required: true),
+                        $this->photo('after_outside', 'After — outside', OutagePhoto::POSITIONS['outside'], required: true, camera: true),
+                        $this->photo('after_inside', 'After — inside', OutagePhoto::POSITIONS['inside'], required: true, camera: true),
                     ] : []),
+                    // Emergency / Regular outage: whichever site photos are not on the ticket yet.
+                    ...collect($missingPhotos)->map(fn (string $label, string $position) => $this->photo(
+                        'site_'.$position, $label, OutagePhoto::SITE_PHOTOS[$position][1], required: true, camera: true,
+                    ))->values()->all(),
                 ],
                 'handle' => function (array $data) use ($outage, $user): string {
-                    $photos = [];
-
-                    foreach (['outside' => 'after_outside', 'inside' => 'after_inside'] as $position => $field) {
-                        if (($data[$field] ?? null) instanceof UploadedFile) {
-                            [$photos[$position], $photos[$position.'_name']] = $this->store($data[$field], 'outage-photos');
-                        }
-                    }
+                    $photos = $this->cameraPhotos($data, $outage->maintenance_kind ? ['outside' => 'after_outside', 'inside' => 'after_inside'] : $this->sitePhotoFields());
 
                     $this->workflow->reportRestored($outage, $user, $data['note'], $data['restored_at'] ?? null, $photos);
 
@@ -644,9 +676,45 @@ final class MobileActions
         return ['name' => $name, 'type' => 'toggle', 'label' => $label, 'required' => false, 'default' => $default];
     }
 
-    private function photo(string $name, string $label, ?string $help = null, bool $required = false): array
+    /**
+     * @param  bool  $camera  the photo can only be taken with the phone's camera, there and then — nothing
+     *                        from the gallery. The app stamps the time on the picture and sends it as "{name}_taken_at".
+     */
+    private function photo(string $name, string $label, ?string $help = null, bool $required = false, bool $camera = false): array
     {
-        return ['name' => $name, 'type' => 'photo', 'label' => $label, 'required' => $required, 'help' => $help, 'max_kb' => (int) config('oms.mobile.max_upload_kb')];
+        return [
+            'name' => $name, 'type' => 'photo', 'label' => $label, 'required' => $required, 'help' => $help,
+            'max_kb' => (int) config('oms.mobile.max_upload_kb'),
+            'capture' => $camera ? 'camera' : 'any',
+        ];
+    }
+
+    /** @return array<string, string> site photo position => its field in the app's form */
+    private function sitePhotoFields(): array
+    {
+        return collect(array_keys(OutagePhoto::SITE_PHOTOS))->mapWithKeys(fn (string $position) => [$position => 'site_'.$position])->all();
+    }
+
+    /**
+     * Photos taken with the camera, stored and described for the workflow: path, file name, when
+     * the camera took them, and that they came from the camera.
+     *
+     * @param  array<string, string>  $fields  position => field name
+     * @return array<string, mixed> empty when no photo was sent
+     */
+    private function cameraPhotos(array $data, array $fields): array
+    {
+        $photos = [];
+
+        foreach ($fields as $position => $field) {
+            if (($data[$field] ?? null) instanceof UploadedFile) {
+                [$photos[$position], $photos[$position.'_name']] = $this->store($data[$field], 'outage-photos');
+                $photos[$position.'_taken_at'] = $data[$field.'_taken_at'] ?? now()->toDateTimeString();
+                $photos[$position.'_source'] = OutagePhoto::SOURCE_CAMERA;
+            }
+        }
+
+        return $photos;
     }
 
     private function photos(string $name, string $label, bool $required = false): array
@@ -719,9 +787,22 @@ final class MobileActions
             if ($field['type'] === 'photos') {
                 $rules[$name.'.*'] = $image;
             }
+
+            // A camera-only photo comes with the moment it was taken.
+            if (($field['capture'] ?? null) === 'camera') {
+                $rules[$name.'_taken_at'] = ['nullable', 'date'];
+            }
         }
 
         $data = Validator::make($request->all(), $rules, [], $labels)->validate();
+
+        foreach ($fields as $field) {
+            if (($field['capture'] ?? null) === 'camera') {
+                $taken = filled($data[$field['name'].'_taken_at'] ?? null) ? Carbon::parse($data[$field['name'].'_taken_at'])->setTimezone(config('app.timezone')) : null;
+                // A phone whose clock runs ahead cannot date a photo in the future.
+                $data[$field['name'].'_taken_at'] = ($taken === null || $taken->isAfter(now()->addMinutes(5)) ? now() : $taken)->toDateTimeString();
+            }
+        }
 
         foreach ($fields as $field) {
             $name = $field['name'];

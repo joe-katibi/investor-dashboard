@@ -48,6 +48,8 @@ class OutageTypeResource extends Resource
                 ->helperText('Letters / digits, optionally in two parts: OUT → OUT-00000000001, 4G-PWR → 4G-PWR-000001. Each prefix has its own sequence.'),
             Toggle::make('is_planned')->label('Planned maintenance')->hidden(fn (Get $get) => filled($get('workflow'))),
             Toggle::make('is_emergency')->label('Emergency')->hidden(fn (Get $get) => filled($get('workflow'))),
+            Toggle::make('requires_site_photos')->label('Site photos required')->hidden(fn (Get $get) => filled($get('workflow')))
+                ->helperText('The field team reports the outage restored with three photos: findings on ground, after restoration and power readings. In the mobile app they can only be taken with the camera.'),
             TextInput::make('sort_order')->numeric()->default(0),
             Section::make('4G NOC workflow')
                 ->description('Leave the workflow empty for FTTH / core / system types. A 4G type (fibre cut, battery, generator, microwave…) only needs a workflow, a fault domain and a prefix — no code change. Its severity rules, SLA targets, notification rules and vendor templates can then be set for the type.')
@@ -88,6 +90,7 @@ class OutageTypeResource extends Resource
                     }),
                 IconColumn::make('is_planned')->label('Planned')->boolean(),
                 IconColumn::make('is_emergency')->label('Emergency')->boolean(),
+                IconColumn::make('requires_site_photos')->label('Site photos')->boolean()->toggleable(),
                 AuditFields::activeColumn(),
                 ...AuditFields::columns(),
             ])

@@ -269,6 +269,19 @@ class OutageResource extends Resource
             ])->columns(['default' => 1, 'md' => 2, 'xl' => 4])->columnSpanFull()
                 ->visible(fn (Outage $record) => $record->maintenance_kind !== null),
 
+            // Emergency / Regular outage: the three photos the field team reports the restoration with.
+            Section::make('Site photos')
+                ->description('Findings on ground, after restoration and the power readings — the outage is reported restored with all three.')
+                ->schema(collect(OutagePhoto::SITE_PHOTOS)->map(fn (array $photo, string $position) => ImageEntry::make("site_photo_{$position}")
+                    ->label($photo[0])
+                    ->state(fn (Outage $record) => self::sitePhoto($record, $position)?->url())
+                    ->url(fn (Outage $record) => self::sitePhoto($record, $position)?->url(), shouldOpenInNewTab: true)
+                    ->imageHeight(180)
+                    ->helperText(fn (Outage $record) => self::sitePhoto($record, $position)?->caption())
+                    ->placeholder('Not taken yet'))->values()->all())
+                ->columns(['default' => 1, 'md' => 3])->columnSpanFull()
+                ->visible(fn (Outage $record) => $record->requiresSitePhotos() || $record->photos->where('stage', OutagePhoto::SITE)->isNotEmpty()),
+
             Section::make('Lifecycle')->schema([
                 TextEntry::make('start_time')->label('Start')->dateTime('d M Y H:i'),
                 TextEntry::make('created_at')->label('Reported')->dateTime('d M Y H:i')
@@ -297,6 +310,13 @@ class OutageResource extends Resource
                 TextEntry::make('final_reason')->label('Final Reason / RFO')->placeholder('—')->columnSpanFull(),
             ])->columns(['default' => 2, 'md' => 3, 'xl' => 5])->collapsible()->columnSpanFull(),
         ]);
+    }
+
+    /** The latest site photo of a position (a photo taken again replaces the earlier one). */
+    private static function sitePhoto(Outage $record, string $position): ?OutagePhoto
+    {
+        return $record->loadMissing('photos.user')->photos
+            ->where('stage', OutagePhoto::SITE)->where('position', $position)->last();
     }
 
     public static function getRelations(): array

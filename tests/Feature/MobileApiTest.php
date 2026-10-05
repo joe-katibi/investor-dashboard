@@ -8,6 +8,7 @@ use App\Enums\StatusCode;
 use App\Events\MobileNotification;
 use App\Models\MobileDevice;
 use App\Models\Outage;
+use App\Models\OutagePhoto;
 use App\Models\OutageType;
 use App\Models\Team;
 use App\Models\TicketSubcategory;
@@ -275,7 +276,7 @@ class MobileApiTest extends TestCase
         $this->api($this->technician, 'GET', 'tickets?scope=new')->assertJsonPath('data.0.id', $outage->id);
         $this->fixture('dashboard_technician', $this->api($this->technician, 'GET', 'dashboard'));
         $this->fixture('ticket_outage_technician', $this->api($this->technician, 'GET', "tickets/{$outage->id}"));
-        $this->assertSame(['accept', 'reject', 'report_restored', 'request_support', 'set_status', 'add_update'], $this->actions($this->technician, $outage));
+        $this->assertSame(['accept', 'reject', 'site_photos', 'report_restored', 'request_support', 'set_status', 'add_update'], $this->actions($this->technician, $outage));
         $this->api($other, 'GET', "tickets/{$outage->id}")->assertForbidden();
 
         $this->act($this->technician, $outage, 'accept')->assertOk()->assertJsonPath('ticket.my_assignment.status', 'accepted');
@@ -286,8 +287,65 @@ class MobileApiTest extends TestCase
         $this->act($this->technician, $outage, 'report_restored', ['note' => 'Spliced', 'restored_at' => now()->addHour()->toIso8601String()])
             ->assertStatus(422)->assertJsonValidationErrors('restored_at');
 
-        $restored = $this->fixture('action_report_restored', $this->act($this->technician, $outage, 'report_restored', ['note' => 'Core respliced, light levels normal', 'restored_at' => now()->subMinutes(3)->toIso8601String()]))
-            ->assertOk()->assertJsonPath('ticket.status.code', StatusCode::RestoreReported->value);
+        // A Regular outage is reported restored with three site photos — camera only, in the app.
+        $detail = $this->api($this->technician, 'GET', "tickets/{$outage->id}")->assertOk();
+        $sitePhotos = collect($detail->json('ticket.actions'))->firstWhere('key', 'site_photos');
+        $this->assertSame('Site photos (0 of 3)', $sitePhotos['label']);
+        $this->assertSame(['site_findings', 'site_restored', 'site_power'], array_column($sitePhotos['fields'], 'name'));
+        $this->assertSame(['Findings on ground', 'After restoration', 'Power readings'], array_column($sitePhotos['fields'], 'label'));
+        $this->assertSame(['camera', 'camera', 'camera'], array_column($sitePhotos['fields'], 'capture'), 'nothing from the gallery');
+        $this->assertSame([false, false, false], array_column($sitePhotos['fields'], 'required'), 'one at a time, as the work goes');
+        $restore = collect($detail->json('ticket.actions'))->firstWhere('key', 'report_restored');
+        $this->assertSame(['restored_at', 'note', 'site_findings', 'site_restored', 'site_power'], array_column($restore['fields'], 'name'));
+
+        // Without them the restoration is refused; so is a "photo" that is not a picture.
+        $this->act($this->technician, $outage, 'report_restored', ['note' => 'Spliced'])
+            ->assertStatus(422)->assertJsonValidationErrors(['site_findings', 'site_restored', 'site_power']);
+        $this->act($this->technician, $outage, 'site_photos')->assertStatus(422)->assertJsonValidationErrors('photos');
+        $this->act($this->technician, $outage, 'site_photos', ['site_findings' => UploadedFile::fake()->create('shell.php', 10, 'application/x-php')])
+            ->assertStatus(422)->assertJsonValidationErrors('site_findings');
+        $this->assertSame(0, OutagePhoto::query()->count());
+
+        // The findings are photographed on arrival, before the repair: the phone says when.
+        $takenAt = now()->subMinutes(40);
+        $this->act($this->technician, $outage, 'site_photos', [
+            'site_findings' => UploadedFile::fake()->image('findings.jpg', 1200, 900), 'site_findings_taken_at' => $takenAt->toIso8601String(),
+        ])->assertOk()->assertJsonPath('message', 'Saved — still to take: After restoration, Power readings');
+
+        $findings = OutagePhoto::query()->sole();
+        $this->assertSame([OutagePhoto::SITE, 'findings', OutagePhoto::SOURCE_CAMERA, $this->technician->id], [$findings->stage, $findings->position, $findings->source, $findings->user_id]);
+        $this->assertSame($takenAt->toDateTimeString(), $findings->taken_at->toDateTimeString(), 'when the camera took it, in server time');
+        Storage::disk('local')->assertExists($findings->path);
+
+        $detail = $this->fixture('ticket_outage_site_photos', $this->api($this->technician, 'GET', "tickets/{$outage->id}")->assertOk());
+        $this->assertSame('Site photos (1 of 3)', collect($detail->json('ticket.actions'))->firstWhere('key', 'site_photos')['label']);
+        $this->assertSame(
+            ['restored_at', 'note', 'site_restored', 'site_power'],
+            array_column(collect($detail->json('ticket.actions'))->firstWhere('key', 'report_restored')['fields'], 'name'),
+            'only the photos still missing are asked for',
+        );
+        $shown = collect($detail->json('ticket.attachments'))->firstWhere('label', 'Findings on ground');
+        $this->assertSame($takenAt->toIso8601String(), $shown['at']);
+        $this->api($this->technician, 'GET', str_replace(url('/api/v1'), '', $shown['url']))->assertOk();
+        $this->assertContains('Site photo added — Findings on ground. Still to take: After restoration, Power readings.', array_column($detail->json('ticket.timeline'), 'body'));
+
+        // Still one short: refused, and nothing is half-saved.
+        $this->act($this->technician, $outage, 'report_restored', ['note' => 'Spliced', 'site_restored' => UploadedFile::fake()->image('after.jpg')])
+            ->assertStatus(422)->assertJsonValidationErrors('site_power');
+        $this->assertSame(1, OutagePhoto::query()->count());
+
+        $restored = $this->fixture('action_report_restored', $this->act($this->technician, $outage, 'report_restored', [
+            'note' => 'Core respliced, light levels normal', 'restored_at' => now()->subMinutes(3)->toIso8601String(),
+            'site_restored' => UploadedFile::fake()->image('after.jpg', 1200, 900), 'site_restored_taken_at' => now()->subMinutes(4)->toIso8601String(),
+            // A phone whose clock runs ahead cannot date a photo in the future.
+            'site_power' => UploadedFile::fake()->image('power.jpg', 1200, 900), 'site_power_taken_at' => now()->addDay()->toIso8601String(),
+        ]))->assertOk()->assertJsonPath('ticket.status.code', StatusCode::RestoreReported->value);
+        $this->assertSame([], $outage->refresh()->missingSitePhotos());
+        $this->assertSame(now()->toDateTimeString(), OutagePhoto::query()->where('position', 'power')->sole()->taken_at->toDateTimeString());
+        $this->assertSame(
+            ['Findings on ground', 'After restoration', 'Power readings'],
+            array_slice(array_column($restored->json('ticket.attachments'), 'label'), 0, 3),
+        );
         // Nothing left to do for the technician; the ticket is "pending confirmation" and still readable.
         $this->assertSame([], $restored->json('ticket.actions'));
         $this->assertSame(now()->subMinutes(3)->toDateTimeString(), $outage->refresh()->restored_at->toDateTimeString(), 'the phone\'s time is stored in server time');

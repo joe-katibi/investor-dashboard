@@ -185,27 +185,73 @@ trait ManagesFieldMaintenance
     private function requirePhotos(array $photos, string $stage): void
     {
         foreach (array_keys(OutagePhoto::POSITIONS) as $position) {
-            $path = is_array($photos[$position] ?? null) ? reset($photos[$position]) : ($photos[$position] ?? null);
-
-            if (! is_string($path) || ! Str::startsWith($path, 'outage-photos/') || str_contains($path, '..') || ! Storage::disk('local')->exists($path)) {
+            if ($this->photoPath($photos[$position] ?? null) === null) {
                 throw ValidationException::withMessages(["photos.{$position}" => 'Add the '.$stage.' photo '.Str::lower(OutagePhoto::POSITIONS[$position]).'.']);
             }
         }
     }
 
-    /** @return Collection<int, OutagePhoto> */
+    /**
+     * $photos, for each position: the stored path (or the upload field's one-file list), and optionally
+     * "{position}_name" (file name), "{position}_taken_at" (when the camera took it) and
+     * "{position}_source" — or one "source" for all of them (camera | upload).
+     *
+     * @return Collection<int, OutagePhoto>
+     */
     private function storeSitePhotos(Outage $outage, User $by, string $stage, array $photos): Collection
     {
         $this->requirePhotos($photos, $stage);
 
-        return collect(array_keys(OutagePhoto::POSITIONS))->map(fn (string $position) => OutagePhoto::query()->create([
+        return collect(array_keys(OutagePhoto::POSITIONS))->map(fn (string $position) => $this->createPhoto($outage, $by, $stage, $position, $photos));
+    }
+
+    /**
+     * The site photos of an Emergency / Regular outage that were handed in — any of the three.
+     * Same input as {@see storeSitePhotos()}, with the positions of OutagePhoto::SITE_PHOTOS.
+     *
+     * @return Collection<int, OutagePhoto> the photos added now
+     */
+    private function storeOutagePhotos(Outage $outage, User $by, array $photos): Collection
+    {
+        return collect(array_keys(OutagePhoto::SITE_PHOTOS))
+            ->filter(fn (string $position) => filled($photos[$position] ?? null))
+            ->map(function (string $position) use ($outage, $by, $photos): OutagePhoto {
+                $path = $this->photoPath($photos[$position]);
+
+                if ($path === null) {
+                    throw ValidationException::withMessages(["photos.{$position}" => 'The photo “'.OutagePhoto::SITE_PHOTOS[$position][0].'” could not be saved. Add it again.']);
+                }
+
+                return $this->createPhoto($outage, $by, OutagePhoto::SITE, $position, $photos);
+            })->values();
+    }
+
+    private function createPhoto(Outage $outage, User $by, string $stage, string $position, array $photos): OutagePhoto
+    {
+        $source = $photos[$position.'_source'] ?? $photos['source'] ?? OutagePhoto::SOURCE_UPLOAD;
+        $takenAt = $photos[$position.'_taken_at'] ?? null;
+
+        return OutagePhoto::query()->create([
             'outage_id' => $outage->id,
             'stage' => $stage,
             'position' => $position,
-            'path' => is_array($photos[$position]) ? reset($photos[$position]) : $photos[$position],
+            'path' => $this->photoPath($photos[$position]),
             'original_name' => $photos[$position.'_name'] ?? null,
+            // Only the camera knows when a picture was taken; an uploaded file is dated by its upload.
+            'taken_at' => $source === OutagePhoto::SOURCE_CAMERA && filled($takenAt) ? $takenAt : null,
+            'source' => $source === OutagePhoto::SOURCE_CAMERA ? OutagePhoto::SOURCE_CAMERA : OutagePhoto::SOURCE_UPLOAD,
             'user_id' => $by->id,
-        ]));
+        ]);
+    }
+
+    /** A photo already stored under outage-photos/ on the private disk — nothing else is accepted. */
+    private function photoPath(mixed $value): ?string
+    {
+        $path = is_array($value) ? reset($value) : $value;
+
+        return is_string($path) && Str::startsWith($path, 'outage-photos/') && ! str_contains($path, '..') && Storage::disk('local')->exists($path)
+            ? $path
+            : null;
     }
 
     private function hasAfterPhotos(Outage $outage): bool

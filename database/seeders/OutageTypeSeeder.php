@@ -31,6 +31,8 @@ class OutageTypeSeeder extends Seeder
                 'prefix' => $prefix,
                 'is_planned' => $planned,
                 'is_emergency' => $emergency,
+                // Reported restored with the three site photos (findings, after restoration, power readings).
+                'requires_site_photos' => in_array($code, ['regular', 'emergency'], true),
                 'maintenance_kind' => $kind,
                 'sort_order' => $sort,
                 'is_active' => true,

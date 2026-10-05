@@ -104,6 +104,12 @@ class OutagePolicy
                 StatusCode::MaintenanceRequested, StatusCode::CrfPendingSignoff, StatusCode::CxCustomerNotification);
     }
 
+    /** The site photos are added by whoever will report the outage restored, while the work is going on. */
+    public function addSitePhotos(User $user, Outage $outage): bool
+    {
+        return $outage->requiresSitePhotos() && $this->reportRestored($user, $outage);
+    }
+
     public function confirmRestoration(User $user, Outage $outage): bool
     {
         return $user->can('outage.confirm_restoration')

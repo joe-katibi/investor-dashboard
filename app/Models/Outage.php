@@ -261,6 +261,36 @@ class Outage extends Model
         return $this->hasMany(OutagePhoto::class)->orderBy('id');
     }
 
+    /**
+     * An Emergency / Regular outage worked by a field team is reported restored with the three
+     * site photos (which types: "Site photos required" on the outage type).
+     */
+    public function requiresSitePhotos(): bool
+    {
+        return OutageType::requiresSitePhotos($this->outage_type_id)
+            && $this->maintenance_kind === null
+            && MajorOutageType::flags($this->major_outage_type_id)['requires_infrastructure'];
+    }
+
+    /**
+     * The three site photos in the order they are taken; a photo taken again replaces the earlier one.
+     *
+     * @return array<string, ?OutagePhoto> position => photo
+     */
+    public function sitePhotos(): array
+    {
+        $taken = $this->photos()->where('stage', OutagePhoto::SITE)->with('user:id,name')->get()->keyBy('position');
+
+        return collect(array_keys(OutagePhoto::SITE_PHOTOS))->mapWithKeys(fn (string $position) => [$position => $taken->get($position)])->all();
+    }
+
+    /** @return array<string, string> position => label of the site photos still to be taken */
+    public function missingSitePhotos(): array
+    {
+        return collect($this->sitePhotos())->filter(fn (?OutagePhoto $photo) => $photo === null)
+            ->map(fn ($photo, string $position) => OutagePhoto::SITE_PHOTOS[$position][0])->all();
+    }
+
     public function maintenanceApprovals(): HasMany
     {
         return $this->hasMany(MaintenanceApproval::class)->orderBy('id');

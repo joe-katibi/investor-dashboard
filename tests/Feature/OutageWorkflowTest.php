@@ -131,7 +131,7 @@ class OutageWorkflowTest extends TestCase
         // Technician works and reports restoration → NOC restore queue
         Auth::setUser($tech);
         $workflow->addUpdate($outage, $tech, 'On site');
-        $outage = $workflow->reportRestored($outage, $tech, 'Spliced');
+        $outage = $workflow->reportRestored($this->withSitePhotos($outage, $tech), $tech, 'Spliced');
         $this->assertTrue($outage->status->isCode(StatusCode::RestoreReported));
         $this->assertSame($noc->id, $outage->current_assignee_id);
 
