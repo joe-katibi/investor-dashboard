@@ -7,12 +7,12 @@ use App\Models\Enodeb;
 use App\Models\TransmissionNode;
 use App\Models\Vendor;
 use App\Support\AuditContext;
+use App\Support\InMemorySharedStrings;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 use OpenSpout\Reader\CSV\Reader as CsvReader;
-use OpenSpout\Reader\XLSX\Reader as XlsxReader;
 
 /**
  * Imports the 4G topology from the NOC workbook (XLSX with both sheets, or one CSV per sheet):
@@ -96,7 +96,7 @@ class MobilityTopologyImporter
         }
 
         $reader = match (Str::lower(pathinfo($path, PATHINFO_EXTENSION))) {
-            'xlsx' => new XlsxReader,
+            'xlsx' => InMemorySharedStrings::reader(),
             'csv', 'txt' => new CsvReader,
             default => throw new InvalidArgumentException('Use an .xlsx or .csv file.'),
         };

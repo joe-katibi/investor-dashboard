@@ -474,9 +474,10 @@ final class MobileActions
                     return [
                         $this->select('final_reason_id', 'Final reason', $this->options(TicketActions::finalReasons('visit')), required: true),
                         $this->text('fat_number', 'FAT number', required: $evidence, max: 60, default: $ticket?->fat_number),
-                        $this->photo('geo_photo', 'Geolocation photo', 'Photo with the location stamp at the customer premise.',
+                        // Taken on the spot, with the camera only: nothing from the gallery.
+                        $this->photo('geo_photo', 'Geolocation photo', 'Photo with the location stamp at the customer premise.', camera: true,
                             required: $evidence && ! $outage->attachments()->where('kind', 'geo_photo')->exists()),
-                        $this->photo('speed_photo', 'Speed test photo', 'Screenshot / photo of the speed test after the fix.',
+                        $this->photo('speed_photo', 'Speed test photo', 'Photo of the speed test result after the fix.', camera: true,
                             required: $evidence && ! $outage->attachments()->where('kind', 'speed_test')->exists()),
                         $this->textarea('resolution_notes', 'Work done', required: true, max: 5000),
                         $this->text('onu_type', 'ONU type used', max: 60),
@@ -605,7 +606,8 @@ final class MobileActions
                 'visible' => $can('ticketAttach') && ($holding || MobileProfile::dispatchQueues($user) !== []),
                 'label' => 'Add photos',
                 'fields' => fn () => [
-                    $this->photos('files', 'Photos', required: true),
+                    // On a site visit the photos are evidence of the work: taken there, with the camera only.
+                    $this->photos('files', 'Photos', required: true, camera: $outage->isSiteVisit()),
                     $this->select('kind', 'What is it?', [
                         ['value' => 'geo_photo', 'label' => 'Geolocation photo'],
                         ['value' => 'speed_test', 'label' => 'Speed test photo'],
@@ -717,9 +719,9 @@ final class MobileActions
         return $photos;
     }
 
-    private function photos(string $name, string $label, bool $required = false): array
+    private function photos(string $name, string $label, bool $required = false, bool $camera = false): array
     {
-        return ['name' => $name, 'type' => 'photos', 'label' => $label, 'required' => $required, 'max_files' => 8, 'max_kb' => (int) config('oms.mobile.max_upload_kb')];
+        return ['name' => $name, 'type' => 'photos', 'label' => $label, 'required' => $required, 'max_files' => 8, 'max_kb' => (int) config('oms.mobile.max_upload_kb'), 'capture' => $camera ? 'camera' : 'any'];
     }
 
     /**

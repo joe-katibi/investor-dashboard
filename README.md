@@ -574,6 +574,35 @@ created, nothing is removed, and a preview mode saves nothing. When an agent rai
 looked up: found, the form fills in the customer; **not found, the agent types the details and a provisional customer
 is created — the next import completes it and links the earlier tickets** (position and region).
 
+*Importing a full customer list* (a hundred thousand rows and more):
+
+* **In the background.** *Import customers* answers at once and the outcome arrives as a notification (the bell) —
+  a few seconds for a small file, a minute or two for a full list (143,000 rows: about a minute and a half,
+  ~160 MB). One import at a time. The work runs in the web server's PHP process after the page has answered, so it
+  needs no queue worker; restarting PHP-FPM in the middle stops it (nothing is half-saved: the import is one
+  transaction).
+* **From the command line** for a file the site will not take (upload limits), or to keep a record of the run:
+
+  ```bash
+  php artisan oms:import-customers /path/to/customers.xlsx --preview
+  php artisan oms:import-customers /path/to/customers.xlsx --keep-incomplete
+  ```
+
+* **Rows that stop an import** — an empty or repeated account number, a slot or port that is not a number, an OLT
+  or FDT name over 120 characters. *Nothing* is imported; every such row is counted and the first 200 are listed.
+* **Rows with an incomplete position** — a slot without an FDT, a port without a slot, an FDT without an OLT.
+  By default they stop the import too; with *Import those customers with the part that is complete*
+  (`--keep-incomplete`) the customer is saved with the OLT (or the OLT and FDT) the file does give, nothing is
+  invented, and the report says how many there were.
+* **Over-long descriptive values** (a name over 190 characters, as a rule notes typed into it) are cut to fit and
+  counted, never a reason to stop.
+* **Uploading**: the site takes what PHP and nginx allow (`upload_max_filesize`, `post_max_size`,
+  `client_max_body_size`) and Livewire's own 12 MB; a .csv of the same list is a fraction of the .xlsx and reads
+  several times faster.
+* Large workbooks are read with their text table held in memory (`App\Support\InMemorySharedStrings`): the
+  spreadsheet library's default — temporary files of 10,000 texts, reloaded for almost every cell of a customer
+  list — took over ten minutes for 143,000 rows.
+
 **Desks.** A ticket is always at one desk (a FIFO queue): CX Tier II, Billing, Billing Manager, Commercial / Sales
 Admin, CX Manager, CX Frontline Follow-up, NOC, Site Visit Dispatch, Site Visit Technician, Infrastructure Support
 Dispatch / Technician, Design, Access, CX Field Support — plus the parallel *Pending Ticket Follow-up* queue. Each desk
@@ -942,7 +971,8 @@ decided here on every request — never by anything the app sends.
   handles transmission; *technician*: any other field queue (outage, support, site visit, infra support, 4G
   eNodeB). Anyone else gets *"Your account is not authorized to use the mobile application."*
 * **Camera-only photos** — a photo field with `"capture": "camera"` (the three site photos of an Emergency /
-  Regular outage, the two "after" photos of field maintenance) must be taken there and then: the app offers no
+  Regular outage, the two "after" photos of field maintenance, and on a site visit the geolocation photo, the
+  speed-test photo and any photo added to the visit) must be taken there and then: the app offers no
   gallery, stamps the time on the picture and sends it as `{field}_taken_at`. A time in the future (a phone whose
   clock runs ahead) is replaced by the server's own. Other photo fields say `"capture": "any"`.
 * **Which tickets** — a dispatcher sees the tickets of the kinds they dispatch; a technician or engineer only the
@@ -1204,6 +1234,7 @@ tests/Feature/             FIFO, workflow, SLA, reports, panel & security tests
 | `queue:prune-failed`, `queue:prune-batches` | daily | Housekeeping |
 | `oms:create-admin` | manual | Create a Super Admin |
 | `oms:import-topology {file} [--dry-run] [--missing=keep\|deactivate\|remove]` | manual | Import the OLT → FDT → Slot → Port mapping |
+| `oms:import-customers {file} [--preview] [--keep-incomplete]` | manual | Import the customer list (same import as *Customers → Import customers*; for files too large to upload) |
 | `oms:purge-outages [--force]` | manual | **Delete all outage tickets** and their data (history, queues, notifications, CRFs, photos) and restart ticket numbering. Asks you to type PURGE; back up first |
 
 All scheduled tasks use `onOneServer()` and `withoutOverlapping()`.

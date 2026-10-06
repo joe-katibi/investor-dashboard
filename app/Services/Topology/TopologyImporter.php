@@ -9,12 +9,12 @@ use App\Models\Port;
 use App\Models\Slot;
 use App\Models\Vertical;
 use App\Support\AuditContext;
+use App\Support\InMemorySharedStrings;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 use OpenSpout\Reader\CSV\Reader as CsvReader;
-use OpenSpout\Reader\XLSX\Reader as XlsxReader;
 
 /**
  * Imports the OLT → FDT → Slot → Port mapping from a spreadsheet (XLSX or CSV) with the columns
@@ -88,7 +88,7 @@ class TopologyImporter
 
         $extension = Str::lower(pathinfo($path, PATHINFO_EXTENSION));
         $reader = match ($extension) {
-            'xlsx' => new XlsxReader,
+            'xlsx' => InMemorySharedStrings::reader(),
             'csv', 'txt' => new CsvReader,
             default => throw new InvalidArgumentException('Use an .xlsx or .csv file.'),
         };

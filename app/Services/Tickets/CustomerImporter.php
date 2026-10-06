@@ -13,12 +13,12 @@ use App\Models\Ticket;
 use App\Models\Vertical;
 use App\Services\Topology\DryRunRollback;
 use App\Support\AuditContext;
+use App\Support\InMemorySharedStrings;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 use OpenSpout\Reader\CSV\Reader as CsvReader;
-use OpenSpout\Reader\XLSX\Reader as XlsxReader;
 
 /**
  * Imports the customer file (XLSX or CSV, header row, columns in any order):
@@ -52,15 +52,31 @@ class CustomerImporter
         'email' => ['email', 'emailaddress'],
     ];
 
+    /** Only this many problem rows are listed; all of them are counted ("error_rows"). */
+    public const ERRORS_LISTED = 200;
+
     /**
-     * @return array{rows: int, created: int, updated: int, unchanged: int, topology: array<string, int>, regions: int, tickets_linked: int, errors: list<string>, dry_run: bool}
+     * What each descriptive column can hold. A longer value (notes typed into the name, as a rule)
+     * is cut to fit and counted ("shortened") rather than stopping a whole customer list.
      */
-    public function import(string $path, bool $dryRun = false): array
+    public const LIMITS = [
+        'name' => 190, 'phone' => 40, 'alt_phone_1' => 40, 'alt_phone_2' => 40,
+        'email' => 255, 'address' => 255, 'landmark' => 255, 'bandwidth' => 60,
+    ];
+
+    /**
+     * @param  bool  $keepIncomplete  a row whose network position is incomplete (a slot without an FDT, a port
+     *                                without a slot, an FDT without an OLT) is imported with the part that is
+     *                                complete instead of stopping the import; "incomplete" counts those rows
+     * @return array{rows: int, created: int, updated: int, unchanged: int, topology: array<string, int>, regions: int, tickets_linked: int, incomplete: int, shortened: int, errors: list<string>, error_rows: int, dry_run: bool}
+     */
+    public function import(string $path, bool $dryRun = false, bool $keepIncomplete = false): array
     {
-        [$rows, $errors] = $this->read($path);
+        $this->makeRoom();
+        [$rows, $errors, $errorRows, $incomplete, $shortened] = $this->read($path, $keepIncomplete);
 
         if ($errors !== []) {
-            return $this->report(count($rows) + count($errors), errors: $errors, dryRun: $dryRun);
+            return $this->report(count($rows) + $errorRows, errors: $errors, dryRun: $dryRun, errorRows: $errorRows, incomplete: $incomplete, shortened: $shortened);
         }
 
         if ($rows === []) {
@@ -70,8 +86,8 @@ class CustomerImporter
         $report = null;
 
         try {
-            DB::transaction(function () use ($rows, $dryRun, &$report): void {
-                $report = AuditContext::as('customer-import', fn () => $this->apply($rows, $dryRun));
+            DB::transaction(function () use ($rows, $dryRun, $incomplete, $shortened, &$report): void {
+                $report = AuditContext::as('customer-import', fn () => $this->apply($rows, $dryRun, $incomplete, $shortened));
 
                 if ($dryRun) {
                     throw new DryRunRollback;
@@ -84,15 +100,15 @@ class CustomerImporter
         return $report;
     }
 
-    /** @return array{0: list<array<string, mixed>>, 1: list<string>} */
-    public function read(string $path): array
+    /** @return array{0: list<array<string, mixed>>, 1: list<string>, 2: int, 3: int, 4: int} rows, problems listed, rows with a problem, rows with an incomplete position kept, values cut to fit */
+    public function read(string $path, bool $keepIncomplete = false): array
     {
         if (! is_file($path)) {
             throw new InvalidArgumentException("File not found: {$path}");
         }
 
         $reader = match (Str::lower(pathinfo($path, PATHINFO_EXTENSION))) {
-            'xlsx' => new XlsxReader,
+            'xlsx' => InMemorySharedStrings::reader(),
             'csv', 'txt' => new CsvReader,
             default => throw new InvalidArgumentException('Use an .xlsx or .csv file.'),
         };
@@ -100,6 +116,9 @@ class CustomerImporter
         $reader->open($path);
         $rows = [];
         $errors = [];
+        $errorRows = 0;
+        $incomplete = 0;
+        $shortened = 0;
         $columns = null;
         $seen = [];
 
@@ -124,6 +143,24 @@ class CustomerImporter
                     }
 
                     $record['account'] = Customer::normaliseAccount($record['account']);
+
+                    // A position is OLT › FDT › slot › port: each level hangs on the one before it.
+                    $gap = match (true) {
+                        ($record['fdt'] ?? '') !== '' && ($record['olt'] ?? '') === '' => 'FDT given without an OLT',
+                        ($record['slot'] ?? '') !== '' && ($record['fdt'] ?? '') === '' => 'SLOT given without an FDT',
+                        ($record['port'] ?? '') !== '' && ($record['slot'] ?? '') === '' => 'PORT given without a SLOT',
+                        default => null,
+                    };
+
+                    if ($gap && $keepIncomplete) {
+                        // Keep the customer and the part of the position that is complete.
+                        $record['fdt'] = ($record['olt'] ?? '') === '' ? '' : ($record['fdt'] ?? '');
+                        $record['slot'] = $record['fdt'] === '' ? '' : ($record['slot'] ?? '');
+                        $record['port'] = $record['slot'] === '' ? '' : ($record['port'] ?? '');
+                        $incomplete++;
+                        $gap = null;
+                    }
+
                     $slot = $record['slot'] ?? '';
                     $port = $record['port'] ?? '';
 
@@ -131,20 +168,28 @@ class CustomerImporter
                         $record['account'] === '' => 'the account number (ONU Name) is empty',
                         mb_strlen($record['account']) > 60 => 'the account number is longer than 60 characters',
                         isset($seen[$record['account']]) => "account {$record['account']} is also on row {$seen[$record['account']]}",
+                        mb_strlen($record['olt'] ?? '') > 120 => 'the OLT name is longer than 120 characters',
+                        mb_strlen($record['fdt'] ?? '') > 120 => 'the FDT name is longer than 120 characters',
                         $slot !== '' && ! ctype_digit($slot) => "SLOT '{$slot}' is not a number",
                         $port !== '' && ! ctype_digit($port) => "PORT '{$port}' is not a number",
-                        ($record['fdt'] ?? '') !== '' && ($record['olt'] ?? '') === '' => 'FDT given without an OLT',
-                        $slot !== '' && ($record['fdt'] ?? '') === '' => 'SLOT given without an FDT',
-                        $port !== '' && $slot === '' => 'PORT given without a SLOT',
-                        default => null,
+                        default => $gap,
                     };
 
                     if ($problem) {
-                        if (count($errors) < 200) {
+                        $errorRows++;
+
+                        if (count($errors) < self::ERRORS_LISTED) {
                             $errors[] = "Row {$line}: {$problem}";
                         }
 
                         continue;
+                    }
+
+                    foreach (self::LIMITS as $key => $limit) {
+                        if (mb_strlen($record[$key] ?? '') > $limit) {
+                            $record[$key] = rtrim(mb_substr($record[$key], 0, $limit));
+                            $shortened++;
+                        }
                     }
 
                     $seen[$record['account']] = $line;
@@ -160,11 +205,11 @@ class CustomerImporter
             $reader->close();
         }
 
-        return [$rows, $errors];
+        return [$rows, $errors, $errorRows, $incomplete, $shortened];
     }
 
     /** @param list<array<string, mixed>> $rows */
-    private function apply(array $rows, bool $dryRun): array
+    private function apply(array $rows, bool $dryRun, int $incomplete = 0, int $shortened = 0): array
     {
         $key = fn (string ...$parts) => Str::lower(implode('|', $parts));
         $now = now();
@@ -185,8 +230,18 @@ class CustomerImporter
             ->keyBy('account_number');
 
         $inserts = [];
+        $inserted = 0;
         $updated = 0;
         $unchanged = 0;
+        // New customers are written 500 at a time as the file is walked, so a large file does not
+        // have to be held in memory twice.
+        $flush = function () use (&$inserts, &$inserted): void {
+            if ($inserts !== []) {
+                DB::table('customers')->insert($inserts);
+                $inserted += count($inserts);
+                $inserts = [];
+            }
+        };
 
         foreach ($rows as $row) {
             $oltId = $fdtId = $slotId = $portId = $regionId = null;
@@ -266,6 +321,10 @@ class CustomerImporter
                     'created_by' => $userId, 'updated_by' => $userId, 'created_at' => $now, 'updated_at' => $now,
                 ]);
 
+                if (count($inserts) >= 500) {
+                    $flush();
+                }
+
                 continue;
             }
 
@@ -290,20 +349,18 @@ class CustomerImporter
             $updated++;
         }
 
-        foreach (array_chunk($inserts, 500) as $chunk) {
-            DB::table('customers')->insert($chunk);
-        }
+        $flush();
 
         $linked = $this->linkTickets(array_column($rows, 'account'));
 
-        $report = $this->report(count($rows), count($inserts), $updated, $unchanged, $created, $newRegions, $linked, [], $dryRun);
+        $report = $this->report(count($rows), $inserted, $updated, $unchanged, $created, $newRegions, $linked, [], $dryRun, incomplete: $incomplete, shortened: $shortened);
 
         if (! $dryRun) {
             AuditLog::query()->create([
                 'auditable_type' => (new Customer)->getMorphClass(),
                 'auditable_id' => 0,
                 'event' => 'customers_imported',
-                'new_values' => array_diff_key($report, ['errors' => 1, 'dry_run' => 1]),
+                'new_values' => array_diff_key($report, ['errors' => 1, 'error_rows' => 1, 'dry_run' => 1]),
                 'user_id' => $userId,
                 'trigger' => AuditContext::trigger(),
                 'created_at' => $now,
@@ -398,7 +455,7 @@ class CustomerImporter
         return trim((string) preg_replace('/\s+/u', ' ', is_scalar($value) ? (string) $value : ''));
     }
 
-    private function report(int $rows, int $created = 0, int $updated = 0, int $unchanged = 0, array $topology = [], int $regions = 0, int $linked = 0, array $errors = [], bool $dryRun = false): array
+    private function report(int $rows, int $created = 0, int $updated = 0, int $unchanged = 0, array $topology = [], int $regions = 0, int $linked = 0, array $errors = [], bool $dryRun = false, int $errorRows = 0, int $incomplete = 0, int $shortened = 0): array
     {
         return [
             'rows' => $rows,
@@ -408,8 +465,28 @@ class CustomerImporter
             'topology' => $topology + ['olts' => 0, 'fdts' => 0, 'slots' => 0, 'ports' => 0],
             'regions' => $regions,
             'tickets_linked' => $linked,
+            'incomplete' => $incomplete,
+            'shortened' => $shortened,
             'errors' => $errors,
+            'error_rows' => max($errorRows, count($errors)),
             'dry_run' => $dryRun,
         ];
+    }
+
+    /**
+     * A customer list of a hundred thousand rows needs a few hundred megabytes while it is checked
+     * and written, and more than the usual half minute. Neither limit is ever lowered.
+     */
+    private function makeRoom(): void
+    {
+        $limit = ini_parse_quantity((string) ini_get('memory_limit'));
+
+        if ($limit > 0 && $limit < 1024 * 1024 * 1024) {
+            @ini_set('memory_limit', '1024M');
+        }
+
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(0);
+        }
     }
 }

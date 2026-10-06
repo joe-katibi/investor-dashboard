@@ -408,6 +408,11 @@ class MobileApiTest extends TestCase
         $this->assertTrue($fields['fat_number']['required']);
         $this->assertSame('photo', $fields['geo_photo']['type']);
         $this->assertTrue($fields['geo_photo']['required']);
+        // The evidence of a visit is photographed on the spot: camera only, nothing from the gallery —
+        // the two photos of the completion and any photo added to the visit.
+        $this->assertSame(['camera', 'camera'], [$fields['geo_photo']['capture'], $fields['speed_photo']['capture']]);
+        $attach = collect($this->api($technician, 'GET', "tickets/{$visit->id}")->json('ticket.actions'))->firstWhere('key', 'ticket_attach');
+        $this->assertSame('camera', collect($attach['fields'])->firstWhere('name', 'files')['capture']);
         $reason = $fields['final_reason_id']['options'][0]['value'];
 
         // Evidence is mandatory, and a "photo" must really be an image.
