@@ -1119,6 +1119,9 @@ php artisan oms:import-users /path/to/emails.csv --role="CX Agent" --department=
   never printed, logged or reported; afterwards the file is the only place they exist in the clear — delete it.
 * **People who already have an account** (same e-mail) are left as they are; `--update` applies what the file
   says (name, username, phone, department, status) and adds roles and teams. A password is never changed.
+* **A username that already belongs to another account** (another e-mail address — as a rule the same person,
+  registered earlier under a private address) stops the import; `--skip-existing` leaves those rows out, lists
+  them with the address of the earlier account, and imports the rest.
 * **All or nothing.** Any bad row (invalid or repeated address, unknown role, username in use, weak password)
   and no account is created; every such row is listed.
 * New accounts are active, with a verified address, and *Offline* for FIFO until the person sets themselves
@@ -1267,7 +1270,7 @@ tests/Feature/             FIFO, workflow, SLA, reports, panel & security tests
 | `oms:prune-expired-cache` (scheduled closure) | hourly | Clean expired rows when the database cache driver is used |
 | `queue:prune-failed`, `queue:prune-batches` | daily | Housekeeping |
 | `oms:create-admin` | manual | Create a Super Admin |
-| `oms:import-users {file} [--preview] [--role=] [--department=] [--team=] [--random-passwords] [--allow-weak-passwords] [--update]` | manual | Create user accounts from a staff list — see [Importing users](#importing-users) |
+| `oms:import-users {file} [--preview] [--role=] [--department=] [--team=] [--random-passwords] [--allow-weak-passwords] [--skip-existing] [--update]` | manual | Create user accounts from a staff list — see [Importing users](#importing-users) |
 | `oms:import-topology {file} [--dry-run] [--missing=keep\|deactivate\|remove]` | manual | Import the OLT → FDT → Slot → Port mapping |
 | `oms:import-customers {file} [--preview] [--keep-incomplete]` | manual | Import the customer list (same import as *Customers → Import customers*; for files too large to upload) |
 | `oms:purge-outages [--force]` | manual | **Delete all outage tickets** and their data (history, queues, notifications, CRFs, photos) and restart ticket numbering. Asks you to type PURGE; back up first |

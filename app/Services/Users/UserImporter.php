@@ -51,14 +51,14 @@ class UserImporter
 
     /**
      * @param  array{dry_run?: bool, update?: bool, department?: ?string, roles?: ?string, teams?: ?string,
-     *     random_passwords?: bool, allow_weak_passwords?: bool}  $options
-     * @return array{rows: int, created: int, updated: int, skipped: int, names_from_email: int, usernames_made: int,
+     *     random_passwords?: bool, allow_weak_passwords?: bool, skip_taken_usernames?: bool}  $options
+     * @return array{rows: int, created: int, updated: int, skipped: int, skipped_usernames: list<string>, names_from_email: int, usernames_made: int,
      *     random_passwords: int, weak_passwords: int, errors: list<string>, error_rows: int, dry_run: bool}
      */
     public function import(string $path, array $options = []): array
     {
-        $options += ['dry_run' => false, 'update' => false, 'department' => null, 'roles' => null, 'teams' => null, 'random_passwords' => false, 'allow_weak_passwords' => false];
-        $report = ['rows' => 0, 'created' => 0, 'updated' => 0, 'skipped' => 0, 'names_from_email' => 0, 'usernames_made' => 0,
+        $options += ['dry_run' => false, 'update' => false, 'department' => null, 'roles' => null, 'teams' => null, 'random_passwords' => false, 'allow_weak_passwords' => false, 'skip_taken_usernames' => false];
+        $report = ['rows' => 0, 'created' => 0, 'updated' => 0, 'skipped' => 0, 'skipped_usernames' => [], 'names_from_email' => 0, 'usernames_made' => 0,
             'random_passwords' => 0, 'weak_passwords' => 0, 'errors' => [], 'error_rows' => 0, 'dry_run' => (bool) $options['dry_run']];
 
         $people = $this->prepare($this->read($path), $options, $report);
@@ -220,6 +220,8 @@ class UserImporter
         $existing = User::query()->toBase()->get(['id', 'email', 'username']);
         $byEmail = $existing->keyBy(fn ($user) => Str::lower($user->email));
         $usernames = $existing->mapWithKeys(fn ($user) => [Str::lower($user->username) => Str::lower($user->email)])->all();
+        // Usernames of the accounts that exist already (not those of other rows of this file).
+        $taken = $usernames;
 
         $people = [];
         $seen = [];
@@ -259,6 +261,15 @@ class UserImporter
                 }
                 $report['usernames_made']++;
             }
+            // The file's username belongs to an account with another e-mail address — as a rule the
+            // same person, registered earlier under a private address. On request the row is left out.
+            if ($options['skip_taken_usernames'] && $username !== '' && ! $current && isset($taken[$username]) && $taken[$username] !== $email) {
+                $report['skipped']++;
+                $report['skipped_usernames'][] = "Row {$line}: “{$username}” already has an account ({$taken[$username]})";
+
+                continue;
+            }
+
             if ($username !== '') {
                 if (! preg_match('/^[\pL\pM\pN_-]+$/u', $username) || mb_strlen($username) > 60) {
                     $problems[] = 'the username may only have letters, numbers, dashes and underscores (60 at most)';

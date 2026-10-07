@@ -15,6 +15,7 @@ use InvalidArgumentException;
     {--team= : Team(s) for rows that do not name any, separated by commas}
     {--random-passwords : Ignore the Password column: every new account gets a long random password and the person sets their own with "Forgot your password?" on the sign-in page}
     {--allow-weak-passwords : Accept passwords from the file that do not meet the system\'s password rule}
+    {--skip-existing : Leave out rows whose username already belongs to an account with another e-mail address (as a rule the same person, registered earlier) instead of stopping; they are listed}
     {--update : Also update people who already have an account (name, username, phone, department, status from the file; roles and teams are added). Their password is never changed}')]
 #[Description('Create user accounts from a staff list of e-mail addresses — the name and username are read from the address when the file does not give them (safe to re-run)')]
 class ImportUsersCommand extends Command
@@ -30,6 +31,7 @@ class ImportUsersCommand extends Command
                 'teams' => $this->option('team'),
                 'random_passwords' => (bool) $this->option('random-passwords'),
                 'allow_weak_passwords' => (bool) $this->option('allow-weak-passwords'),
+                'skip_taken_usernames' => (bool) $this->option('skip-existing'),
             ]);
         } catch (InvalidArgumentException $exception) {
             $this->error($exception->getMessage());
@@ -51,6 +53,12 @@ class ImportUsersCommand extends Command
                 }
             }
 
+            if (collect($report['errors'])->contains(fn (string $error) => str_contains($error, 'is already used by another person'))) {
+                $this->newLine();
+                $this->line('  A username that is already used is, as a rule, the same person registered earlier under another address:');
+                $this->line('    --skip-existing          leave those rows out and import the rest.');
+            }
+
             if ($report['weak_passwords'] > 0) {
                 $this->newLine();
                 $this->line("  {$report['weak_passwords']} password(s) in the file do not meet this system's password rule. Either:");
@@ -64,6 +72,13 @@ class ImportUsersCommand extends Command
         $this->info($report['dry_run'] ? 'PREVIEW ONLY — nothing was saved.' : 'Users imported.');
         $this->line("  {$report['rows']} people in the file: {$report['created']} account(s) ".($report['dry_run'] ? 'would be created' : 'created')
             .", {$report['updated']} updated, {$report['skipped']} already in the system and left as they are.");
+
+        if ($report['skipped_usernames'] !== []) {
+            $this->line('  Left out, because the username already belongs to an account with another e-mail address ('.count($report['skipped_usernames']).'):');
+            foreach ($report['skipped_usernames'] as $skipped) {
+                $this->line('    '.$skipped);
+            }
+        }
 
         if ($report['names_from_email'] || $report['usernames_made']) {
             $this->line("  {$report['names_from_email']} name(s) and {$report['usernames_made']} username(s) were read from the e-mail address.");

@@ -167,6 +167,44 @@ class UserImportTest extends TestCase
         $this->assertSame('sam-otieno-3', $this->user('sam_otieno@savannafibre.example')->username);
     }
 
+    public function test_a_row_whose_username_is_another_account_can_be_left_out(): void
+    {
+        // The same person, registered earlier under a private address.
+        $earlier = $this->makeUser('CX Agent', 'CX', attributes: ['username' => 'erick-kato', 'email' => 'erick.private@mail.example']);
+        $hash = $earlier->password;
+        $path = $this->file(
+            "Email,Username,Roles\n"
+            ."erick.kato@savannafibre.example,erick-kato,CX Agent\n"
+            ."new.person@savannafibre.example,new-person,CX Agent\n"
+            ."twin.one@savannafibre.example,twin,CX Agent\n"
+        );
+        $before = User::query()->count();
+
+        // As it is: stopped, with the way out named.
+        $this->artisan('oms:import-users', ['file' => $path, '--random-passwords' => true])
+            ->expectsOutputToContain('Row 2: the username “erick-kato” is already used by another person')
+            ->expectsOutputToContain('--skip-existing')
+            ->assertFailed();
+        $this->assertSame($before, User::query()->count());
+
+        // Left out on request; everyone else is created, and the rows left out are named.
+        $this->artisan('oms:import-users', ['file' => $path, '--random-passwords' => true, '--skip-existing' => true])
+            ->expectsOutputToContain('3 people in the file: 2 account(s) created, 0 updated, 1 already in the system')
+            ->expectsOutputToContain('Row 2: “erick-kato” already has an account (erick.private@mail.example)')
+            ->assertSuccessful();
+
+        $this->assertFalse(User::query()->where('email', 'erick.kato@savannafibre.example')->exists());
+        $this->assertSame(['erick.private@mail.example', $hash], [$earlier->refresh()->email, $earlier->password], 'the earlier account is untouched');
+        $this->assertTrue(User::query()->where('email', 'new.person@savannafibre.example')->exists());
+
+        // Two rows of the same file wanting one username is still a mistake in the file.
+        $twins = $this->file("Email,Username\na.one@savannafibre.example,same-name\nb.two@savannafibre.example,same-name\n");
+        $report = app(UserImporter::class)->import($twins, ['random_passwords' => true, 'skip_taken_usernames' => true]);
+        $this->assertSame(['Row 3: the username “same-name” is already used by another person'], $report['errors']);
+        @unlink($path);
+        @unlink($twins);
+    }
+
     public function test_passwords_of_the_file_must_meet_the_password_rule_unless_told_otherwise(): void
     {
         // The rule of a live system.
