@@ -1090,6 +1090,40 @@ The role seeder only **adds** missing permissions to existing roles (it never re
 installation review *Support/Installation Technician* — it no longer needs `queue.work_technician`,
 `outage.update_restoration` or `outage.change_status` now that it works its own Support Technician queue.
 
+## Importing users
+
+Accounts for a whole team from a staff list (.xlsx or .csv). **An e-mail address is enough** — the rest is optional:
+
+```
+Email | Name | Username | Password | Department | Roles | Team | Status | Phone
+```
+
+```bash
+# what would happen — nothing is saved
+php artisan oms:import-users /path/to/staff.xlsx --preview
+
+# a bare list of addresses: everything else from the command
+php artisan oms:import-users /path/to/emails.csv --role="CX Agent" --department=CX --team="Customer Experience" --random-passwords
+```
+
+* **Name and username from the address** when the file does not give them: `john.doe@…` is *John Doe* /
+  `john-doe` (numbered when the username is taken). The e-mail column may be headed *Email*, *Mail*, *Column1*, or
+  have no heading at all (a plain list).
+* **Department, roles, team** — the cell, or `--department` / `--role` / `--team` for rows that leave it empty.
+  Matched without case against what exists; several roles or teams are separated by commas. Nothing is created
+  here: an unknown role, team or department is an error.
+* **Passwords.** A password from the file is stored hashed and must meet the system's password rule (production:
+  12 characters, upper and lower case, a number, a symbol). `--random-passwords` ignores the column — every
+  account gets a random password nobody knows and each person sets their own with *Forgot your password?*
+  (outgoing e-mail must work). `--allow-weak-passwords` accepts the file's passwords as they are. Passwords are
+  never printed, logged or reported; afterwards the file is the only place they exist in the clear — delete it.
+* **People who already have an account** (same e-mail) are left as they are; `--update` applies what the file
+  says (name, username, phone, department, status) and adds roles and teams. A password is never changed.
+* **All or nothing.** Any bad row (invalid or repeated address, unknown role, username in use, weak password)
+  and no account is created; every such row is listed.
+* New accounts are active, with a verified address, and *Offline* for FIFO until the person sets themselves
+  available. No e-mail is sent to them.
+
 ## Importing the network topology (OLT → FDT → Slot → Port)
 
 The mapping is a spreadsheet (`.xlsx` or `.csv`) whose first row is the header **OLT | FDT | SLOT | PORT** (one row
@@ -1233,6 +1267,7 @@ tests/Feature/             FIFO, workflow, SLA, reports, panel & security tests
 | `oms:prune-expired-cache` (scheduled closure) | hourly | Clean expired rows when the database cache driver is used |
 | `queue:prune-failed`, `queue:prune-batches` | daily | Housekeeping |
 | `oms:create-admin` | manual | Create a Super Admin |
+| `oms:import-users {file} [--preview] [--role=] [--department=] [--team=] [--random-passwords] [--allow-weak-passwords] [--update]` | manual | Create user accounts from a staff list — see [Importing users](#importing-users) |
 | `oms:import-topology {file} [--dry-run] [--missing=keep\|deactivate\|remove]` | manual | Import the OLT → FDT → Slot → Port mapping |
 | `oms:import-customers {file} [--preview] [--keep-incomplete]` | manual | Import the customer list (same import as *Customers → Import customers*; for files too large to upload) |
 | `oms:purge-outages [--force]` | manual | **Delete all outage tickets** and their data (history, queues, notifications, CRFs, photos) and restart ticket numbering. Asks you to type PURGE; back up first |
