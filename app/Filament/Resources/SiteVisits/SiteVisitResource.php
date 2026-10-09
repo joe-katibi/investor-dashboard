@@ -50,9 +50,21 @@ class SiteVisitResource extends Resource
         return parent::getEloquentQuery()->siteVisits();
     }
 
+    /** The search box at the top finds a ticket by its number, title, account number, customer name or phone. */
     public static function getGloballySearchableAttributes(): array
     {
-        return ['ticket_number', 'title'];
+        return TicketViews::GLOBAL_SEARCH;
+    }
+
+    public static function getGlobalSearchEloquentQuery(): Builder
+    {
+        return parent::getGlobalSearchEloquentQuery()->with(['ticket', 'status']);
+    }
+
+    /** @return array<string, string> */
+    public static function getGlobalSearchResultDetails(Model $record): array
+    {
+        return TicketViews::globalSearchDetails($record);
     }
 
     public static function getNavigationBadge(): ?string
@@ -67,13 +79,33 @@ class SiteVisitResource extends Resource
         return 'warning';
     }
 
+    /**
+     * Anyone who may view tickets can open a site visit they are sent to (My Work, a notification,
+     * the customer ticket it came from). The list, the menu entry and the search need "visit.view".
+     */
+    public static function canAccess(): bool
+    {
+        return (bool) Auth::user()?->can('ticket.view');
+    }
+
+    public static function shouldRegisterNavigation(): bool
+    {
+        return static::canViewAny();
+    }
+
+    public static function canGloballySearch(): bool
+    {
+        return parent::canGloballySearch() && static::canViewAny();
+    }
+
     public static function getAuthorizationResponse(string|UnitEnum $action, ?Model $record = null): Response
     {
         $action = $action instanceof UnitEnum ? ($action instanceof BackedEnum ? (string) $action->value : $action->name) : $action;
         $user = Auth::user();
 
         $allowed = $user !== null && match ($action) {
-            'viewAny' => $user->can('ticket.view'),
+            // The list and the menu entry have their own switch; a visit someone is sent to still opens.
+            'viewAny' => $user->can('ticket.view') && $user->can('visit.view'),
             'view' => $record ? $user->can('view', $record) : $user->can('ticket.view'),
             'create' => $user->can('createVisit', Outage::class),
             default => false,

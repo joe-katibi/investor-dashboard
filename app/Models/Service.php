@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
-#[Fillable(['name', 'vertical_id', 'description', 'is_active'])]
+#[Fillable(['name', 'vertical_id', 'review_team_id', 'description', 'is_active'])]
 class Service extends Model
 {
     use Auditable, HasAuditColumns;
@@ -23,6 +23,15 @@ class Service extends Model
     public function vertical(): BelongsTo
     {
         return $this->belongsTo(Vertical::class);
+    }
+
+    /**
+     * The team that reviews system outages of this system (Savbill → CRM Managers, CPaaS → CPaaS
+     * Manager). None: the IT desk reviews them.
+     */
+    public function reviewTeam(): BelongsTo
+    {
+        return $this->belongsTo(Team::class, 'review_team_id');
     }
 
     public function outages(): BelongsToMany

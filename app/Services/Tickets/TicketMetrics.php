@@ -96,6 +96,23 @@ class TicketMetrics
     }
 
     /**
+     * Tickets raised (entered into the system) in the window, newest first.
+     *
+     * @return Collection<int, array<string, mixed>>
+     */
+    public function raised(CarbonInterface $from, CarbonInterface $to, array $filters = []): Collection
+    {
+        return $this->filtered($this->detailed(), $filters)
+            ->whereNotIn('o.status_id', $this->voidIds())
+            ->whereBetween('o.created_at', [$from, $to])
+            ->orderByDesc('o.id')
+            ->get()
+            ->map(fn (object $row): array => $this->describe($row) + [
+                'department' => QueueType::tryFrom((string) ($row->desk ?? $row->home_desk))?->getLabel() ?? '—',
+            ]);
+    }
+
+    /**
      * The live picture: headline counts, the cross-tabs and the two lists.
      *
      * @return array<string, mixed>

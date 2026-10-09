@@ -77,6 +77,8 @@ class MobilitySettings extends Page
         NotificationEvent::SlaPreBreach,
         NotificationEvent::SlaBreach,
         NotificationEvent::SlaEscalation,
+        NotificationEvent::DeskSlaPreBreach,
+        NotificationEvent::DeskSlaBreach,
     ];
 
     public const DESCRIPTIONS = [

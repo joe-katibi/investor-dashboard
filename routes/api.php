@@ -34,6 +34,11 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
         Route::post('tickets/{ticket}/actions/{action}', [TicketController::class, 'act'])
             ->whereNumber('ticket')->where('action', '[a-z_]+')->middleware('throttle:mobile-write')->name('tickets.act');
 
+        // Started from the app without a ticket: raise corrective / preventive maintenance on site.
+        Route::get('actions', [TicketController::class, 'actions'])->name('actions.index');
+        Route::post('actions/{action}', [TicketController::class, 'start'])
+            ->where('action', '[a-z_]+')->middleware('throttle:mobile-write')->name('actions.start');
+
         Route::get('attachments/{attachment}', [TicketController::class, 'attachment'])->whereNumber('attachment')->name('attachments.show');
         Route::get('photos/{photo}', [TicketController::class, 'photo'])->whereNumber('photo')->name('photos.show');
 

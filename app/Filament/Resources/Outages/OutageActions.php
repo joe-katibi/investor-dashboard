@@ -523,12 +523,12 @@ final class OutageActions
                 // Field maintenance closes with two photos of the finished work.
                 ...($record->maintenance_kind ? [
                     Grid::make(['default' => 1, 'sm' => 2])->schema([
-                        self::photoUpload('after_outside', 'After — outside', OutagePhoto::POSITIONS['outside']),
-                        self::photoUpload('after_inside', 'After — inside', OutagePhoto::POSITIONS['inside']),
+                        self::photoUpload('after_outside', 'After — outside', OutagePhoto::POSITIONS['outside'], required: app(Settings::class)->bool('photos.maintenance_required')),
+                        self::photoUpload('after_inside', 'After — inside', OutagePhoto::POSITIONS['inside'], required: app(Settings::class)->bool('photos.maintenance_required')),
                     ]),
                 ] : []),
                 // Emergency / Regular outage: the three site photos — those not on the ticket yet are required.
-                ...($record->requiresSitePhotos() ? [self::sitePhotoUploads($record, requireMissing: true)] : []),
+                ...($record->offersSitePhotos() ? [self::sitePhotoUploads($record, requireMissing: $record->requiresSitePhotos())] : []),
             ])
             ->action(fn (Outage $record, array $data) => self::run($record, fn () => app(OutageWorkflow::class)->reportRestored(
                 $record, Auth::user(), $data['note'], $data['restored_at'] ?? null,
@@ -537,7 +537,7 @@ final class OutageActions
                         'outside' => $data['after_outside'] ?? null, 'inside' => $data['after_inside'] ?? null,
                         'outside_name' => $data['after_outside_name'] ?? null, 'inside_name' => $data['after_inside_name'] ?? null,
                     ],
-                    $record->requiresSitePhotos() => self::sitePhotoData($data),
+                    $record->offersSitePhotos() => self::sitePhotoData($data),
                     default => [],
                 },
             ), 'Work reported — awaiting NOC confirmation'));
@@ -555,7 +555,7 @@ final class OutageActions
             ->icon(Heroicon::OutlinedCamera)
             ->color('gray')
             ->visible(fn (Outage $record) => Auth::user()?->can('addSitePhotos', $record))
-            ->modalDescription('The outage is reported restored with all three photos. Add each one when it is taken; a photo added again replaces the earlier one.')
+            ->modalDescription(fn (Outage $record) => ($record->requiresSitePhotos() ? 'The outage is reported restored with all three photos.' : 'Photos of the work (optional).').' Add each one when it is taken; a photo added again replaces the earlier one.')
             ->schema(fn (Outage $record) => [self::sitePhotoUploads($record, requireMissing: false)])
             ->action(fn (Outage $record, array $data) => self::run($record, fn () => app(OutageWorkflow::class)->addSitePhotos($record, Auth::user(), self::sitePhotoData($data)), 'Site photos saved'));
     }

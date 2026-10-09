@@ -13,6 +13,7 @@ use App\Models\OutageType;
 use App\Models\User;
 use App\Models\Vertical;
 use App\Services\Fifo\FifoAssignmentEngine;
+use App\Services\Sla\DeskSla;
 use App\Support\Settings;
 use BackedEnum;
 use Filament\Actions\Action;
@@ -180,7 +181,9 @@ class FifoQueue extends Page implements HasTable
                 TextColumn::make('outage.ticket_number')->label('Ticket')->searchable()->weight('bold')->formatStateUsing(fn (?string $state) => str_replace('-', "\u{2011}", (string) $state))
                     ->description(fn (OutageQueueEntry $record) => $this->ticketLine($record))->wrap(),
                 TextColumn::make('priority.name')->label('Priority')->badge()->color(fn (OutageQueueEntry $record) => $record->priority?->color ?? 'gray')->visibleFrom('sm'),
-                TextColumn::make('queued_at')->label('Queue age')->visibleFrom('sm')->since()->tooltip(fn (OutageQueueEntry $record) => $record->queued_at->format('Y-m-d H:i:s.v')),
+                TextColumn::make('queued_at')->label('Queue age')->visibleFrom('sm')->since()->tooltip(fn (OutageQueueEntry $record) => $record->queued_at->format('Y-m-d H:i:s.v'))
+                    // The desk's own SLA target for this stay, when it has one.
+                    ->description(fn (OutageQueueEntry $record) => $record->sla_due_at ? 'target '.$record->sla_minutes.' min · '.DeskSla::describe($record->sla_due_at) : null),
                 TextColumn::make('outage.customers_affected')->label('Customers')->numeric()->visibleFrom('xl'),
                 TextColumn::make('outage.outageType.name')->label('Type')->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('outage.vertical.name')->label('Vertical')->toggleable(isToggledHiddenByDefault: true),

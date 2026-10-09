@@ -8,6 +8,7 @@ use App\Enums\SlaState;
 use App\Enums\TeamType;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasAuditColumns;
+use App\Support\Settings;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -60,6 +61,10 @@ class Outage extends Model
             'noc_rejected_at' => 'datetime',
             'infra_escalated_at' => 'datetime',
             'dispatched_at' => 'datetime',
+            'field_warn_at' => 'datetime',
+            'field_due_at' => 'datetime',
+            'field_warned_at' => 'datetime',
+            'field_breached_at' => 'datetime',
             'restored_at' => 'datetime',
             'restore_confirmed_at' => 'datetime',
             'resolved_at' => 'datetime',
@@ -218,6 +223,15 @@ class Outage extends Model
         return $this->queueEntries()->whereIn('status', QueueEntryStatus::openValues());
     }
 
+    /** The stay at the desk the ticket is at now (it carries that desk's SLA target, when it has one). */
+    public function currentQueueEntry(): HasOne
+    {
+        return $this->hasOne(OutageQueueEntry::class)->ofMany(['id' => 'max'], function (Builder $query): void {
+            $query->whereIn('status', QueueEntryStatus::openValues())
+                ->whereNotIn('queue_type', [QueueType::SupportTechnician->value, QueueType::TicketFollowUp->value]);
+        });
+    }
+
     public function assignments(): HasMany
     {
         return $this->hasMany(OutageAssignment::class)->latest('id');
@@ -262,14 +276,23 @@ class Outage extends Model
     }
 
     /**
-     * An Emergency / Regular outage worked by a field team is reported restored with the three
-     * site photos (which types: "Site photos required" on the outage type).
+     * An Emergency / Regular outage worked by a field team has three site photos (which types:
+     * "Site photos required" on the outage type). Whether they are mandatory is {@see requiresSitePhotos()}.
      */
-    public function requiresSitePhotos(): bool
+    public function offersSitePhotos(): bool
     {
         return OutageType::requiresSitePhotos($this->outage_type_id)
             && $this->maintenance_kind === null
             && MajorOutageType::flags($this->major_outage_type_id)['requires_infrastructure'];
+    }
+
+    /**
+     * …and cannot be reported restored without them — unless the photos have been made optional
+     * (FIFO & SLA Settings → Field photos), in which case they are offered and may be left out.
+     */
+    public function requiresSitePhotos(): bool
+    {
+        return $this->offersSitePhotos() && app(Settings::class)->bool('photos.outage_required');
     }
 
     /**

@@ -90,7 +90,9 @@ final class MobileProfile
 
             // Their own work: tickets they hold or held, or are / were the technician of.
             $query->where($query->qualifyColumn('technician_id'), $user->id)
-                ->orWhereHas('assignments', fn (Builder $assignment) => $assignment->where('user_id', $user->id));
+                ->orWhereHas('assignments', fn (Builder $assignment) => $assignment->where('user_id', $user->id))
+                // …and maintenance they raised on site themselves, also while it waits for its approvals.
+                ->orWhere(fn (Builder $own) => $own->where($query->qualifyColumn('created_by'), $user->id)->whereNotNull($query->qualifyColumn('maintenance_kind')));
 
             if ($user->can('outage.dispatch') && $user->can('outage.view')) {
                 $query->orWhereNull($workflow);

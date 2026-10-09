@@ -55,7 +55,9 @@ trait ManagesFieldMaintenance
         $this->requireText($data['title'] ?? null, 'title', 'Give the maintenance a title.');
         $this->requireText($data['description'] ?? null, 'description', $preventive ? 'Describe the issue found on site.' : 'Describe what happened and the work needed.');
         $this->requireText($data['site_label'] ?? null, 'site_label', 'Enter the FAT / FDT label.');
-        $this->requirePhotos($data['photos'] ?? [], 'before');
+        if ($this->maintenancePhotosRequired()) {
+            $this->requirePhotos($data['photos'] ?? [], 'before');
+        }
         [$start, $end] = $preventive ? $this->maintenanceWindow($data['downtime_start'] ?? null, $data['downtime_end'] ?? null) : [null, null];
 
         $type = OutageType::query()->active()->where('maintenance_kind', $kind)->orderBy('sort_order')->first()
@@ -77,7 +79,7 @@ trait ManagesFieldMaintenance
                 'latest_update' => $data['description'],
             ])->save();
 
-            $photos = $this->storeSitePhotos($outage, $by, OutagePhoto::BEFORE, $data['photos']);
+            $photos = $this->storeSitePhotos($outage, $by, OutagePhoto::BEFORE, (array) ($data['photos'] ?? []));
             $this->addSystemUpdate($outage, ($preventive ? 'Preventive' : 'Corrective')." maintenance raised on site at {$outage->site_label}: {$data['description']}", $by);
 
             if ($preventive) {
@@ -200,9 +202,20 @@ trait ManagesFieldMaintenance
      */
     private function storeSitePhotos(Outage $outage, User $by, string $stage, array $photos): Collection
     {
-        $this->requirePhotos($photos, $stage);
+        if ($this->maintenancePhotosRequired()) {
+            $this->requirePhotos($photos, $stage);
+        }
 
-        return collect(array_keys(OutagePhoto::POSITIONS))->map(fn (string $position) => $this->createPhoto($outage, $by, $stage, $position, $photos));
+        // Optional photos: whichever of the two were added.
+        return collect(array_keys(OutagePhoto::POSITIONS))
+            ->filter(fn (string $position) => $this->photoPath($photos[$position] ?? null) !== null)
+            ->map(fn (string $position) => $this->createPhoto($outage, $by, $stage, $position, $photos))->values();
+    }
+
+    /** Field maintenance photos are mandatory unless made optional (FIFO & SLA Settings → Field photos). */
+    private function maintenancePhotosRequired(): bool
+    {
+        return app(Settings::class)->bool('photos.maintenance_required');
     }
 
     /**

@@ -16,6 +16,7 @@ class DatabaseSeeder extends Seeder
         $this->call([
             RolesAndPermissionsSeeder::class,
             ReferenceDataSeeder::class,
+            SystemRoutingSeeder::class,
             TopologySeeder::class,
             MobilityTopologySeeder::class,
         ]);

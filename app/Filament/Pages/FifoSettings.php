@@ -2,24 +2,30 @@
 
 namespace App\Filament\Pages;
 
+use App\Enums\QueueType;
 use App\Filament\Resources\Priorities\PriorityResource;
 use App\Filament\Resources\QueueDefinitions\QueueDefinitionResource;
 use App\Models\Priority;
 use App\Services\Fifo\FifoAssignmentEngine;
+use App\Services\Sla\DeskSla;
 use App\Support\Settings;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Radio;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TagsInput;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Schemas\Components\Fieldset;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\HtmlString;
+use Spatie\Permission\Models\Role;
 use UnitEnum;
 
 /** FIFO & SLA configuration (spec §27.8) — no code changes required. */
@@ -39,6 +45,23 @@ class FifoSettings extends Page
 
     public ?array $data = [];
 
+    /** Desks as they are grouped on the "SLA per desk" section. */
+    public const DESK_GROUPS = [
+        'Outages (FTTH / core / system)' => [
+            QueueType::NocReview, QueueType::Infrastructure, QueueType::Technician, QueueType::SupportTechnician, QueueType::NocRestore,
+            QueueType::CxFollowUp, QueueType::CxNotify, QueueType::ItReview, QueueType::ItConfirmation,
+        ],
+        '4G NOC' => [QueueType::MobilityNoc, QueueType::MobilityEngineer],
+        'Customer tickets' => [
+            QueueType::CxCallback, QueueType::CxTier2, QueueType::Billing, QueueType::BillingManager, QueueType::Commercial, QueueType::CxManager,
+            QueueType::TicketNoc, QueueType::TicketFollowUp,
+        ],
+        'Site visits' => [
+            QueueType::VisitDispatch, QueueType::VisitTechnician, QueueType::InfraSupportDispatch, QueueType::InfraSupportTechnician, QueueType::Design,
+            QueueType::Access, QueueType::CxFieldSupport,
+        ],
+    ];
+
     public static function canAccess(): bool
     {
         return (bool) Auth::user()?->can('config.admin');
@@ -49,6 +72,8 @@ class FifoSettings extends Page
         $settings = app(Settings::class);
         $this->form->fill(collect(Settings::DEFAULTS)->keys()
             ->mapWithKeys(fn (string $key) => [str_replace('.', '__', $key) => $settings->get($key)])
+            // Every desk with the target in force (the built-in ones included), not only those changed here.
+            ->merge(['desk_sla__minutes' => app(DeskSla::class)->targets()])
             ->all());
     }
 
@@ -106,6 +131,39 @@ class FifoSettings extends Page
                 Toggle::make($key('notifications.credit_due_on_breach'))->label('Send credit-due notice on breach (fallback)'),
             ])->columns(2),
 
+            Section::make('SLA per desk')
+                ->description('How long a ticket may wait at a desk before that desk acts on it (confirms, rejects, dispatches, returns, escalates or closes). '
+                    .'The people concerned are warned before the time is up and told when it is; breaches are listed under Reports → “SLA: Breaches by Desk”. '
+                    .'0 = no target for that desk. A change applies to tickets arriving at a desk from now on. Customer tickets and site visits count working hours (Ticket Settings); outages and 4G tickets count every minute.')
+                ->schema([
+                    Toggle::make($key('desk_sla.enabled'))->label('Track SLA per desk'),
+                    Toggle::make($key('desk_sla.email_breaches'))->label('E-mail breaches')
+                        ->helperText('Warnings are shown in the system only; a breach is also e-mailed.'),
+                    TextInput::make($key('desk_sla.warn_percent'))->label('Warn when this share of the target is used (%)')->numeric()->minValue(0)->maxValue(99)
+                        ->helperText('75 = a desk with 20 minutes is warned after 15. 0 = no warning.'),
+                    TextInput::make($key('desk_sla.field_minutes'))->label('Outage on the field within (minutes)')->numeric()->minValue(0)
+                        ->helperText('Reported → dispatched to a field technician. 0 = off.'),
+                    ...collect(self::DESK_GROUPS)->map(fn (array $desks, string $group) => Fieldset::make($group)->columnSpanFull()->columns(['default' => 2, 'md' => 3, 'xl' => 4])
+                        ->schema(array_map(fn (QueueType $desk) => TextInput::make($key('desk_sla.minutes').'.'.$desk->value)
+                            ->label($desk->getLabel())->numeric()->minValue(0)->suffix('min'), $desks)))->values()->all(),
+                    Select::make($key('desk_sla.stakeholder_roles'))->label('Stakeholders (roles)')->multiple()->searchable()
+                        ->options(fn () => Role::query()->orderBy('name')->pluck('name', 'name')->all())
+                        ->helperText('Told about every warning and breach, together with the person holding the ticket and their team leaders. Each person only hears about the kinds of ticket they may view.'),
+                    TagsInput::make($key('desk_sla.stakeholder_emails'))->label('Also e-mail breaches to')->placeholder('name@example.com')
+                        ->nestedRecursiveRules(['email']),
+                ])->columns(2),
+
+            Section::make('Field photos')
+                ->description('Mandatory, or offered but optional. The website and the mobile app follow this at once — in the app the photo fields stop being required, they do not disappear.')
+                ->schema([
+                    Toggle::make($key('photos.outage_required'))->label('Emergency / Regular outages: the three site photos are mandatory')
+                        ->helperText('Findings on ground, after restoration, power readings — needed to report the outage restored. Which outage types have them: Outage Types → “Site photos required”.'),
+                    Toggle::make($key('photos.maintenance_required'))->label('Preventive / corrective maintenance: photos are mandatory')
+                        ->helperText('Two “before” photos to raise the maintenance and two “after” photos to report the work completed.'),
+                    TextEntry::make('visit_photos')->label('Site visits')->columnSpanFull()
+                        ->state('The geolocation and speed-test photos of a site visit are switched under Ticket Settings & Alerts → Site visits, and per visit type (“Needs evidence”).'),
+                ])->columns(2),
+
             Section::make('Queues')->schema([
                 TextEntry::make('queues_link')->hiddenLabel()->state(new HtmlString(
                     'Routing, department / team restrictions, per-queue timeouts and manual mode are configured on the '.
@@ -135,6 +193,7 @@ class FifoSettings extends Page
             }
             $value = $state[$field];
             $values[$setting] = match (true) {
+                $setting === 'desk_sla.minutes' => array_map(fn ($minutes) => max(0, (int) $minutes), (array) $value),
                 is_bool($default) => (bool) $value,
                 is_int($default) => (int) $value,
                 default => $value,

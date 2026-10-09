@@ -42,6 +42,10 @@ class ServiceResource extends Resource
             TextInput::make('name')->label('Service name')->required()->maxLength(150),
             Select::make('vertical_id')->relationship('vertical', 'name')->preload()->searchable()
                 ->helperText('Leave empty for cross-vertical services (CRM, Dialer, core transit...).'),
+            Select::make('review_team_id')->label('System outages reviewed by')->relationship('reviewTeam', 'name')->preload()->searchable()
+                ->placeholder('IT desk (everyone who works the IT queue)')
+                ->helperText('A system outage that affects this service goes to this team instead of the IT desk — its members need the “Work the IT queue” permission (roles CRM Manager / CPaaS Manager).')
+                ->columnSpanFull(),
             AuditFields::description(),
             AuditFields::activeToggle(),
         ])->columns(2);
@@ -53,6 +57,7 @@ class ServiceResource extends Resource
             ->columns([
                 TextColumn::make('name')->searchable()->sortable(),
                 TextColumn::make('vertical.name')->badge()->placeholder('All verticals')->sortable(),
+                TextColumn::make('reviewTeam.name')->label('System outages reviewed by')->placeholder('IT desk')->toggleable(),
                 AuditFields::activeColumn(),
                 ...AuditFields::columns(),
             ])

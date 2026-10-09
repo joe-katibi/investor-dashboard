@@ -182,7 +182,8 @@ class ProductivityReportTest extends TestCase
         // The scheduler sees every module.
         Auth::logout();
         $this->seed(ProductivitySeeder::class);
-        $this->assertSame(4, EmailTemplate::query()->where('report_type', 'like', 'productivity%')->count());
+        // Hourly, daily, weekly, monthly — and the two-hourly one that comes with the management summaries.
+        $this->assertSame(5, EmailTemplate::query()->where('report_type', 'like', 'productivity%')->count());
 
         Carbon::setTestNow('2026-10-05 19:00:00');
         $template = EmailTemplate::query()->where('code', 'productivity_daily')->firstOrFail();

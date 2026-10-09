@@ -279,7 +279,7 @@ final class TicketActions
             ->fillForm(fn (Outage $record) => ['completed_at' => now()->startOfMinute()->toDateTimeString(), 'fat_number' => $record->ticket?->fat_number])
             ->schema(fn (Outage $record) => [
                 Grid::make(['default' => 1, 'sm' => 2])->schema([
-                    Select::make('final_reason_id')->label('Final reason')->required()->searchable()->options(fn () => self::finalReasons('visit')),
+                    Select::make('final_reason_id')->label('Final reason')->required()->searchable()->options(fn (Outage $record) => self::finalReasons('visit', $record->current_queue)),
                     TextInput::make('fat_number')->label('FAT number')->maxLength(60)->required(self::needsEvidence($record)),
                     self::photo('geo_photo', 'Geolocation photo', 'Photo with the location stamp at the customer premise.')
                         ->required(self::needsEvidence($record) && ! $record->attachments()->where('kind', 'geo_photo')->exists()),
@@ -390,7 +390,7 @@ final class TicketActions
                 : 'Closes the ticket with its final reason.')
             ->schema(fn (Outage $record) => [
                 Select::make('final_reason_id')->label('Final reason')->required()->searchable()
-                    ->options(fn () => self::finalReasons($record->isSiteVisit() ? 'visit' : 'ticket')),
+                    ->options(fn () => self::finalReasons($record->isSiteVisit() ? 'visit' : 'ticket', $record->current_queue)),
                 Select::make('delay_reason_id')->label('Reason for delay')->options(fn () => self::delayReasons())
                     ->required(self::late($record))
                     ->helperText(self::late($record) ? 'This ticket is past its SLA: a reason for the delay is required.' : null),
@@ -531,9 +531,12 @@ final class TicketActions
             ->mapWithKeys(fn (VisitType $type) => [$type->id => "{$type->name} ({$type->code_prefix})"])->all();
     }
 
-    public static function finalReasons(string $kind): array
+    /** Final reasons for a ticket or a visit, narrowed to the ones offered at the desk it is at. */
+    public static function finalReasons(string $kind, ?QueueType $desk = null): array
     {
-        return FinalReason::query()->active()->for($kind)->orderBy('name')->pluck('name', 'id')->all();
+        return FinalReason::query()->active()->for($kind)->orderBy('sort_order')->orderBy('name')->get()
+            ->filter(fn (FinalReason $reason) => $reason->isOfferedAt($desk))
+            ->pluck('name', 'id')->all();
     }
 
     public static function delayReasons(): array

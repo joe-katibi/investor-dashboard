@@ -98,7 +98,7 @@ class ScheduledReportService
         $data = match (true) {
             TicketReportData::handles($template->report_type) => app(TicketReportData::class)->build($template->report_type, $now, max(1, (int) $template->period_hours)),
             isset(ProductivityReport::EMAIL_TYPES[$template->report_type]) => app(ProductivityReport::class)->emailData($template->report_type, $now, max(1, (int) $template->period_hours)),
-            default => $this->snapshot->build($now->copy()->subHours(max(1, $template->period_hours)), $now),
+            default => $this->snapshot->build($this->periodStart($template, $now), $now),
         };
 
         return [
@@ -124,6 +124,7 @@ class ScheduledReportService
         if ($template->attach_excel) {
             // Ticket e-mails carry the list of pending tickets; the others the outage summary of the period.
             $attachment = $this->exporter->writeXlsx(match (true) {
+                $template->report_type === 'ticket_final_reasons' => $this->reports->run('ticket_final_reasons', ['to' => $now->toDateString()]),
                 TicketReportData::handles($template->report_type) => $this->reports->run('ticket_pending'),
                 // Productivity e-mails: the full report of the period, per person and module.
                 isset(ProductivityReport::EMAIL_TYPES[$template->report_type]) => $this->reports->run(ProductivityReport::KEY, (function () use ($template, $now): array {
@@ -132,7 +133,7 @@ class ScheduledReportService
                     return ['from' => $from->toDateTimeString(), 'to' => $to->toDateTimeString(), 'group' => 'period'];
                 })()),
                 default => $this->reports->run('summary_report', [
-                    'from' => $now->copy()->subHours(max(1, $template->period_hours))->toDateTimeString(),
+                    'from' => $this->periodStart($template, $now)->toDateTimeString(),
                     'to' => $now->toDateTimeString(),
                 ]),
             });
@@ -170,6 +171,22 @@ class ScheduledReportService
         if ($template) {
             AuditContext::as('system:scheduled-report', fn () => $this->send($template, $at ? CarbonImmutable::parse($at) : null));
         }
+    }
+
+    /**
+     * Where the period of an outage e-mail begins: the last N hours — or, for the weekly and
+     * monthly summaries, the Monday of last week / the 1st of last month (they are sent just after
+     * the week or month ends, and run up to the moment they are sent).
+     */
+    public function periodStart(EmailTemplate $template, CarbonInterface $now): CarbonInterface
+    {
+        $now = CarbonImmutable::instance($now);
+
+        return match ($template->report_type) {
+            'summary_week' => $now->subWeek()->startOfWeek(),
+            'summary_month' => $now->subMonthNoOverflow()->startOfMonth(),
+            default => $now->subHours(max(1, (int) $template->period_hours)),
+        };
     }
 
     // ------------------------------------------------------------------ schedule helpers

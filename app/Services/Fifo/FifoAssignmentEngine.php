@@ -25,6 +25,7 @@ use App\Models\QueueDefinition;
 use App\Models\User;
 use App\Models\UserAvailability;
 use App\Services\Notifications\NotificationDispatcher;
+use App\Services\Sla\DeskSla;
 use App\Support\AuditContext;
 use App\Support\Settings;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -48,6 +49,7 @@ class FifoAssignmentEngine
         private readonly Settings $settings,
         private readonly EligibilityEvaluator $evaluator,
         private readonly NotificationDispatcher $notifier,
+        private readonly DeskSla $deskSla,
     ) {}
 
     public function enabled(): bool
@@ -79,7 +81,7 @@ class FifoAssignmentEngine
      * Place the outage in a queue. Idempotent: an existing open entry of the same type is
      * returned unchanged, preserving its original FIFO timestamp.
      *
-     * @param  array{team_id?: ?int, sub_team_id?: ?int, reason?: ?string, queued_at?: mixed, eligible_from?: mixed}  $options
+     * @param  array{team_id?: ?int, sub_team_id?: ?int, reason?: ?string, queued_at?: mixed, eligible_from?: mixed, any_department?: bool}  $options
      */
     public function enqueue(Outage $outage, QueueType $type, array $options = []): OutageQueueEntry
     {
@@ -99,8 +101,9 @@ class FifoAssignmentEngine
                 'queue_type' => $type,
                 'priority_id' => $outage->priority_id,
                 'priority_rank' => $outage->priority?->queue_rank ?? 999,
-                'department_id' => $definition?->department_id
-                    ?? Department::query()->where('code', $type->defaultDepartmentCode())->value('id'),
+                // "any_department": the team named for the ticket decides who gets it, whatever their department.
+                'department_id' => ! empty($options['any_department']) ? null : ($definition?->department_id
+                    ?? Department::query()->where('code', $type->defaultDepartmentCode())->value('id')),
                 'team_id' => $options['team_id'] ?? $definition?->team_id,
                 'sub_team_id' => $options['sub_team_id'] ?? null,
                 'queued_at' => $options['queued_at'] ?? now(),
@@ -108,6 +111,8 @@ class FifoAssignmentEngine
                 'eligible_from' => $options['eligible_from'] ?? null,
                 'status' => QueueEntryStatus::Pending,
             ]);
+
+            $this->deskSla->stamp($entry, $outage);
 
             // A parallel queue (support technician) runs alongside; the ticket keeps its main owner.
             if (! $type->isParallel()) {
@@ -764,6 +769,8 @@ class FifoAssignmentEngine
             'queued_at' => now(),
             'status' => QueueEntryStatus::Pending,
         ]);
+
+        $this->deskSla->stamp($entry, $outage);
 
         if (! $type->isParallel()) {
             $outage->forceFill(['current_queue' => $type])->save();

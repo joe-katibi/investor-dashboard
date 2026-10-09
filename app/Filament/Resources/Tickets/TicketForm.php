@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Tickets;
 
 use App\Enums\QueueType;
+use App\Filament\Resources\MobilityOutages\MobilityActions;
 use App\Models\Customer;
 use App\Models\Fdt;
 use App\Models\Olt;
@@ -54,7 +55,20 @@ final class TicketForm
                     Textarea::make('description')->label('Narration')->rows(3)->maxLength(5000)->columnSpanFull()
                         ->placeholder('What the customer said, what was checked…'),
                 ])->columns(2),
+            self::attachmentsSection(),
         ]);
+    }
+
+    /** A screenshot, the customer's e-mail, a receipt: on the ticket from the moment it is raised. */
+    private static function attachmentsSection(): Section
+    {
+        return Section::make('Attachments (optional)')
+            ->icon('heroicon-o-paper-clip')
+            ->description('Files the next desk needs to see. More can be added later from the ticket.')
+            ->schema([
+                MobilityActions::attachmentUpload('attachments', 'Files')->storeFileNamesIn('attachment_names')->columnSpanFull(),
+            ])
+            ->collapsible();
     }
 
     public static function visit(Schema $schema): Schema
@@ -81,6 +95,7 @@ final class TicketForm
                     TextInput::make('external_reference')->label('Billing system ticket no.')->maxLength(60),
                     Textarea::make('description')->label('Narration / what the technician must do')->rows(3)->maxLength(5000)->columnSpanFull(),
                 ])->columns(2),
+            self::attachmentsSection(),
             Section::make('Dispatch now (optional)')
                 ->icon('heroicon-o-truck')
                 ->description('Leave empty and the visit goes to the dispatcher queue.')

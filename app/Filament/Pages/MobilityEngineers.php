@@ -42,7 +42,7 @@ class MobilityEngineers extends Page implements HasTable
 
     public static function canAccess(): bool
     {
-        return (bool) Auth::user()?->can('mobility.view');
+        return (bool) Auth::user()?->can('mobility.view') && (bool) Auth::user()?->can('mobility.engineers');
     }
 
     public function getSubheading(): ?string

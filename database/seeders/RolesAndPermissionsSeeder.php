@@ -101,6 +101,9 @@ class RolesAndPermissionsSeeder extends Seeder
             'queue.view', 'queue.work_it', 'queue.override', 'reports.view', 'workforce.manage',
         ],
         'IT Engineer' => ['outage.view', 'outage.create', 'outage.update_progress', 'outage.it_review', 'queue.view', 'queue.work_it'],
+        // Owners of a business system: they review the system outages routed to their team (Affected Services → reviewed by).
+        'CRM Manager' => SystemRoutingSeeder::PERMISSIONS,
+        'CPaaS Manager' => SystemRoutingSeeder::PERMISSIONS,
 
         // 4G NOC: its own tickets, statuses, vendors and alert lists. Only the NOC closes a ticket;
         // engineers / technicians work it and mark it "Resolved – Pending NOC Confirmation".
@@ -184,7 +187,7 @@ class RolesAndPermissionsSeeder extends Seeder
 
         foreach (self::ROLES as $roleName => $patterns) {
             $role = Role::findOrCreate($roleName, 'web');
-            $granted = $this->expand(array_merge($patterns, self::TICKETING_GRANTS[$roleName] ?? []), $all);
+            $granted = $this->withScreens($this->expand(array_merge($patterns, self::TICKETING_GRANTS[$roleName] ?? []), $all));
             $missing = array_diff($granted, $role->permissions()->pluck('name')->all());
 
             if ($missing !== []) {
@@ -223,7 +226,7 @@ class RolesAndPermissionsSeeder extends Seeder
             }
 
             // Permissions of other modules are granted only where they already exist here.
-            Role::findOrCreate($roleName, 'web')->givePermissionTo(array_values(array_intersect($this->expand(self::ROLES[$roleName], $all), $existing)));
+            Role::findOrCreate($roleName, 'web')->givePermissionTo(array_values(array_intersect($this->withScreens($this->expand(self::ROLES[$roleName], $all)), $existing)));
         }
 
         if ($firstTime) {
@@ -260,17 +263,29 @@ class RolesAndPermissionsSeeder extends Seeder
             }
 
             // Permissions of other modules are granted only where they already exist here.
-            Role::findOrCreate($roleName, 'web')->givePermissionTo(array_values(array_intersect($this->expand(self::ROLES[$roleName], $all), $existing)));
+            Role::findOrCreate($roleName, 'web')->givePermissionTo(array_values(array_intersect($this->withScreens($this->expand(self::ROLES[$roleName], $all)), $existing)));
         }
 
         if ($firstTime) {
             foreach (self::TICKETING_GRANTS as $roleName => $patterns) {
                 Role::query()->where('name', $roleName)->where('guard_name', 'web')->first()
-                    ?->givePermissionTo(array_values(array_intersect($this->expand($patterns, $all), $existing)));
+                    ?->givePermissionTo(array_values(array_intersect($this->withScreens($this->expand($patterns, $all)), $existing)));
             }
         }
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
+    }
+
+    /** A role that may view a module also gets that module's screens (dashboards, lists) by default. */
+    private function withScreens(array $granted): array
+    {
+        foreach (Permissions::SCREENS as $screen => $parent) {
+            if (in_array($parent, $granted, true)) {
+                $granted[] = $screen;
+            }
+        }
+
+        return array_values(array_unique($granted));
     }
 
     /** Supports "*", "group.*" and "!exclusion" patterns. */

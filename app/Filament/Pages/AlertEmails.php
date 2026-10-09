@@ -76,6 +76,10 @@ class AlertEmails extends Page
         NotificationEvent::SlaPreBreach,
         NotificationEvent::SlaBreach,
         NotificationEvent::SlaEscalation,
+        NotificationEvent::DeskSlaPreBreach,
+        NotificationEvent::DeskSlaBreach,
+        NotificationEvent::FieldSlaPreBreach,
+        NotificationEvent::FieldSlaBreach,
         NotificationEvent::CreditDue,
         NotificationEvent::CreditShared,
         NotificationEvent::SmsSent,
@@ -96,6 +100,10 @@ class AlertEmails extends Page
         'support_completed' => 'Support technician finished the drop cable / premises work',
         'it_escalation' => 'System outage assigned to IT for review',
         'returned_to_it' => 'NOC fixed an IT-escalated issue and returned it to IT to confirm',
+        'desk_sla_pre_breach' => 'A ticket has almost used up the time its desk has to act on it',
+        'desk_sla_breach' => 'A ticket waited at a desk (NOC, dispatch, CX…) past that desk\'s target',
+        'field_sla_pre_breach' => 'An outage is close to the time by which it must be with a field technician',
+        'field_sla_breach' => 'An outage was not dispatched to a field technician within the target',
     ];
 
     public static function canAccess(): bool

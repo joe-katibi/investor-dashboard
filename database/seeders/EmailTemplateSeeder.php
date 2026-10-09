@@ -58,7 +58,226 @@ class EmailTemplateSeeder extends Seeder
         $this->mobility();
         $this->ticketing();
         $this->productivity();
+        $this->summaries();
     }
+
+    /**
+     * Management summaries added in October 2026. Created only when missing and inactive until
+     * recipients are set, like every other template; safe to run on a system in use:
+     *
+     *   php artisan db:seed --class=EmailTemplateSeeder --force
+     *
+     *   Outages            weekly (Monday 07:00, last week) and monthly (the 1st 07:00, last month)
+     *   Customer tickets   raised and closed every 2 hours · summary every 6 hours · executive
+     *                      summary at 07:00 and 19:00 · final reason report daily at 07:00
+     *   Staff productivity every 2 hours (weekly and monthly are in productivity())
+     */
+    public function summaries(): void
+    {
+        $noc = [config('mail.from.address') ?: 'noc@example.com'];
+        $cx = [config('mail.from.address') ?: 'cx@example.com'];
+
+        foreach ([
+            ['outage_weekly_summary', 'Outage Summary – Weekly', 'summary_week', '0 7 * * 1', 168, 'Monday 07:00: the outages of last week (from Monday 00:00), with the Excel list attached.'],
+            ['outage_monthly_summary', 'Outage Summary – Monthly', 'summary_month', '0 7 1 * *', 744, 'The 1st at 07:00: the outages of last month, with the Excel list attached.'],
+        ] as [$code, $name, $type, $cron, $hours, $description]) {
+            $this->seedTemplate($code, [
+                'name' => $name,
+                'report_type' => $type,
+                'schedule_type' => 'cron',
+                'cron_expression' => $cron,
+                'period_hours' => $hours,
+                'to' => $noc,
+                'subject' => $name.' – {{period_start}} to {{period_end}}',
+                'body' => self::OUTAGE_PERIOD_BODY,
+                'attach_excel' => true,
+                'is_active' => false,
+                'description' => $description,
+            ]);
+        }
+
+        $this->seedTemplate('ticket_two_hour_update', [
+            'name' => 'Tickets – Raised & Closed (every 2 hours)',
+            'report_type' => 'ticket_pending',
+            'schedule_type' => 'interval',
+            'interval_minutes' => 120,
+            'period_hours' => 2,
+            'to' => $cx,
+            'subject' => 'Customer Tickets – raised and closed, {{report_time}} {{report_date}}',
+            'body' => self::TICKET_ACTIVITY_BODY,
+            'is_active' => false,
+            'description' => 'Every 2 hours: the tickets raised and the tickets closed in the last two hours, and where the pending ones stand.',
+        ]);
+
+        $this->seedTemplate('ticket_six_hour_summary', [
+            'name' => 'Tickets – Summary (every 6 hours)',
+            'report_type' => 'ticket_pending',
+            'schedule_type' => 'interval',
+            'interval_minutes' => 360,
+            'period_hours' => 6,
+            'to' => $cx,
+            'subject' => 'Customer Tickets Summary – {{report_time}} {{report_date}}',
+            'body' => self::TICKET_SUMMARY_BODY,
+            'attach_excel' => true,
+            'is_active' => false,
+            'description' => 'Every 6 hours: pending tickets against the SLA per department and region, what came in and what was closed, and the final reasons of the week. Pending list attached.',
+        ]);
+
+        $this->seedTemplate('ticket_executive_summary', [
+            'name' => 'Tickets – Executive Summary',
+            'report_type' => 'ticket_daily',
+            'schedule_type' => 'daily_times',
+            'daily_times' => ['07:00', '19:00'],
+            'period_hours' => 24,
+            'to' => $cx,
+            'subject' => 'Customer Care Executive Summary – {{report_time}} {{report_date}}',
+            'body' => self::TICKET_EXECUTIVE_BODY,
+            'is_active' => false,
+            'description' => 'At 07:00 and 19:00: the day against the day before, SLA result, pending by SLA and department, the final reasons of the week and the trend.',
+        ]);
+
+        $this->seedTemplate('ticket_final_reason_report', [
+            'name' => 'Tickets – Final Reason Report',
+            'report_type' => 'ticket_final_reasons',
+            'schedule_type' => 'daily_times',
+            'daily_times' => ['07:00'],
+            'period_hours' => 168,
+            'to' => $cx,
+            'subject' => 'Final Reason Report – 7 days to {{tk_reasons_until}}',
+            'body' => self::TICKET_FINAL_REASON_BODY,
+            'attach_excel' => true,
+            'is_active' => false,
+            'description' => 'Daily at 07:00: what tickets and site visits were closed with, day by day for seven days against the seven days before. Report attached.',
+        ]);
+
+        $this->seedTemplate('productivity_two_hourly', [
+            'name' => 'Staff Productivity – Every 2 Hours',
+            'report_type' => 'productivity',
+            'schedule_type' => 'interval',
+            'interval_minutes' => 120,
+            'period_hours' => 2,
+            'to' => [config('mail.from.address') ?: 'management@example.com'],
+            'subject' => 'Staff Productivity – {{productivity_period}}',
+            'body' => self::PRODUCTIVITY_BODY,
+            'attach_excel' => true,
+            'is_active' => false,
+            'description' => 'Every 2 hours: what each person did in the last two hours, in every module.',
+        ]);
+    }
+
+    public const OUTAGE_PERIOD_BODY = <<<'TXT'
+Hello Team,
+
+Outage summary for **{{period_start}} to {{period_end}}** (Excel copy attached).
+
+**Outages reported: {{new_outages}} | Resolved: {{resolved_outages}} | Currently active: {{active_outages}} | SLA breached now: {{sla_breached}} | Customers affected (active): {{customers_affected}}**
+
+**7-DAY TREND**
+{{trend_table}}
+
+**TOP RISK AREAS**
+{{top_olts_table}}
+{{top_services_table}}
+
+**OUTAGES OF THE PERIOD**
+{{summary_table}}
+
+Regards,
+NOC / Outage Management System
+TXT;
+
+    public const TICKET_ACTIVITY_BODY = <<<'TXT'
+Hello Team,
+
+Customer tickets and site visits as at **{{report_time}}, {{report_date}}** — the last {{tk_period_hours}} hours.
+
+{{tk_headline_table}}
+
+**RAISED IN THE LAST {{tk_period_hours}} HOURS** ({{tk_raised}})
+{{tk_raised_table}}
+
+**CLOSED IN THE LAST {{tk_period_hours}} HOURS** ({{tk_closed}}, {{tk_closed_sla_pct}} within SLA)
+{{tk_closed_table}}
+
+**PENDING PER DEPARTMENT** (by how long they have been open)
+{{tk_sla_per_department_table}}
+
+Regards,
+Customer Care / Outage Management System
+TXT;
+
+    public const TICKET_SUMMARY_BODY = <<<'TXT'
+Hello Team,
+
+Customer care summary as at **{{report_time}}, {{report_date}}**. SLA clock: {{tk_sla_clock}}.
+
+{{tk_headline_table}}
+
+**In the last {{tk_period_hours}} hours: {{tk_raised}} raised · {{tk_closed}} closed ({{tk_closed_sla_pct}} within SLA)**
+
+**SLA PER DEPARTMENT** (pending tickets by how long they have been open)
+{{tk_sla_per_department_table}}
+
+**SLA PER REGION**
+{{tk_sla_per_region_table}}
+
+**IN CUSTOMER FOLLOW-UP** (pending past the follow-up time — ready for credit)
+{{tk_follow_up_table}}
+
+**FINAL REASONS — LAST 7 DAYS** ({{tk_reasons_total}} closed, {{tk_reasons_previous}} the week before)
+{{tk_final_reasons_table}}
+
+The list of pending tickets is attached.
+
+Regards,
+Customer Care / Outage Management System
+TXT;
+
+    public const TICKET_EXECUTIVE_BODY = <<<'TXT'
+**CUSTOMER CARE EXECUTIVE SUMMARY**
+Reporting time: {{report_time}} | {{report_date}} — {{tk_period_label}} compared with {{tk_previous_label}}. SLA clock: {{tk_sla_clock}}.
+
+**1. HEADLINE**
+{{tk_headline_table}}
+
+**2. TICKET MOVEMENT** — what came in, what was closed, what is left
+{{tk_movement_table}}
+
+**3. SLA** — closed tickets, and where the pending ones stand
+{{tk_closed_sla_table}}
+{{tk_pending_sla_table}}
+
+**4. BY DEPARTMENT**
+{{tk_sla_per_department_table}}
+
+**5. FINAL REASONS — LAST 7 DAYS** ({{tk_reasons_total}} closed, {{tk_reasons_previous}} the week before)
+{{tk_final_reasons_table}}
+
+**6. REASONS FOR PENDING**
+{{tk_pending_reasons_table}}
+
+**7. TREND**
+{{tk_inflow_chart_table}}
+{{tk_sla_chart_table}}
+
+Regards,
+Customer Care / Outage Management System
+TXT;
+
+    public const TICKET_FINAL_REASON_BODY = <<<'TXT'
+Hello Team,
+
+What customer tickets and site visits were closed with — the seven days to **{{tk_reasons_until}}**.
+
+**{{tk_reasons_total}} closed in these seven days, {{tk_reasons_previous}} in the seven days before.**
+
+{{tk_final_reasons_table}}
+
+“Change” compares each reason with the seven days before; a reason that keeps rising deserves a look. The report is attached.
+
+Regards,
+Customer Care / Outage Management System
+TXT;
 
     /**
      * Staff productivity e-mails across every module: hourly (last hour), daily at 19:00 (the

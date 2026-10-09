@@ -2,6 +2,7 @@
 
 namespace App\Services\Outages;
 
+use App\Enums\NotificationChannel;
 use App\Enums\NotificationEvent;
 use App\Enums\QueueType;
 use App\Enums\SlaState;
@@ -25,6 +26,7 @@ use App\Models\Port;
 use App\Models\Service;
 use App\Models\Slot;
 use App\Models\SupportRequest;
+use App\Models\Team;
 use App\Models\User;
 use App\Services\Fifo\FifoAssignmentEngine;
 use App\Services\Notifications\NotificationDispatcher;
@@ -32,6 +34,7 @@ use App\Services\Outages\Concerns\ManagesFieldMaintenance;
 use App\Services\Outages\Concerns\ManagesMobilityOutages;
 use App\Services\Outages\Concerns\ManagesPlannedMaintenance;
 use App\Services\Outages\Concerns\ManagesTickets;
+use App\Services\Sla\DeskSla;
 use App\Services\Sla\SlaService;
 use App\Support\AuditContext;
 use Illuminate\Support\Arr;
@@ -61,6 +64,7 @@ class OutageWorkflow
         private readonly SlaService $sla,
         private readonly FifoAssignmentEngine $fifo,
         private readonly NotificationDispatcher $notifier,
+        private readonly DeskSla $deskSla,
     ) {}
 
     // ------------------------------------------------------------------ create / edit
@@ -94,10 +98,27 @@ class OutageWorkflow
             // System outages go to IT first; everything else starts unconfirmed for NOC.
             $outage = $this->newOutage($data, $by, $type, $major->requires_it_review ? StatusCode::ItReview : StatusCode::SupportUnconfirmed, 'Outage reported');
 
+            // Worked by a field team: it should be with a technician within the "time to field" target.
+            if (! $major->requires_it_review) {
+                $this->deskSla->stampField($outage);
+            }
+
             if ($major->requires_it_review) {
                 // IT checks the system first and escalates to NOC only for core / network causes.
-                $this->fifo->enqueue($outage, QueueType::ItReview, ['reason' => 'System outage: IT reviews first']);
-                $this->notifier->dispatch(NotificationEvent::ItEscalation, $outage);
+                // …unless the affected system has its own owners (Savbill → CRM Managers, CPaaS → CPaaS Manager).
+                $route = $this->systemRoute($outage);
+                $this->fifo->enqueue($outage, QueueType::ItReview, $route['options'] + ['reason' => $route['team']
+                    ? "System outage of {$route['service']->name}: reviewed by {$route['team']->name}"
+                    : 'System outage: IT reviews first']);
+
+                if ($route['team']) {
+                    $this->addSystemUpdate($outage, "Affected system {$route['service']->name}: routed to {$route['team']->name} for review.", null);
+                    $this->notifier->notifyUsers(NotificationEvent::ItEscalation, $outage, $route['team']->members()->where('users.is_active', true)->get(), [NotificationChannel::InApp->value], [
+                        'queue' => $route['team']->name, 'reason' => "System outage of {$route['service']->name}",
+                    ]);
+                }
+
+                $this->notifier->dispatch(NotificationEvent::ItEscalation, $outage, array_filter(['queue' => $route['team']?->name]));
             } elseif ($major->requires_noc_confirmation) {
                 // Step 2: automatic escalation / routing to the NOC FIFO queue.
                 $outage->forceFill(['noc_escalated_at' => now()])->save();
@@ -239,6 +260,7 @@ class OutageWorkflow
                 'end_time' => now(),
             ]);
             $this->fifo->complete($outage, QueueType::NocReview, $by, 'NOC rejected');
+            $this->deskSla->clearField($outage);
 
             // Not an outage: Customer Experience (Tier II) calls the customer back and raises a
             // site visit if needed. The ticket closes as "NOC Reject" once they record the follow-up.
@@ -406,16 +428,17 @@ class OutageWorkflow
                     $this->storeSitePhotos($outage, $by, OutagePhoto::AFTER, $photos);
                 }
 
-                if (! $this->hasAfterPhotos($outage)) {
+                if ($this->maintenancePhotosRequired() && ! $this->hasAfterPhotos($outage)) {
                     throw ValidationException::withMessages(['photos' => 'Add the two “after” photos (outside the FAT / FDT with the label, and inside) showing the finished work.']);
                 }
             }
 
             // Emergency / Regular outage: findings on ground, after restoration and the power readings.
-            if ($outage->requiresSitePhotos()) {
+            if ($outage->offersSitePhotos()) {
                 $this->storeOutagePhotos($outage, $by, $photos);
 
-                if (($missing = $outage->missingSitePhotos()) !== []) {
+                // Mandatory unless the photos were made optional in the settings.
+                if ($outage->requiresSitePhotos() && ($missing = $outage->missingSitePhotos()) !== []) {
                     throw ValidationException::withMessages(['photos' => 'The outage is reported restored with three site photos. Still missing: '.implode(', ', $missing).'.']);
                 }
             }
@@ -764,6 +787,22 @@ class OutageWorkflow
 
     // ------------------------------------------------------------------ system outages: IT first
 
+    /**
+     * Who reviews a system outage: the team named on the first affected service that has one
+     * (Configuration → Affected Services → "System outages reviewed by"), otherwise the IT desk.
+     *
+     * @return array{team: ?Team, service: ?Service, options: array<string, mixed>}
+     */
+    private function systemRoute(Outage $outage): array
+    {
+        $service = $outage->services()->whereNotNull('services.review_team_id')
+            ->whereHas('reviewTeam', fn ($team) => $team->where('is_active', true))
+            ->with('reviewTeam')->orderBy('services.id')->first();
+        $team = $service?->reviewTeam;
+
+        return ['team' => $team, 'service' => $service, 'options' => $team ? ['team_id' => $team->id, 'any_department' => true] : []];
+    }
+
     /** IT finds a core / network cause and escalates the system outage to NOC. */
     public function itEscalateToNoc(Outage $outage, User $by, string $reason): Outage
     {
@@ -801,7 +840,8 @@ class OutageWorkflow
             $this->fifo->complete($outage, QueueType::NocReview, $by, 'Resolved by NOC — returned to IT');
             $this->transition($outage, StatusCode::AwaitingItConfirmation, $by, $note);
             $this->addSystemUpdate($outage, "NOC resolved the core / network issue and returned the ticket to IT to confirm: {$note}", $by);
-            $this->fifo->enqueue($outage, QueueType::ItConfirmation, ['reason' => 'NOC resolved — IT to confirm']);
+            // Back to the people who reviewed it: the system's own team, or the IT desk.
+            $this->fifo->enqueue($outage, QueueType::ItConfirmation, $this->systemRoute($outage)['options'] + ['reason' => 'NOC resolved — IT to confirm']);
             $this->notifier->dispatch(NotificationEvent::ReturnedToIt, $outage, ['reason' => $note]);
 
             return $outage->refresh();

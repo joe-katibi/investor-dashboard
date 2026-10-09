@@ -60,9 +60,21 @@ class TicketResource extends Resource
         return parent::getEloquentQuery()->cxTickets();
     }
 
+    /** The search box at the top finds a ticket by its number, title, account number, customer name or phone. */
     public static function getGloballySearchableAttributes(): array
     {
-        return ['ticket_number', 'title'];
+        return TicketViews::GLOBAL_SEARCH;
+    }
+
+    public static function getGlobalSearchEloquentQuery(): Builder
+    {
+        return parent::getGlobalSearchEloquentQuery()->with(['ticket', 'status']);
+    }
+
+    /** @return array<string, string> */
+    public static function getGlobalSearchResultDetails(Model $record): array
+    {
+        return TicketViews::globalSearchDetails($record);
     }
 
     public static function getNavigationBadge(): ?string

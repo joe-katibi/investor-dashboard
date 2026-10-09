@@ -39,6 +39,23 @@ class Settings
         'sla.default_resolution_minutes' => 240,
         'sla.default_pre_breach_minutes' => 30,
 
+        // SLA per desk (Configuration → FIFO & SLA Settings): how long a ticket may wait at a desk, and
+        // how soon an outage must be with a field technician. Defaults per desk: DeskSla::DEFAULT_MINUTES.
+        'desk_sla.enabled' => true,
+        'desk_sla.minutes' => [],                // desk (queue type) => minutes; 0 = no target
+        'desk_sla.warn_percent' => 75,           // share of the target used before the warning goes out
+        'desk_sla.field_minutes' => 30,          // outage reported → dispatched to a technician (0 = off)
+        'desk_sla.email_breaches' => true,       // breaches also by e-mail (warnings are in-app)
+        'desk_sla.stakeholder_roles' => [
+            'NOC Manager', 'NOC Team Leader', 'CX Manager', 'CX Team Leader', 'Dispatch Manager', 'Infrastructure Manager',
+            '4G NOC Manager', 'Ticketing Manager', 'Billing Manager',
+        ],
+        'desk_sla.stakeholder_emails' => [],
+
+        // Field photos: mandatory, or offered but optional (Configuration → FIFO & SLA Settings)
+        'photos.outage_required' => true,        // Emergency / Regular outage: the three site photos before "Report restored"
+        'photos.maintenance_required' => true,   // preventive / corrective: "before" photos to raise it, "after" photos to complete it
+
         // Notifications
         'notifications.credit_due_on_breach' => true,
 

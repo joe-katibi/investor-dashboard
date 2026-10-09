@@ -95,8 +95,10 @@ class MobilitySeederTest extends TestCase
         $this->assertNotContains('outage.create', $grants['NOC Tier I']);
         $this->assertEqualsCanonicalizing([...array_keys($grantsBefore), ...RolesAndPermissionsSeeder::MOBILITY_ROLES], array_keys($grants));
         $this->assertContains('mobility.verify', $grants['4G NOC']);
-        $this->assertEqualsCanonicalizing(['mobility.view', 'mobility.work', 'queue.work_mobility_engineer', 'mobility.handle_transmission'], $grants['4G Engineer']);
-        $this->assertEqualsCanonicalizing(['mobility.view', 'mobility.work', 'queue.work_mobility_engineer', 'mobility.handle_enodeb'], $grants['4G Technician']);
+        // …with the two 4G screens that come with "View 4G outages" (each can be unticked per role).
+        $screens = ['mobility.dashboard', 'mobility.engineers'];
+        $this->assertEqualsCanonicalizing(['mobility.view', 'mobility.work', 'queue.work_mobility_engineer', 'mobility.handle_transmission', ...$screens], $grants['4G Engineer']);
+        $this->assertEqualsCanonicalizing(['mobility.view', 'mobility.work', 'queue.work_mobility_engineer', 'mobility.handle_enodeb', ...$screens], $grants['4G Technician']);
         $this->assertNotContains('mobility.handle_enodeb', $grants['4G NOC Manager'], 'the NOC assigns, it is not handed tickets to fix');
 
         // The 4G module is complete.

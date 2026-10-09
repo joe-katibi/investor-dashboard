@@ -229,6 +229,10 @@ class SlaService
             ? [NotificationChannel::InApp->value]
             : [NotificationChannel::InApp->value, NotificationChannel::Mail->value];
 
+        // Where the ticket was when its SLA ran out: the breach is reported against that desk.
+        $where = array_filter(['desk' => $outage->current_queue?->value, 'held_by_id' => $outage->current_assignee_id]);
+        $context = array_filter(['queue' => $outage->current_queue?->getLabel()]);
+
         if ($state !== $outage->sla_state) {
             $outage->sla_state = $state;
             $dirty = true;
@@ -237,18 +241,18 @@ class SlaService
         if ($state === SlaState::AtRisk && ! $outage->sla_pre_breach_notified_at) {
             $outage->sla_pre_breach_notified_at = $now;
             $dirty = true;
-            $this->event($outage, 'pre_breach');
-            $this->notifier->notifyTargets(NotificationEvent::SlaPreBreach, $outage, $targets, $channels);
-            $this->notifier->dispatch(NotificationEvent::SlaPreBreach, $outage);
+            $this->event($outage, 'pre_breach', $where);
+            $this->notifier->notifyTargets(NotificationEvent::SlaPreBreach, $outage, $targets, $channels, $context);
+            $this->notifier->dispatch(NotificationEvent::SlaPreBreach, $outage, $context);
         }
 
         if ($state === SlaState::Breached && ! $outage->sla_breach_notified_at) {
             $outage->sla_breach_notified_at = $now;
             $outage->sla_pre_breach_notified_at ??= $now;
             $dirty = true;
-            $this->event($outage, 'breached');
-            $this->notifier->notifyTargets(NotificationEvent::SlaBreach, $outage, $targets, $channels);
-            $this->notifier->dispatch(NotificationEvent::SlaBreach, $outage);
+            $this->event($outage, 'breached', $where);
+            $this->notifier->notifyTargets(NotificationEvent::SlaBreach, $outage, $targets, $channels, $context);
+            $this->notifier->dispatch(NotificationEvent::SlaBreach, $outage, $context);
 
             // Customer credit is an FTTH matter: never raised for 4G NOC tickets.
             if ($outage->workflow === null && ($policy?->notify_credit ?? $this->settings->bool('notifications.credit_due_on_breach')) && ! $outage->credit_shared) {

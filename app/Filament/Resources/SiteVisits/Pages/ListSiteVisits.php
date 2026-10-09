@@ -23,6 +23,12 @@ class ListSiteVisits extends ListRecords
 
     protected static ?string $title = 'Site visits';
 
+    /** The list has its own switch ("visit.view"); a single visit opens for anyone who may view tickets. */
+    protected function authorizeAccess(): void
+    {
+        abort_unless(SiteVisitResource::canViewAny(), 403);
+    }
+
     protected function getHeaderActions(): array
     {
         return [CreateAction::make()->label('Book site visit')->icon(Heroicon::OutlinedPlus)];

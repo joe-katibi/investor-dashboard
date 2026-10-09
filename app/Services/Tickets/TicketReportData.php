@@ -2,6 +2,7 @@
 
 namespace App\Services\Tickets;
 
+use App\Services\Reports\InsightReports;
 use App\Support\Settings;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -15,13 +16,16 @@ use Illuminate\Support\Str;
  *   ticket_daily     the daily report (07:00, 12:00, 19:00)
  *   ticket_weekly    Monday 07:00, the week just ended
  *   ticket_monthly   the 1st at 07:00, the month just ended
+ *   ticket_final_reasons  what tickets were closed with, day by day for seven days
  *
  * Counts are plain values ({{tk_pending}}); everything ending in _table is a ready-made HTML
  * table or chart ({{tk_sla_per_department_table}}, {{tk_inflow_chart_table}}…).
  */
 class TicketReportData
 {
-    public const TYPES = ['ticket_pending' => 'pending', 'ticket_daily' => 'day', 'ticket_weekly' => 'week', 'ticket_monthly' => 'month'];
+    public const TYPES = [
+        'ticket_pending' => 'pending', 'ticket_daily' => 'day', 'ticket_weekly' => 'week', 'ticket_monthly' => 'month', 'ticket_final_reasons' => 'reasons',
+    ];
 
     /** Placeholders offered on the e-mail template screen. */
     public const PLACEHOLDERS = [
@@ -29,13 +33,15 @@ class TicketReportData
         'tk_pending_breached', 'tk_in_follow_up', 'tk_closed', 'tk_closed_sla_pct', 'tk_headline_table', 'tk_sla_per_department_table',
         'tk_sla_per_olt_table', 'tk_issue_per_olt_table', 'tk_sla_per_region_table', 'tk_follow_up_table', 'tk_closed_table', 'tk_report_title',
         'tk_period_label', 'tk_previous_label', 'tk_movement_table', 'tk_closed_sla_table', 'tk_pending_sla_table', 'tk_inflow_chart_table',
-        'tk_sla_chart_table', 'tk_region_table', 'tk_pending_reasons_table', 'tk_trend_table',
+        'tk_sla_chart_table', 'tk_region_table', 'tk_pending_reasons_table', 'tk_trend_table', 'tk_raised', 'tk_raised_table', 'tk_final_reasons_table',
+        'tk_reasons_total', 'tk_reasons_previous', 'tk_reasons_until',
     ];
 
     public function __construct(
         private readonly TicketMetrics $metrics,
         private readonly BusinessClock $clock,
         private readonly Settings $settings,
+        private readonly InsightReports $insights,
     ) {}
 
     public static function handles(?string $reportType): bool
@@ -59,7 +65,11 @@ class TicketReportData
             'tk_followup_hours' => round($this->settings->int('ticketing.followup_minutes') / 60, 1),
         ];
 
-        return $data + ($kind === 'pending' ? $this->pending($now, $periodHours) : $this->period($kind, $now));
+        return $data + $this->finalReasons($now) + match ($kind) {
+            'pending' => $this->pending($now, $periodHours),
+            'reasons' => [],
+            default => $this->period($kind, $now),
+        };
     }
 
     /** @return array<string, scalar> */
@@ -98,6 +108,38 @@ class TicketReportData
                 ['left' => 8, 'empty' => 'No ticket is past the follow-up time.'],
             ),
             'tk_closed_table' => $this->closedTable($s['closed']),
+            'tk_raised' => ($raised = $this->metrics->raised($now->subHours(max(1, $periodHours)), $now))->count(),
+            'tk_raised_table' => TicketTables::table(
+                ['Ticket', 'Account', 'Customer', 'Issue', 'OLT', 'Region', 'Department', 'With', 'Status'],
+                $raised->take(60)->map(fn (array $row) => [
+                    $row['ticket'], $row['account'], Str::limit((string) $row['customer'], 28), $row['issue'], $row['olt'], $row['region'], $row['department'],
+                    $row['assignee'] ?? 'Waiting (FIFO)', $row['status'],
+                ])->all(),
+                ['left' => 9, 'empty' => 'No ticket was raised in the period.'],
+            ),
+        ];
+    }
+
+    /**
+     * What tickets were closed with over the last seven days, against the seven days before.
+     *
+     * @return array<string, scalar>
+     */
+    private function finalReasons(CarbonImmutable $now): array
+    {
+        $trend = $this->insights->finalReasons($now, 7);
+
+        return [
+            'tk_reasons_total' => $trend['total'],
+            'tk_reasons_previous' => $trend['previous'],
+            'tk_reasons_until' => $trend['until'],
+            'tk_final_reasons_table' => TicketTables::table(
+                ['Final reason', ...$trend['days'], 'Total', 'Share', 'Previous 7 days', 'Change'],
+                array_map(fn (array $row) => [
+                    $row['reason'], ...array_map(fn (int $i) => $row["d{$i}"], array_keys($trend['days'])), $row['total'], $row['share'], $row['previous'], $row['change'],
+                ], array_slice($trend['rows'], 0, 40)),
+                ['left' => 1, 'bold_first' => true, 'empty' => 'Nothing was closed in the last 14 days.'],
+            ),
         ];
     }
 

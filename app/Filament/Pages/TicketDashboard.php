@@ -6,6 +6,7 @@ use App\Filament\Concerns\RefreshesOnOmsEvents;
 use App\Filament\Resources\SiteVisits\SiteVisitResource;
 use App\Filament\Resources\Tickets\TicketResource;
 use App\Models\Outage;
+use App\Services\Reports\InsightReports;
 use App\Services\Tickets\BusinessClock;
 use App\Services\Tickets\TicketMetrics;
 use App\Services\Tickets\TicketTables;
@@ -48,7 +49,7 @@ class TicketDashboard extends Page
 
     public static function canAccess(): bool
     {
-        return (bool) Auth::user()?->can('ticket.view');
+        return (bool) Auth::user()?->can('ticket.view') && (bool) Auth::user()?->can('ticket.dashboard');
     }
 
     public function getSubheading(): ?string
@@ -84,6 +85,8 @@ class TicketDashboard extends Page
             's' => $metrics->snapshot(now(), max(1, (int) now()->diffInHours(now()->startOfDay())), $filters),
             'period' => $period,
             'pct' => fn (?float $value) => $metrics->pct($value),
+            // Final reasons of what was closed, day by day for a week against the week before.
+            'reasons' => app(InsightReports::class)->finalReasons(now(), 7, $filters),
             'inflowChart' => TicketTables::bars($trend->pluck('label')->all(), [
                 'Inflow' => ['color' => '#2563eb', 'values' => $trend->pluck('inflow')->all()],
                 'Closed' => ['color' => '#16a34a', 'values' => $trend->pluck('closed')->all()],

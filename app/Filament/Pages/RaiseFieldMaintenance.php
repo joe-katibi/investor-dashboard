@@ -9,6 +9,7 @@ use App\Models\OutagePhoto;
 use App\Models\OutageType;
 use App\Models\Vertical;
 use App\Services\Outages\OutageWorkflow;
+use App\Support\Settings;
 use BackedEnum;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Radio;
@@ -65,7 +66,7 @@ class RaiseFieldMaintenance extends Page
 
     public function form(Schema $schema): Schema
     {
-        $photo = fn (string $name, string $label, string $hint) => OutageActions::photoUpload($name, $label, $hint);
+        $photo = fn (string $name, string $label, string $hint) => OutageActions::photoUpload($name, $label, $hint, required: app(Settings::class)->bool('photos.maintenance_required'));
 
         return $schema->statePath('data')->components([
             Section::make('What')->schema([

@@ -11,6 +11,7 @@ final class Permissions
     public const GROUPS = [
         'Outages' => [
             'outage.view' => 'View outages',
+            'dashboard.view' => 'Screen: command centre dashboard (needs “View outages”)',
             'outage.create' => 'Create outages',
             'outage.edit' => 'Edit outage details',
             'outage.delete' => 'Delete outages',
@@ -40,6 +41,8 @@ final class Permissions
         ],
         '4G NOC' => [
             'mobility.view' => 'View 4G outages, dashboard and topology',
+            'mobility.dashboard' => 'Screen: 4G dashboard (needs “View 4G outages”)',
+            'mobility.engineers' => 'Screen: 4G engineers & technicians availability (needs “View 4G outages”)',
             'mobility.create' => 'Create 4G outage tickets',
             'mobility.edit' => 'Edit 4G ticket details',
             'mobility.assign' => 'Assign engineers / technicians and vendors',
@@ -55,6 +58,8 @@ final class Permissions
         ],
         'Customer Tickets & Site Visits' => [
             'ticket.view' => 'View customer tickets, site visits, customers and the ticket dashboard',
+            'ticket.dashboard' => 'Screen: Customer Care dashboard (needs “View customer tickets”)',
+            'visit.view' => 'Screen: site visits list (needs “View customer tickets”)',
             'ticket.create' => 'Raise customer tickets',
             'ticket.work' => 'Work tickets at your desk: escalate, return, follow up and close',
             'ticket.approve' => 'Approve / decline refund, credit and billing requests',
@@ -113,6 +118,19 @@ final class Permissions
             'reports.export' => 'Export reports (CSV / Excel / PDF)',
             'audit.view' => 'View audit trail & notification logs',
         ],
+    ];
+
+    /**
+     * Screens that have a switch of their own, and the permission that used to show them. A role
+     * with the parent got the screen when the switch was introduced; untick it to hide the screen
+     * from that role (a CX agent who should only raise tickets, not see the dashboards).
+     */
+    public const SCREENS = [
+        'dashboard.view' => 'outage.view',
+        'mobility.dashboard' => 'mobility.view',
+        'mobility.engineers' => 'mobility.view',
+        'ticket.dashboard' => 'ticket.view',
+        'visit.view' => 'ticket.view',
     ];
 
     /** @return list<string> */

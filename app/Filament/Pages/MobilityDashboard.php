@@ -45,7 +45,7 @@ class MobilityDashboard extends Page
 
     public static function canAccess(): bool
     {
-        return (bool) Auth::user()?->can('mobility.view');
+        return (bool) Auth::user()?->can('mobility.view') && (bool) Auth::user()?->can('mobility.dashboard');
     }
 
     public function getSubheading(): ?string

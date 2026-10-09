@@ -38,6 +38,22 @@ final class TicketViews
         'priority:id,name,color', 'status:id,name,color', 'currentAssignee:id,name', 'technician:id,name', 'activeAssignments',
     ];
 
+    /** What the search box at the top of every page looks in, for customer tickets and site visits. */
+    public const GLOBAL_SEARCH = [
+        'ticket_number', 'title', 'ticket.account_number', 'ticket.customer_name',
+        'ticket.calling_number', 'ticket.primary_number', 'ticket.external_reference',
+    ];
+
+    /** @return array<string, string> shown under a ticket in the search results */
+    public static function globalSearchDetails(Outage $record): array
+    {
+        return array_filter([
+            'Account' => $record->ticket?->account_number,
+            'Customer' => $record->ticket?->customer_name,
+            'Status' => $record->status?->name,
+        ]);
+    }
+
     public static function table(Table $table, bool $visits): Table
     {
         $resource = $visits ? SiteVisitResource::class : TicketResource::class;

@@ -25,6 +25,11 @@ enum NotificationEvent: string implements HasLabel
     case SlaPreBreach = 'sla_pre_breach';
     case SlaBreach = 'sla_breach';
     case SlaEscalation = 'sla_escalation';
+    // SLA per desk: a ticket waiting at a desk past (or close to) that desk's target, and an outage not yet on the field.
+    case DeskSlaPreBreach = 'desk_sla_pre_breach';
+    case DeskSlaBreach = 'desk_sla_breach';
+    case FieldSlaPreBreach = 'field_sla_pre_breach';
+    case FieldSlaBreach = 'field_sla_breach';
     case CreditDue = 'credit_due';
     case CreditShared = 'credit_shared';
     case SmsSent = 'sms_sent';
@@ -83,6 +88,7 @@ enum NotificationEvent: string implements HasLabel
             self::VisitRescheduled, self::VisitCompleted, self::UpdatePosted, self::StatusChanged, self::TicketFollowUpDue,
             self::TicketCreditReady, self::TicketIntervention, self::Resolved, self::TicketReopened, self::AssignmentRejected,
             self::AssignmentTimeout, self::QueueEscalation, self::SlaPreBreach, self::SlaBreach, self::SlaEscalation,
+            self::DeskSlaPreBreach, self::DeskSlaBreach,
         ];
     }
 
@@ -149,6 +155,10 @@ enum NotificationEvent: string implements HasLabel
             self::SlaPreBreach => 'SLA Pre-Breach',
             self::SlaBreach => 'SLA Breach',
             self::SlaEscalation => 'SLA Escalation',
+            self::DeskSlaPreBreach => 'Desk SLA: Target Almost Up',
+            self::DeskSlaBreach => 'Desk SLA: Target Breached at a Desk',
+            self::FieldSlaPreBreach => 'Field: Not Yet Dispatched (warning)',
+            self::FieldSlaBreach => 'Field: Not Dispatched Within the Target',
             self::CreditDue => 'Credit Possibly Due',
             self::CreditShared => 'Credit Shared',
             self::SmsSent => 'SMS Sent',

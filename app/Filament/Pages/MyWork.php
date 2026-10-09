@@ -10,6 +10,7 @@ use App\Filament\Support\OutageLink;
 use App\Models\Outage;
 use App\Models\OutageAssignment;
 use App\Services\Fifo\FifoAssignmentEngine;
+use App\Services\Sla\DeskSla;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
@@ -43,6 +44,48 @@ class MyWork extends Page implements HasTable
     protected static ?string $title = 'My Work';
 
     protected string $view = 'filament.pages.my-work';
+
+    /** How often the page looks for new work by itself (seconds) — also in a browser tab that is not in front. */
+    public const REFRESH_SECONDS = 40;
+
+    /** The assignments this page has already shown: one that appears later is announced. */
+    public array $knownAssignments = [];
+
+    public function mount(): void
+    {
+        $this->knownAssignments = $this->assignmentIds();
+    }
+
+    /**
+     * Runs every REFRESH_SECONDS: the list is redrawn, and a ticket that was not there before is
+     * announced — a notification on the page and its count in the browser tab's title, so it is
+     * seen from another tab too.
+     */
+    public function checkForNewWork(): void
+    {
+        $current = $this->assignmentIds();
+        $new = array_values(array_diff($current, $this->knownAssignments));
+        $this->knownAssignments = $current;
+
+        if ($new !== []) {
+            $tickets = Outage::query()
+                ->whereIn('id', OutageAssignment::query()->whereIn('id', $new)->select('outage_id'))
+                ->orderBy('sla_due_at')->get(['id', 'ticket_number', 'title']);
+
+            Notification::make()
+                ->title($tickets->count() === 1 ? 'New ticket for you: '.$tickets->first()->ticket_number : $tickets->count().' new tickets for you')
+                ->body($tickets->take(5)->map(fn (Outage $ticket) => e($ticket->ticket_number.' — '.str($ticket->title)->limit(70)))->implode('<br>'))
+                ->icon('heroicon-o-inbox-arrow-down')->warning()->persistent()->send();
+        }
+
+        $this->js('document.title = '.json_encode(($current === [] ? '' : '('.count($current).') ').'My Work - '.config('app.name')));
+    }
+
+    /** @return list<int> ids of my active assignments */
+    private function assignmentIds(): array
+    {
+        return OutageAssignment::query()->where('user_id', Auth::id())->active()->orderBy('id')->pluck('id')->map(fn ($id) => (int) $id)->all();
+    }
 
     public static function canAccess(): bool
     {
@@ -101,9 +144,9 @@ class MyWork extends Page implements HasTable
             ->query(fn (): Builder => Outage::query()
                 ->whereHas('assignments', fn ($q) => $q->where('user_id', Auth::id())->whereIn('status', AssignmentStatus::activeValues()))
                 ->with(['priority:id,name,color', 'status:id,name,color', 'outageType:id,name', 'activeAssignments', 'openSupportRequest', 'changeRequest', 'vendor', 'ticket.subcategory', 'ticket.visitType',
-                    'assignments' => fn ($q) => $q->where('user_id', Auth::id())->whereIn('status', AssignmentStatus::activeValues())]))
+                    'assignments' => fn ($q) => $q->where('user_id', Auth::id())->whereIn('status', AssignmentStatus::activeValues())->with('queueEntry')]))
             ->defaultSort('sla_due_at')
-            ->poll('30s')
+            // Redrawn by the page's own refresh (checkForNewWork, every REFRESH_SECONDS).
             // FTTH and 4G tickets each open on their own ticket page.
             ->recordUrl(fn (Outage $record) => OutageLink::url($record))
             ->emptyStateHeading('Nothing assigned to you')
@@ -112,7 +155,9 @@ class MyWork extends Page implements HasTable
             ->columns([
                 TextColumn::make('ticket_number')->label('Ticket')->weight('bold')->wrap()->formatStateUsing(fn (?string $state) => str_replace('-', "\u{2011}", (string) $state))->description(fn (Outage $record) => str($record->title)->limit(45)),
                 TextColumn::make('queue')->label('My step')->badge()->visibleFrom('sm')
-                    ->state(fn (Outage $record) => $record->assignments->first()?->queue_type?->getLabel()),
+                    ->state(fn (Outage $record) => $record->assignments->first()?->queue_type?->getLabel())
+                    // The time this desk has to act on it (SLA per desk), when the desk has a target.
+                    ->description(fn (Outage $record) => ($due = $record->assignments->first()?->queueEntry?->sla_due_at) ? 'desk target: '.DeskSla::describe($due) : null),
                 TextColumn::make('assignment_status')->label('Assignment')->badge()->wrap()
                     ->state(fn (Outage $record) => $record->assignments->first()?->status)
                     ->description(fn (Outage $record) => ($a = $record->assignments->first()) && $a->status === AssignmentStatus::Assigned && $a->ack_due_at

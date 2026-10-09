@@ -108,6 +108,30 @@
             </x-filament::section>
         </div>
 
+        <x-filament::section heading="Final reasons — last 7 days" icon="heroicon-o-flag" compact
+            :description="$reasons['total'].' closed in the last seven days, '.$reasons['previous'].' in the seven days before. By the final reason chosen on closing.'">
+            <div class="oms-scroll"><table class="oms-table">
+                <thead><tr><th>Final reason</th>@foreach ($reasons['days'] as $day)<th>{{ $day }}</th>@endforeach<th>Total</th><th>Share</th><th>Previous 7 days</th><th>Change</th></tr></thead>
+                <tbody>
+                @forelse (array_slice($reasons['rows'], 0, 15) as $row)
+                    <tr>
+                        <td class="oms-value">{{ $row['reason'] }}</td>
+                        @foreach ($reasons['days'] as $i => $day)<td class="{{ $row['d'.$i] === 0 ? 'oms-muted' : '' }}">{{ $row['d'.$i] }}</td>@endforeach
+                        <td class="oms-value">{{ $row['total'] }}</td>
+                        <td>{{ $row['share'] }}</td>
+                        <td>{{ $row['previous'] }}</td>
+                        <td class="{{ $row['delta'] > 0 ? 'oms-warn' : ($row['delta'] < 0 ? 'oms-ok' : 'oms-muted') }}">{{ $row['change'] }}</td>
+                    </tr>
+                @empty
+                    <tr><td colspan="{{ count($reasons['days']) + 5 }}" class="oms-muted">Nothing was closed in the last 14 days.</td></tr>
+                @endforelse
+                </tbody>
+            </table></div>
+            @if (count($reasons['rows']) > 15)
+                <div class="oms-muted">The 15 most common of {{ count($reasons['rows']) }} — all of them under Reports → “Tickets: Final Reasons (7-day trend)”.</div>
+            @endif
+        </x-filament::section>
+
         <x-filament::section heading="Longest pending" icon="heroicon-o-clock" compact>
             <div class="oms-scroll"><table class="oms-table">
                 <thead><tr><th>Ticket</th><th>Customer</th><th>Issue</th><th>Region / OLT</th><th>Department</th><th>With</th><th>Status</th><th>SLA hrs</th><th>SLA</th><th>Reason for delay</th></tr></thead>

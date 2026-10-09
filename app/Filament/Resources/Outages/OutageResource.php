@@ -280,7 +280,7 @@ class OutageResource extends Resource
                     ->helperText(fn (Outage $record) => self::sitePhoto($record, $position)?->caption())
                     ->placeholder('Not taken yet'))->values()->all())
                 ->columns(['default' => 1, 'md' => 3])->columnSpanFull()
-                ->visible(fn (Outage $record) => $record->requiresSitePhotos() || $record->photos->where('stage', OutagePhoto::SITE)->isNotEmpty()),
+                ->visible(fn (Outage $record) => $record->offersSitePhotos() || $record->photos->where('stage', OutagePhoto::SITE)->isNotEmpty()),
 
             Section::make('Lifecycle')->schema([
                 TextEntry::make('start_time')->label('Start')->dateTime('d M Y H:i'),

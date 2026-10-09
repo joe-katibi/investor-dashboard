@@ -9,16 +9,20 @@ use App\Filament\Resources\MobilityOutages\MobilityActions;
 use App\Filament\Resources\Outages\OutageActions;
 use App\Filament\Resources\Tickets\TicketActions;
 use App\Models\MaintenanceApproval;
+use App\Models\Olt;
 use App\Models\Outage;
 use App\Models\OutageAssignment;
 use App\Models\OutageAttachment;
 use App\Models\OutagePhoto;
 use App\Models\OutageStatus;
+use App\Models\OutageType;
 use App\Models\Team;
 use App\Models\TicketFollowUp;
 use App\Models\User;
+use App\Models\Vertical;
 use App\Services\Fifo\FifoAssignmentEngine;
 use App\Services\Outages\OutageWorkflow;
+use App\Support\Settings;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
@@ -98,6 +102,119 @@ final class MobileActions
         return ($definition['handle'])($data) ?? ($definition['success'] ?? 'Done');
     }
 
+    // ------------------------------------------------------------------ not about one ticket
+
+    /**
+     * What this person can start from the app without a ticket in front of them: raise corrective
+     * or preventive maintenance on site (the same as "Raise field maintenance" on the website).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function general(User $user): array
+    {
+        $actions = [];
+
+        foreach ($this->generalDefinitions($user) as $key => $definition) {
+            if ($definition['visible']) {
+                $actions[] = [
+                    'key' => $key, 'label' => $definition['label'], 'style' => $definition['style'] ?? 'neutral', 'primary' => false,
+                    'description' => $definition['description'] ?? null, 'confirm' => false, 'disabled_reason' => null,
+                    'fields' => array_values($definition['fields']()),
+                ];
+            }
+        }
+
+        return $actions;
+    }
+
+    /**
+     * @return array{0: string, 1: ?Outage} the message to show and the ticket that was created
+     */
+    public function runGeneral(User $user, string $key, Request $request): array
+    {
+        $definition = $this->generalDefinitions($user)[$key] ?? null;
+
+        if (! $definition || ! $definition['visible']) {
+            throw ValidationException::withMessages(['action' => 'This is not available to you. Refresh and try again.']);
+        }
+
+        return ($definition['handle'])($this->validated($request, array_values($definition['fields']())));
+    }
+
+    /** @return array<string, array<string, mixed>> */
+    private function generalDefinitions(User $user): array
+    {
+        $mayRaise = $user->can('raiseFieldMaintenance', Outage::class);
+        $photosRequired = app(Settings::class)->bool('photos.maintenance_required');
+
+        $where = fn (): array => [
+            $this->text('site_label', 'FAT / FDT label', required: true, max: 120),
+            $this->text('location', 'Location / area'),
+            $this->select('olt_id', 'OLT', $this->options(Olt::query()->active()->orderBy('name')->pluck('name', 'id')), placeholder: 'Not known'),
+            $this->number('customers_affected', 'Customers affected (estimate)', max: 10_000_000),
+        ];
+        $photos = fn (): array => [
+            $this->photo('photo_outside', 'Photo before the work — outside', OutagePhoto::POSITIONS['outside'], required: $photosRequired, camera: true),
+            $this->photo('photo_inside', 'Photo before the work — inside', OutagePhoto::POSITIONS['inside'], required: $photosRequired, camera: true),
+        ];
+
+        $raise = function (string $kind, array $data) use ($user): array {
+            $outage = $this->workflow->raiseFieldMaintenance([
+                'kind' => $kind,
+                'title' => $data['title'] ?? null,
+                'description' => $data['description'] ?? null,
+                'site_label' => $data['site_label'] ?? null,
+                'location' => $data['location'] ?? null,
+                'vertical_id' => Vertical::query()->where('code', Vertical::FTTH)->value('id'),
+                'olt_ids' => array_filter([$this->id($data['olt_id'] ?? null)]),
+                'customers_affected' => (int) ($data['customers_affected'] ?? 0),
+                'downtime_start' => $data['downtime_start'] ?? null,
+                'downtime_end' => $data['downtime_end'] ?? null,
+                'photos' => $this->cameraPhotos($data, ['outside' => 'photo_outside', 'inside' => 'photo_inside']),
+                'support' => filled($data['support_work'] ?? null)
+                    ? ['work_required' => $data['support_work'], 'customer_details' => $data['support_customers'] ?? null]
+                    : [],
+            ], $user);
+
+            return [$kind === OutageType::PREVENTIVE
+                ? "{$outage->ticket_number} sent for Dispatcher and Infrastructure Manager approval."
+                : "{$outage->ticket_number} raised and assigned to you. Everyone concerned has been notified.", $outage];
+        };
+
+        return [
+            'raise_corrective' => [
+                'visible' => $mayRaise,
+                'label' => 'Raise corrective maintenance',
+                'style' => 'danger',
+                'description' => 'Something is broken (a fallen pole, a dropped cable): the work starts now and the ticket is yours.',
+                'fields' => fn (): array => [
+                    $this->text('title', 'Title', required: true),
+                    $this->textarea('description', 'What happened / work needed', required: true, max: 5000),
+                    ...$where(),
+                    ...$photos(),
+                    $this->textarea('support_work', 'Support technician — work required (leave empty if none is needed)'),
+                    $this->text('support_customers', 'Support technician — customer(s): name / account / phone'),
+                ],
+                'handle' => fn (array $data): array => $raise(OutageType::CORRECTIVE, $data),
+            ],
+            'raise_preventive' => [
+                'visible' => $mayRaise,
+                'label' => 'Raise preventive maintenance',
+                'style' => 'warning',
+                'description' => 'An issue found on site that needs a planned downtime: the Dispatcher and the Infrastructure Manager approve it first.',
+                'fields' => fn (): array => [
+                    $this->text('title', 'Title', required: true),
+                    $this->textarea('description', 'Issue found on site', required: true, max: 5000),
+                    ...$where(),
+                    $this->datetime('downtime_start', 'Proposed downtime — start', required: true, future: true),
+                    $this->datetime('downtime_end', 'Proposed downtime — end', required: true, future: true),
+                    ...$photos(),
+                ],
+                'handle' => fn (array $data): array => $raise(OutageType::PREVENTIVE, $data),
+            ],
+        ];
+    }
+
     // ------------------------------------------------------------------ the catalogue
 
     /** @return array<string, array<string, mixed>> */
@@ -110,7 +227,10 @@ final class MobileActions
         $ticket = $outage->isTicket() ? $outage->ticket : null;
         $approvalSlot = $can('approvePreventive') ? MaintenanceApproval::openSlotFor($outage, $user) : null;
         // Emergency / Regular outage worked by a field team: position => photo on the ticket (or null).
-        $sitePhotos = $outage->requiresSitePhotos() ? $outage->sitePhotos() : null;
+        $sitePhotos = $outage->offersSitePhotos() ? $outage->sitePhotos() : null;
+        // Mandatory, or offered but optional: FIFO & SLA Settings → Field photos.
+        $photosRequired = $outage->requiresSitePhotos();
+        $maintenancePhotosRequired = app(Settings::class)->bool('photos.maintenance_required');
         $missingPhotos = collect($sitePhotos ?? [])->filter(fn (?OutagePhoto $photo) => $photo === null)
             ->map(fn ($photo, string $position) => OutagePhoto::SITE_PHOTOS[$position][0])->all();
 
@@ -197,11 +317,13 @@ final class MobileActions
             'site_photos' => [
                 'visible' => $sitePhotos !== null && $can('addSitePhotos') && $holding,
                 'label' => 'Site photos ('.count(array_filter($sitePhotos ?? [])).' of '.count(OutagePhoto::SITE_PHOTOS).')',
-                'style' => $missingPhotos === [] ? 'neutral' : 'warning',
-                'primary' => $missingPhotos !== [],
-                'description' => $missingPhotos === []
-                    ? 'All three photos are on the ticket. Take one again only to replace it.'
-                    : 'Still to take: '.implode(', ', $missingPhotos).'. The outage cannot be reported restored without all three.',
+                'style' => $missingPhotos === [] || ! $photosRequired ? 'neutral' : 'warning',
+                'primary' => $missingPhotos !== [] && $photosRequired,
+                'description' => match (true) {
+                    $missingPhotos === [] => 'All three photos are on the ticket. Take one again only to replace it.',
+                    $photosRequired => 'Still to take: '.implode(', ', $missingPhotos).'. The outage cannot be reported restored without all three.',
+                    default => 'Photos of the work (optional). Still to take: '.implode(', ', $missingPhotos).'.',
+                },
                 'fields' => fn () => collect(OutagePhoto::SITE_PHOTOS)->map(fn (array $photo, string $position) => $this->photo(
                     'site_'.$position,
                     $photo[0],
@@ -225,7 +347,7 @@ final class MobileActions
                 'label' => $outage->maintenance_kind ? 'Report work completed' : 'Report restored',
                 'style' => 'success',
                 'primary' => true,
-                'description' => $missingPhotos === []
+                'description' => $missingPhotos === [] || ! $photosRequired
                     ? 'The NOC then confirms the restoration.'
                     : 'Needs the three site photos — still to take: '.implode(', ', $missingPhotos).'. The NOC then confirms the restoration.',
                 'disabled_reason' => $outage->openSupportRequest !== null
@@ -236,12 +358,12 @@ final class MobileActions
                     $this->textarea('note', $outage->maintenance_kind ? 'Work done' : 'Restoration details', required: true, max: 5000),
                     // Field maintenance closes with two photos of the finished work.
                     ...($outage->maintenance_kind ? [
-                        $this->photo('after_outside', 'After — outside', OutagePhoto::POSITIONS['outside'], required: true, camera: true),
-                        $this->photo('after_inside', 'After — inside', OutagePhoto::POSITIONS['inside'], required: true, camera: true),
+                        $this->photo('after_outside', 'After — outside', OutagePhoto::POSITIONS['outside'], required: $maintenancePhotosRequired, camera: true),
+                        $this->photo('after_inside', 'After — inside', OutagePhoto::POSITIONS['inside'], required: $maintenancePhotosRequired, camera: true),
                     ] : []),
                     // Emergency / Regular outage: whichever site photos are not on the ticket yet.
                     ...collect($missingPhotos)->map(fn (string $label, string $position) => $this->photo(
-                        'site_'.$position, $label, OutagePhoto::SITE_PHOTOS[$position][1], required: true, camera: true,
+                        'site_'.$position, $label, OutagePhoto::SITE_PHOTOS[$position][1], required: $photosRequired, camera: true,
                     ))->values()->all(),
                 ],
                 'handle' => function (array $data) use ($outage, $user): string {
@@ -279,6 +401,17 @@ final class MobileActions
                     $this->workflow->completeSupport($outage, $user, $data['note']);
 
                     return 'Support work completed';
+                },
+            ],
+            'cancel_support' => [
+                'visible' => $can('cancelSupport'),
+                'label' => 'Cancel support request',
+                'description' => 'Requested: '.($outage->openSupportRequest?->work_required ?? '—'),
+                'fields' => fn () => [$this->textarea('reason', 'Why is the support technician no longer needed?', required: true)],
+                'handle' => function (array $data) use ($outage, $user): string {
+                    $this->workflow->cancelSupport($outage, $user, $data['reason']);
+
+                    return 'Support request cancelled';
                 },
             ],
             'set_status' => [
@@ -472,7 +605,7 @@ final class MobileActions
                     $evidence = TicketActions::needsEvidence($outage);
 
                     return [
-                        $this->select('final_reason_id', 'Final reason', $this->options(TicketActions::finalReasons('visit')), required: true),
+                        $this->select('final_reason_id', 'Final reason', $this->options(TicketActions::finalReasons('visit', $outage->current_queue)), required: true),
                         $this->text('fat_number', 'FAT number', required: $evidence, max: 60, default: $ticket?->fat_number),
                         // Taken on the spot, with the camera only: nothing from the gallery.
                         $this->photo('geo_photo', 'Geolocation photo', 'Photo with the location stamp at the customer premise.', camera: true,
@@ -590,7 +723,7 @@ final class MobileActions
                     ? 'Closes the visit without field work (for example the customer confirmed uptime on the call).'
                     : 'Closes the ticket with its final reason.',
                 'fields' => fn () => [
-                    $this->select('final_reason_id', 'Final reason', $this->options(TicketActions::finalReasons($outage->isSiteVisit() ? 'visit' : 'ticket')), required: true),
+                    $this->select('final_reason_id', 'Final reason', $this->options(TicketActions::finalReasons($outage->isSiteVisit() ? 'visit' : 'ticket', $outage->current_queue)), required: true),
                     $this->select('delay_reason_id', 'Reason for delay', $this->options(TicketActions::delayReasons()), required: TicketActions::late($outage),
                         help: TicketActions::late($outage) ? 'This ticket is past its SLA: a reason for the delay is required.' : null),
                     $this->textarea('resolution_notes', 'Resolution / what the customer was told', max: 5000),
@@ -620,6 +753,21 @@ final class MobileActions
                     $this->workflow->addTicketAttachments($outage, $user, $paths, $names, $data['note'] ?? null, $data['kind'] ?? null);
 
                     return 'Photos attached';
+                },
+            ],
+            'ticket_cancel' => [
+                'visible' => $can('ticketCancel'),
+                'label' => 'Cancel / duplicate',
+                'style' => 'danger',
+                'description' => 'Cancelled and duplicate tickets have no SLA outcome and are left out of the reports.',
+                'fields' => fn () => [
+                    $this->toggle('duplicate', 'This is a duplicate of another ticket'),
+                    $this->textarea('reason', 'Reason', required: true),
+                ],
+                'handle' => function (array $data) use ($outage, $user): string {
+                    $this->workflow->cancelTicket($outage, $user, $data['reason'], ! empty($data['duplicate']));
+
+                    return ! empty($data['duplicate']) ? 'Marked as a duplicate' : 'Ticket cancelled';
                 },
             ],
 

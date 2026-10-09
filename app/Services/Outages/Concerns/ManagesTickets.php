@@ -40,6 +40,7 @@ use App\Support\AuditContext;
 use App\Support\Settings;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
@@ -112,6 +113,7 @@ trait ManagesTickets
 
             $this->openTicket($outage, $ticket, $by, "Ticket raised: {$subcategory->category?->name} / {$subcategory->name}."
                 .(filled($outage->description) ? ' '.Str::limit((string) $outage->description, 300) : ''));
+            $this->attachOnRaising($outage, $by, $data);
 
             if ($subcategory->check_outage) {
                 $this->linkOngoingOutage($outage, $ticket, $by);
@@ -174,6 +176,7 @@ trait ManagesTickets
                 .($parent ? " from ticket {$parent->ticket_number}" : '')
                 .($scheduled ? ', booked for '.$scheduled->format('d M Y H:i') : ($ticket->preferred_time ? ", customer prefers: {$ticket->preferred_time}" : '')).'.'
                 .(filled($outage->description) ? ' '.Str::limit((string) $outage->description, 300) : ''));
+            $this->attachOnRaising($outage, $by, $data);
 
             if ($subcategory?->check_outage) {
                 $this->linkOngoingOutage($outage, $ticket, $by);
@@ -561,6 +564,7 @@ trait ManagesTickets
             $outage = $this->lock($outage);
             Gate::forUser($by)->authorize('visitComplete', $outage);
             $ticket = $this->ticketOf($outage);
+            $this->reasonOfDesk($reason, $outage->current_queue);
             $this->fifo->authorizeWork($outage, QueueType::VisitTechnician, $by);
 
             $evidence = app(Settings::class)->bool('ticketing.require_evidence') && (bool) $ticket->visitType()->value('requires_evidence');
@@ -768,6 +772,7 @@ trait ManagesTickets
             $outage = $this->lock($outage);
             Gate::forUser($by)->authorize('ticketClose', $outage);
             $ticket = $this->ticketOf($outage);
+            $this->reasonOfDesk($reason, $outage->current_queue);
 
             if ($ticket->desk) {
                 $this->fifo->authorizeWork($outage, $ticket->desk, $by);
@@ -956,14 +961,7 @@ trait ManagesTickets
     {
         return DB::transaction(function () use ($outage, $by, $paths, $names, $note, $kind): int {
             Gate::forUser($by)->authorize('ticketAttach', $outage);
-            $kind = in_array($kind, ['geo_photo', 'speed_test', 'evidence'], true) ? $kind : null;
-
-            $files = collect($paths)
-                ->filter(fn ($path) => is_string($path) && Str::startsWith($path, OutageAttachment::DIRECTORY.'/') && ! str_contains($path, '..') && Storage::disk('local')->exists($path))
-                ->values()
-                ->map(fn (string $path) => OutageAttachment::query()->create([
-                    'outage_id' => $outage->id, 'kind' => $kind, 'path' => $path, 'original_name' => $names[$path] ?? null, 'note' => $note, 'user_id' => $by->id,
-                ]));
+            $files = $this->storeTicketAttachments($outage, $by, $paths, $names, $note, $kind);
 
             if ($files->isEmpty()) {
                 throw ValidationException::withMessages(['files' => 'Add at least one file.']);
@@ -974,6 +972,49 @@ trait ManagesTickets
 
             return $files->count();
         });
+    }
+
+    /** A final reason is only accepted at a desk it is offered at (Configuration → Final Reasons). */
+    private function reasonOfDesk(FinalReason $reason, ?QueueType $desk): void
+    {
+        if (! $reason->isOfferedAt($desk)) {
+            throw ValidationException::withMessages(['final_reason_id' => "“{$reason->name}” is not a final reason of the {$desk?->getLabel()} desk. Choose one of the reasons offered here."]);
+        }
+    }
+
+    /**
+     * Files already uploaded under outage-attachments/ on the private disk become attachments of
+     * the ticket. Anything else that claims to be a path is ignored.
+     *
+     * @param  array<int, string>  $paths
+     * @param  array<string, string>  $names  path => original file name
+     * @return Collection<int, OutageAttachment>
+     */
+    private function storeTicketAttachments(Outage $outage, User $by, array $paths, array $names = [], ?string $note = null, ?string $kind = null): Collection
+    {
+        $kind = in_array($kind, ['geo_photo', 'speed_test', 'evidence'], true) ? $kind : null;
+
+        return collect($paths)
+            ->filter(fn ($path) => is_string($path) && Str::startsWith($path, OutageAttachment::DIRECTORY.'/') && ! str_contains($path, '..') && Storage::disk('local')->exists($path))
+            ->values()
+            ->map(fn (string $path) => OutageAttachment::query()->create([
+                'outage_id' => $outage->id, 'kind' => $kind, 'path' => $path, 'original_name' => $names[$path] ?? null, 'note' => $note, 'user_id' => $by->id,
+            ]));
+    }
+
+    /**
+     * What the person raising a ticket or a visit attached to it (a screenshot, the customer's
+     * e-mail, a receipt): on the ticket from the first moment, and said so on its timeline.
+     *
+     * @param  array<string, mixed>  $data  attachments (paths), attachment_names (path => file name)
+     */
+    private function attachOnRaising(Outage $outage, User $by, array $data): void
+    {
+        $files = $this->storeTicketAttachments($outage, $by, array_values((array) ($data['attachments'] ?? [])), (array) ($data['attachment_names'] ?? []), 'Attached when raised');
+
+        if ($files->isNotEmpty()) {
+            $this->ticketUpdate($outage, 'Attached when raised: '.$files->map->name()->implode(', ').'.', $by, 'attachment', 'attachment_added');
+        }
     }
 
     // ------------------------------------------------------------------ follow-up trigger (scheduler)

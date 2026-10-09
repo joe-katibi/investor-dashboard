@@ -204,6 +204,10 @@ Tickets FIFO-assigned to the signed-in user with acknowledgement deadlines, one-
 actions, and an availability switch (**Available / Busy / On Break / Offline**) that controls whether FIFO offers
 new tickets. Shows current shift and leave status.
 
+The page looks for new work by itself every **40 seconds** — also while its browser tab is not in front — and
+when a ticket has been assigned since the last look it says so (*New ticket for you: …*) and puts the number of
+tickets in the tab's title, `(2) My Work`. It does not depend on Reverb.
+
 ### Reports
 17 reports with filters, on-screen view and **CSV / Excel (.xlsx) / PDF** export — see
 [Reports and exports](#reports-and-exports).
@@ -252,6 +256,11 @@ An Emergency or Regular outage is **reported restored with three photos**, in th
 
 * **Required.** *Report restored* is refused — on the website and in the app — until all three are on the
   ticket; the message names the ones missing. A refused restoration saves nothing.
+* **…or optional.** *FIFO & SLA Settings → Field photos* has two switches: *Emergency / Regular outages: the
+  three site photos are mandatory* and *Preventive / corrective maintenance: photos are mandatory* (both on by
+  default). Switched off, the photos are still offered — on the website and, at once, in the mobile app, where
+  the fields stop being required — but nothing waits for them. The photos of a site visit have their own switch
+  under *Ticket Settings & Alerts → Site visits*, and per visit type.
 * **As the work goes.** *Site photos (n of 3)* adds any of them while the ticket is with the field team, so the
   findings are on the ticket before the repair starts; *Report restored* then only asks for those still missing.
   A photo added again replaces the earlier one.
@@ -325,6 +334,32 @@ REPORT → IT REVIEW (IT Review FIFO queue)
 * IT checks: **IT confirm resolved** closes the ticket with the feedback as the Final Reason / RFO, sent to the
   resolution alert rules and directly to the person who reported it; **Not resolved — back to NOC** returns it.
 * System outages already open before this change keep the NOC flow they started with.
+
+#### Routed by the affected system
+
+The person raising a system outage picks the system under **Affected services**. A service can name the team that
+reviews its outages (*Configuration → Affected Services → "System outages reviewed by"*):
+
+| Affected system | Reviewed by |
+|---|---|
+| Billing (Savbill), Grafana | **CRM Managers** team (role *CRM Manager*) |
+| CPaaS | **CPaaS Manager** team (role *CPaaS Manager*) |
+| Sav-Money, Customer App, Mail, and any system without a team | the IT desk, as before |
+
+* The ticket follows the same steps (review → resolve with feedback, or escalate to NOC → NOC returns it →
+  confirm); only *who* gets it changes. FIFO offers it to the members of the team, whatever their department,
+  and the confirmation after NOC's fix goes back to the same team — never to the general IT desk.
+* If nobody of the team is available it **waits for them**; it is not handed to IT. With several affected
+  systems, the first one that has a team decides.
+* Team members need the permissions of the role (*Work the IT queue*, *IT review*): give the person the role
+  **and** put them in the team (Users / Teams).
+* Changing the routing is a setting, not code: pick another team on the service, or clear it to send that system
+  back to IT. Add a new system as a new affected service.
+* On a system in use, create the systems, the two teams and the two roles once (it only adds what is missing):
+
+  ```bash
+  php artisan db:seed --class=SystemRoutingSeeder --force
+  ```
 
 ### Planned maintenance (CRF & sign-off)
 
@@ -574,6 +609,22 @@ created, nothing is removed, and a preview mode saves nothing. When an agent rai
 looked up: found, the form fills in the customer; **not found, the agent types the details and a provisional customer
 is created — the next import completes it and links the earlier tickets** (position and region).
 
+**Finding a customer's tickets.** The search box at the top of every page finds customer tickets and site visits by
+ticket number, **account number**, customer name, calling / primary number or billing reference, and shows the
+account and customer under each result. On the *Customers* list the **Tickets** count (and the *Tickets* action of
+the row) opens that customer's tickets and visits, newest first — what was reported, status, desk and person it is
+with, raised / closed, final reason, work done — each with a link to the full ticket page.
+
+**Attachments when raising.** *Raise customer ticket* and *Book site visit* take files (images, PDF, Office
+documents, saved e-mails — up to 8, 15 MB each): they are on the ticket from the first desk and named on its
+timeline. More are added later with *Attach files*.
+
+**Final reasons by desk.** *Configuration → Final Reasons → Offered at these desks*: tick Billing and Billing
+Manager for the billing reasons, NOC for the NOC ones, the site-visit desks for the technician's. A person
+closing a ticket — on the website or in the app — is offered the reasons of the desk the ticket is at, plus those
+ticked for no desk (offered everywhere, which is how existing reasons start). The workflow refuses a reason of
+another desk.
+
 *Importing a full customer list* (a hundred thousand rows and more):
 
 * **In the background.** *Import customers* answers at once and the outcome arrives as a notification (the bell) —
@@ -744,6 +795,44 @@ acting on it implicitly accepts the assignment.
   notifications exactly once per outage, and records SLA events.
 * Policies can override the FIFO acknowledgement timeout.
 
+### SLA per desk (escalation points)
+
+Next to the SLA of the whole ticket, every **desk** has its own time to act on a ticket that reaches it — to
+confirm, reject, dispatch, return, escalate or close it. It is counted from the moment the ticket arrives at the
+desk until the desk moves it on.
+
+| Desk | Built-in target |
+|------|-----------------|
+| NOC — review, restore confirmation, customer tickets escalated to NOC, 4G NOC verification | 20 minutes |
+| CX Tier II — customer tickets, and the call-back after a NOC reject | 15 minutes |
+| CX frontline (Tier I / CX agents) — customer call-backs | 5 minutes |
+| Every other desk (Billing, dispatch, technicians, Design, Access …) | none until one is set |
+| **Outage on the field**: reported → dispatched to a field technician | 30 minutes |
+
+* **Where to change it**: Configuration → FIFO & SLA Settings → *SLA per desk*. One box per desk (minutes,
+  `0` = no target), the "on the field within" time, the share of the target after which the warning goes out
+  (75 % by default: a desk with 20 minutes is warned after 15), the stakeholder roles and extra e-mail addresses.
+* **A change never rewrites history**: the target in force when a ticket arrives at a desk stays with that stay.
+  New targets apply to tickets arriving from then on.
+* **Clock**: customer tickets and site visits count working hours (Ticket Settings: 07:00–18:00 by default), so a
+  ticket reaching Billing at 19:10 with a 30-minute target is due at 07:30. Outages and 4G tickets count every
+  minute. A site visit booked for a later day starts counting on that day.
+* **Who is told** (`oms:sla-check`, every minute; each notice once): the person holding the ticket, their team
+  leaders and the stakeholder roles — each person only about the kinds of ticket they may view. The warning is
+  shown in the system; a breach is also e-mailed. Both are events of the notification rules and the alert lists
+  ("Desk SLA: Target Almost Up", "Desk SLA: Target Breached at a Desk", "Field: Not Yet Dispatched (warning)",
+  "Field: Not Dispatched Within the Target"), so more people, e-mail addresses or SMS numbers can be added there.
+* **On screen**: My Work shows "desk target: 4 min left / over by 3 min" under the step, and the FIFO Queues
+  screen shows it under the queue age.
+* **The ticket's own SLA**: when it runs out, the breach is recorded against the desk the ticket was at and the
+  person holding it, and the notice says so.
+* **Reports** (Reports page, for the modules you may view):
+  *SLA: Desk Response Times* — per desk: tickets received, handled, within target, breached, compliance %,
+  average and longest time at the desk, and how many are waiting past the target right now.
+  *SLA: Breaches by Desk (escalation points)* — every breach with its desk, who had it, the target, the time
+  taken and by how much it was missed: a desk's own target, the ticket SLA running out at a desk, and outages
+  not on the field in time.
+
 ## Notifications
 
 * Event-driven rules (*Configuration → Notification Rules*) filtered by major type, outage type, vertical, priority
@@ -846,6 +935,28 @@ service, team / sub-team, technician, SLA state. Every report exports to **CSV, 
 | FIFO Assignment History | Every queue / assignment event |
 | Audit Trail | Every recorded change with user, trigger and IP |
 | **Staff Productivity (all modules)** | Per person, module and hour / day / week / month (see below) |
+| **SLA: Desk Response Times** | Per desk: received, handled, within target, breached, compliance %, average / longest time at the desk |
+| **SLA: Breaches by Desk (escalation points)** | Every breach with the desk it happened at — a desk's target, the ticket SLA, time to field |
+| **Ticket Life Cycle (every step, all modules)** | One line per step of every ticket: raised, each desk (who, how long, against its target), closed |
+| **OLT Performance: SLA per Technician & Dispatcher** | Per OLT, technician and dispatcher: tickets, SLA met / breached, time to dispatch and to restore |
+| **Reason for Outage (RFO) Report** | Closed outages grouped by final reason: count, share, customers, duration, most affected OLTs |
+| **Tickets: Final Reasons (7-day trend)** | Tickets and visits closed per final reason, day by day for a week against the week before |
+
+### Life cycle, reasons and OLT performance
+
+* **Ticket Life Cycle** works for outages, 4G tickets, customer tickets and site visits (the *Modules* filter; you
+  only see the modules you may view). Each ticket raised in the period is followed step by step: *Raised* (by
+  whom), every desk it waited at — who had it, when it was accepted, how many minutes it stayed, the desk's
+  target and whether it was kept — and *Closed* with the status, the final reason and the SLA result. A ticket
+  still open ends at the desk it is waiting at.
+* **OLT Performance** has one line per OLT, technician and dispatcher. Outages: reported → dispatched and
+  start → restored. Site visits: reported → first assigned and reported → completed (working hours). SLA
+  compliance is met ÷ (met + breached); an open ticket past its deadline counts as breached.
+* **Reason for Outage** counts the same wording together ("Fibre cut by contractor" and "fibre cut  by
+  Contractor" are one reason) and separates real outages from tickets NOC rejected. 4G outages have their own
+  *4G Root Cause Analysis*.
+* **Final Reasons** shows the seven days up to the *To* date. The same table is on the **Customer Care
+  dashboard** ("Final reasons — last 7 days") and in the scheduled e-mails (`{{tk_final_reasons_table}}`).
 
 ### Staff productivity
 
@@ -890,6 +1001,22 @@ Seeded (inactive until recipients are set):
 | Two-Hour Outage Update | Every 120 minutes | Spec §15 operational update |
 | Executive Summary | 00:00, 06:00, 12:00, 18:00 | Spec §14 / §16 executive format with trend and top risk areas |
 | Summary Report | Daily 07:00 | Spec §17 table + Excel attachment |
+| Outage Summary – Weekly | Monday 07:00 | Last week's outages (from Monday 00:00), trend, top risk areas + Excel |
+| Outage Summary – Monthly | The 1st at 07:00 | Last month's outages, trend, top risk areas + Excel |
+| Tickets – Raised & Closed | Every 2 hours | Tickets raised and closed in the last two hours, pending per department |
+| Tickets – Summary | Every 6 hours | Pending against the SLA per department and region, follow-up, final reasons + pending list |
+| Tickets – Executive Summary | 07:00 and 19:00 | The day against the day before, SLA, departments, final reasons, trend charts |
+| Tickets – Final Reason Report | Daily 07:00 | Final reasons day by day for seven days against the week before + Excel |
+| Staff Productivity – Every 2 Hours | Every 2 hours | What each person did in the last two hours (weekly Monday 07:00 and monthly on the 1st already exist) |
+
+The last seven were added in October 2026. On a system already in use, create them (and nothing else — existing
+templates are never touched) with:
+
+```bash
+php artisan db:seed --class=EmailTemplateSeeder --force
+```
+
+Then set the recipients and switch each one on under *Email Templates & Schedules*.
 
 Placeholders (values are HTML-escaped; `*_table` values are OMS-generated tables):
 
@@ -956,6 +1083,7 @@ decided here on every request — never by anything the app sends.
 | `GET tickets` | `scope`, `module`, `priority`, `search`, `page` — paginated |
 | `GET tickets/{id}` | the ticket, its timeline, photos **and the actions this person may take now** |
 | `POST tickets/{id}/actions/{action}` | run one of those actions (multipart: answers + photos) |
+| `GET actions` · `POST actions/{action}` | what the person can start without a ticket — **raise corrective / preventive maintenance** on site — with the forms; the answer carries the ticket that was created |
 | `GET attachments/{id}` · `GET photos/{id}` | private files, with the token |
 | `GET notifications` · `POST notifications/{id}/read` · `POST notifications/read-all` | the same notifications as the web bell |
 | `POST devices` · `DELETE devices/{id}` | the phones a person is signed in on, each with its Firebase push token |
@@ -1084,7 +1212,28 @@ Seeded roles (spec §4.1):
 | Dispatch | Dispatch Manager, Dispatch Team Leader, Dispatcher, Support/Installation Technician (support requests) |
 | Infrastructure | Infrastructure Manager, Infrastructure Team Leader, Infrastructure Dispatcher, Outage Technician |
 | IT | IT Manager, IT Team Leader, IT Engineer (system outages) |
+| System owners | CRM Manager, CPaaS Manager (system outages of their own systems) |
 | Management | Executive (read-only), Super Admin |
+
+### Screens with a switch of their own
+
+Every menu entry and screen is behind a permission; nothing is shown to a role that does not hold it (a CX agent
+has no 4G NOC menu, a 4G engineer no Customer Care menu). Five screens that used to come with a module's "view"
+permission can be switched off per role without taking the work away:
+
+| Permission | Screen | Also needs |
+|---|---|---|
+| `dashboard.view` | Command centre dashboard | `outage.view` |
+| `ticket.dashboard` | Customer Care dashboard | `ticket.view` |
+| `visit.view` | Site visits list and menu entry | `ticket.view` |
+| `mobility.dashboard` | 4G dashboard | `mobility.view` |
+| `mobility.engineers` | 4G engineers & technicians availability | `mobility.view` |
+
+When these were introduced (migration `add_screen_permissions`) every role, and every person holding the parent
+permission directly, was given the screens they already saw — so nothing changed on that day. To make a role see
+less, untick the screen under *People → Roles & Permissions*: for example a CX Agent without `dashboard.view`,
+`ticket.dashboard` and `visit.view` still raises and follows customer tickets and reports outages, but no longer
+sees the two dashboards or the site visits list. A site visit a person is assigned to still opens from My Work.
 
 The role seeder only **adds** missing permissions to existing roles (it never removes any), so on an existing
 installation review *Support/Installation Technician* — it no longer needs `queue.work_technician`,

@@ -482,6 +482,106 @@ class MobileApiTest extends TestCase
 
     // ------------------------------------------------------------------ notifications, devices, availability
 
+    public function test_a_technician_raises_corrective_and_preventive_maintenance_from_the_app(): void
+    {
+        $olt = $this->makeOlt('Salaama');
+        $manager = $this->makeUser('Infrastructure Manager', 'INFRA', [$this->team], attributes: ['availability_status' => 'offline']);
+
+        // The forms come from the server, with the photos to be taken with the camera.
+        $list = $this->fixture('actions', $this->api($this->technician, 'GET', 'actions')->assertOk());
+        $this->assertSame(['raise_corrective', 'raise_preventive'], array_column($list->json('actions'), 'key'));
+        $fields = collect($list->json('actions.0.fields'))->keyBy('name');
+        $this->assertSame(['camera', true], [$fields['photo_outside']['capture'], $fields['photo_outside']['required']]);
+        $this->assertTrue($fields['site_label']['required']);
+        $this->assertContains((string) $olt->id, array_column($fields['olt_id']['options'], 'value'));
+        $this->assertArrayHasKey('downtime_start', collect($list->json('actions.1.fields'))->keyBy('name')->all());
+
+        // Someone who may not raise maintenance is offered nothing, and cannot post it either.
+        $this->assertSame([], $this->api($this->dispatcher, 'GET', 'actions')->assertOk()->json('actions'));
+        $start = function (User $user, string $action, array $data): TestResponse {
+            $token = $this->tokens[$user->id] ??= $this->token($user);
+            Auth::forgetGuards();
+
+            return $this->withHeader('Authorization', 'Bearer '.$token)->withHeader('Accept', 'application/json')->post("/api/v1/actions/{$action}", $data);
+        };
+        $start($this->dispatcher, 'raise_corrective', ['title' => 'x'])->assertUnprocessable();
+
+        $photos = fn () => [
+            'photo_outside' => UploadedFile::fake()->image('outside.jpg', 800, 600), 'photo_outside_taken_at' => '2026-10-05 09:58:00',
+            'photo_inside' => UploadedFile::fake()->image('inside.jpg', 800, 600), 'photo_inside_taken_at' => '2026-10-05 09:59:00',
+        ];
+
+        // Without the photos it is not raised.
+        $start($this->technician, 'raise_corrective', ['title' => 'Pole down on Kabowa road', 'description' => 'Drop cables cut', 'site_label' => 'FAT 12'])
+            ->assertUnprocessable()->assertJsonValidationErrors(['photo_outside']);
+
+        // Corrective: the work starts at once and the ticket is the technician's.
+        $corrective = $this->fixture('action_raise_corrective', $start($this->technician, 'raise_corrective', [
+            'title' => 'Pole down on Kabowa road', 'description' => 'Drop cables cut by a truck', 'site_label' => 'FAT 12', 'location' => 'Kabowa',
+            'olt_id' => $olt->id, 'customers_affected' => 6, 'support_work' => 'Re-run six drop cables',
+        ] + $photos())->assertOk());
+
+        $ticket = Outage::query()->findOrFail($corrective->json('ticket.id'));
+        $this->assertSame('corrective', $ticket->maintenance_kind);
+        $this->assertSame($this->technician->id, $ticket->technician_id);
+        $this->assertSame('FAT 12', $ticket->site_label);
+        $this->assertSame([$olt->id], $ticket->olts()->pluck('olts.id')->all());
+        $this->assertSame(2, $ticket->photos()->where('stage', OutagePhoto::BEFORE)->where('source', OutagePhoto::SOURCE_CAMERA)->count());
+        $this->assertSame('2026-10-05 09:58:00', $ticket->photos()->where('position', 'outside')->firstOrFail()->taken_at->format('Y-m-d H:i:s'));
+        $this->assertNotNull($ticket->openSupportRequest, 'the support technician was asked for in the same step');
+        $this->assertStringContainsString($ticket->ticket_number, $corrective->json('message'));
+        $this->assertContains('report_restored', array_column($corrective->json('ticket.actions'), 'key'), 'the technician carries on from the ticket');
+
+        // Preventive: a downtime window, then the two approvals.
+        $preventive = $start($this->technician, 'raise_preventive', [
+            'title' => 'Replace water-damaged splitter', 'description' => 'Splitter corroded', 'site_label' => 'FAT 7',
+            'downtime_start' => now()->addDay()->toIso8601String(), 'downtime_end' => now()->addDay()->addHours(2)->toIso8601String(),
+        ] + $photos())->assertOk();
+
+        $planned = Outage::query()->findOrFail($preventive->json('ticket.id'));
+        $this->assertSame('preventive', $planned->maintenance_kind);
+        $this->assertTrue($planned->status->isCode(StatusCode::PmPendingApproval));
+        $this->assertStringContainsString('sent for Dispatcher and Infrastructure Manager approval', $preventive->json('message'));
+        $this->assertContains('approve_preventive', $this->actions($manager, $planned), 'the manager approves it from the app');
+    }
+
+    public function test_the_app_offers_what_the_website_does_cancel_a_support_request_and_cancel_a_visit(): void
+    {
+        // The technician asked for a support technician and no longer needs one.
+        $outage = $this->confirmedOutage();
+        Auth::setUser($this->dispatcher);
+        $outage = $this->workflow->dispatch($outage, ['team_id' => $this->team->id, 'technician_id' => $this->technician->id], $this->dispatcher);
+        $this->assertNotContains('cancel_support', $this->actions($this->technician, $outage), 'nothing to cancel yet');
+
+        $this->act($this->technician, $outage, 'request_support', ['work_required' => 'Re-run the drop cable', 'customer_details' => 'Jane, 0772000001'])->assertOk();
+        $this->assertContains('cancel_support', $this->actions($this->technician, $outage));
+        $this->act($this->technician, $outage, 'cancel_support', ['reason' => ''])->assertUnprocessable();
+        $this->act($this->technician, $outage, 'cancel_support', ['reason' => 'Cable was only unplugged'])
+            ->assertOk()->assertJsonPath('message', 'Support request cancelled');
+        $this->assertNull($outage->refresh()->openSupportRequest);
+
+        // The dispatcher finds a site visit booked twice and marks it a duplicate.
+        $dispatcher = $this->makeUser('Site Visit Dispatcher', 'DISPATCH', [$this->team]);
+        Auth::setUser($dispatcher);
+        $visit = $this->workflow->createSiteVisit([
+            'visit_type_id' => VisitType::query()->value('id'), 'account_number' => 'SF2577916', 'customer_name' => 'Jane Customer', 'calling_number' => '0772000001',
+        ], $dispatcher);
+
+        $this->assertContains('ticket_cancel', $this->actions($dispatcher, $visit));
+        $this->act($dispatcher, $visit, 'ticket_cancel', ['duplicate' => '1', 'reason' => 'Duplicate of SUP-102'])
+            ->assertOk()->assertJsonPath('message', 'Marked as a duplicate');
+        $this->assertTrue($visit->refresh()->is_closed);
+        $this->assertTrue($visit->status->isCode(StatusCode::TicketDuplicate));
+
+        // A technician may not cancel a visit.
+        $technician = $this->makeUser('Site Visit Technician', 'DISPATCH', [$this->team]);
+        $other = $this->workflow->createSiteVisit([
+            'visit_type_id' => VisitType::query()->value('id'), 'account_number' => 'SF9000009', 'customer_name' => 'Other', 'calling_number' => '0701999999',
+            'technician_id' => $technician->id,
+        ], $dispatcher);
+        $this->assertNotContains('ticket_cancel', $this->actions($technician, $other));
+    }
+
     public function test_notifications_devices_and_availability(): void
     {
         Event::fake([MobileNotification::class]);

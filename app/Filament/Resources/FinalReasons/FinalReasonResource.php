@@ -2,12 +2,14 @@
 
 namespace App\Filament\Resources\FinalReasons;
 
+use App\Enums\QueueType;
 use App\Filament\Concerns\GuardsWithPermission;
 use App\Filament\Resources\FinalReasons\Pages\ManageFinalReasons;
 use App\Filament\Support\AuditFields;
 use App\Models\FinalReason;
 use BackedEnum;
 use Filament\Actions\EditAction;
+use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\Resource;
@@ -42,6 +44,8 @@ class FinalReasonResource extends Resource
         return $schema->components([
             TextInput::make('name')->required()->maxLength(190)->unique(ignoreRecord: true)->columnSpanFull(),
             Select::make('applies_to')->label('Offered on')->options(FinalReason::APPLIES_TO)->placeholder('Customer tickets and site visits'),
+            CheckboxList::make('desks')->label('Offered at these desks')->options(QueueType::deskOptions())->columns(['default' => 2, 'md' => 3])->columnSpanFull()
+                ->helperText('Tick the desks whose people should see this reason when they close a ticket — Billing reasons for Billing, NOC reasons for the NOC, site-visit reasons for the technician. Leave all unticked to offer it at every desk.'),
             Select::make('delay_reason_id')->label('Reason for delay')->relationship('delayReason', 'name')->preload()->searchable()->placeholder('None')
                 ->helperText('The delay this outcome normally comes with: pre-selected when a late ticket is closed with this reason.'),
             TextInput::make('sort_order')->label('Order in lists')->numeric()->default(0)->minValue(0)->maxValue(9999),
@@ -60,12 +64,16 @@ class FinalReasonResource extends Resource
                 TextColumn::make('description')->wrap()->placeholder('—')->visibleFrom('md'),
                 TextColumn::make('applies_to')->label('Offered on')->badge()->color('gray')->placeholder('Tickets and visits')
                     ->formatStateUsing(fn (?string $state) => FinalReason::APPLIES_TO[$state] ?? $state),
+                TextColumn::make('desks')->label('Desks')->badge()->color('info')->placeholder('Every desk')->wrap()
+                    ->state(fn (FinalReason $record) => collect((array) $record->desks)->map(fn (string $desk) => QueueType::tryFrom($desk)?->getLabel())->filter()->values()->all() ?: null),
                 TextColumn::make('delayReason.name')->label('Reason for delay')->placeholder('—')->visibleFrom('md'),
                 AuditFields::activeColumn()->label('Status'),
                 ...AuditFields::columns(),
             ])
             ->filters([
                 SelectFilter::make('applies_to')->label('Offered on')->options(FinalReason::APPLIES_TO),
+                SelectFilter::make('desk')->label('Desk')->options(QueueType::deskOptions())
+                    ->query(fn ($query, array $data) => filled($data['value'] ?? null) ? $query->whereJsonContains('desks', $data['value']) : $query),
                 AuditFields::activeFilter(),
             ])
             ->recordActions([EditAction::make()]);

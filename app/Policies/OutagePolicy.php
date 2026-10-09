@@ -107,7 +107,7 @@ class OutagePolicy
     /** The site photos are added by whoever will report the outage restored, while the work is going on. */
     public function addSitePhotos(User $user, Outage $outage): bool
     {
-        return $outage->requiresSitePhotos() && $this->reportRestored($user, $outage);
+        return $outage->offersSitePhotos() && $this->reportRestored($user, $outage);
     }
 
     public function confirmRestoration(User $user, Outage $outage): bool

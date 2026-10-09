@@ -91,6 +91,23 @@ class TicketController extends Controller
         ]);
     }
 
+    /** What this person can start without a ticket in front of them (raise maintenance on site), with the forms. */
+    public function actions(Request $request, MobileActions $actions): JsonResponse
+    {
+        return response()->json(['actions' => $actions->general($request->user())]);
+    }
+
+    /** Run one of them. The answer carries the ticket that was created, when this person may see it. */
+    public function start(Request $request, string $action, MobileActions $actions): JsonResponse
+    {
+        [$message, $ticket] = $actions->runGeneral($request->user(), $action, $request);
+
+        return response()->json([
+            'message' => $message,
+            'ticket' => $ticket && MobileProfile::canView($request->user(), $ticket) ? $this->presenter->detail($ticket, $request->user()) : null,
+        ]);
+    }
+
     public function attachment(Request $request, OutageAttachment $attachment): StreamedResponse
     {
         $this->authorizeView($request, $attachment->outage);

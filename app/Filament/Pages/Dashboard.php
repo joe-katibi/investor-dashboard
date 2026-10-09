@@ -38,7 +38,7 @@ class Dashboard extends BaseDashboard
 
     public static function canAccess(): bool
     {
-        return (bool) Auth::user()?->can('outage.view');
+        return (bool) Auth::user()?->can('outage.view') && (bool) Auth::user()?->can('dashboard.view');
     }
 
     public function filtersForm(Schema $schema): Schema
