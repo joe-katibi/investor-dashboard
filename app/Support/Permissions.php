@@ -106,6 +106,7 @@ final class Permissions
             'notifications.manage' => 'Manage notification rules',
             'master_data.manage' => 'Manage verticals, services, types, statuses, priorities',
             'config.admin' => 'Administer FIFO & system settings',
+            'workflow.configure' => 'Workflow configuration: steps, who works them, times, targets and switches of every flow',
         ],
         'People' => [
             'users.manage' => 'Manage users',

@@ -98,7 +98,11 @@ class AppServiceProvider extends ServiceProvider
 
         Event::listen(Login::class, function (Login $event): void {
             if ($event->user instanceof User) {
-                $event->user->forceFill(['last_login_at' => now()])->saveQuietly();
+                // The app signs in with a token ("sanctum"); everything else is the website.
+                $event->user->forceFill([
+                    'last_login_at' => now(),
+                    $event->guard === 'sanctum' ? 'last_mobile_login_at' : 'last_web_login_at' => now(),
+                ])->saveQuietly();
             }
         });
 

@@ -47,6 +47,8 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
             'availability_changed_at' => 'datetime',
             'last_assigned_at' => 'datetime',
             'last_login_at' => 'datetime',
+            'last_web_login_at' => 'datetime',
+            'last_mobile_login_at' => 'datetime',
             'max_active_assignments' => 'integer',
         ];
     }

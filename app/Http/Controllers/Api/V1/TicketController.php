@@ -83,6 +83,7 @@ class TicketController extends Controller
 
         $message = $actions->run($request->user(), $ticket, $action, $request);
         $ticket = Outage::query()->findOrFail($ticket->id);
+        $this->record($request, $ticket, 'mobile_action', $action, $message);
 
         return response()->json([
             'message' => $message,
@@ -101,6 +102,10 @@ class TicketController extends Controller
     public function start(Request $request, string $action, MobileActions $actions): JsonResponse
     {
         [$message, $ticket] = $actions->runGeneral($request->user(), $action, $request);
+
+        if ($ticket) {
+            $this->record($request, $ticket, 'mobile_raised', $action, $message);
+        }
 
         return response()->json([
             'message' => $message,
@@ -122,6 +127,25 @@ class TicketController extends Controller
         abort_unless(Storage::disk('local')->exists($photo->path), 404);
 
         return Storage::disk('local')->response($photo->path, $photo->original_name, ['Cache-Control' => 'private, no-store', 'X-Content-Type-Options' => 'nosniff']);
+    }
+
+    /**
+     * One line in the audit trail for what was done in the app: who, which ticket, which action,
+     * from which phone. The changes the action made are recorded by the workflow as always.
+     */
+    private function record(Request $request, Outage $ticket, string $event, string $action, string $message): void
+    {
+        // The whole status: the same ticket is described for the app right after this.
+        $ticket->loadMissing('status');
+
+        $ticket->audit($event, [
+            'ticket' => $ticket->ticket_number,
+            'action' => str($action)->replace('_', ' ')->ucfirst()->toString(),
+            'status' => $ticket->status?->name,
+            'details' => $message,
+            'device' => $request->user()->currentAccessToken()?->name,
+            'app_version' => $request->header('X-App-Version'),
+        ]);
     }
 
     private function authorizeView(Request $request, ?Outage $ticket): void

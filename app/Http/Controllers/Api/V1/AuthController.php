@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\MobileDevice;
 use App\Models\User;
 use App\Services\Mobile\MobileProfile;
+use App\Support\AuditContext;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -37,6 +38,11 @@ class AuthController extends Controller
 
         // One answer for "no such account", "wrong password" and "inactive": nothing to learn from it.
         if (! $user || ! Hash::check($data['password'], $user->password) || ! $user->is_active) {
+            // An attempt on a real account is on its audit trail (never the password that was tried).
+            AuditContext::as(AuditContext::MOBILE, fn () => $user?->audit('mobile_login_failed', $this->device($request, $data) + [
+                'reason' => $user->is_active ? 'Wrong password' : 'Account is inactive',
+            ], [], false));
+
             throw ValidationException::withMessages(['login' => 'These credentials do not match our records.']);
         }
 
@@ -54,6 +60,7 @@ class AuthController extends Controller
         );
 
         event(new Login('sanctum', $user, false));
+        AuditContext::as(AuditContext::MOBILE, fn () => $user->audit('mobile_login', $this->device($request, $data), [], $user->id));
 
         return response()->json([
             'token' => $token->plainTextToken,
@@ -67,10 +74,17 @@ class AuthController extends Controller
     {
         $token = $request->user()->currentAccessToken();
 
+        $request->user()->audit('mobile_logout', ['device' => $token->name, 'app_version' => $request->header('X-App-Version')]);
         MobileDevice::query()->where('user_id', $request->user()->id)->where('token_id', $token->id)->delete();
         $token->delete();
 
         return response()->json(['message' => 'Signed out.']);
+    }
+
+    /** @return array{device: string, app_version: ?string} which phone, and which version of the app */
+    private function device(Request $request, array $data): array
+    {
+        return ['device' => str($data['device_name'] ?? 'Mobile app')->limit(120, '')->toString(), 'app_version' => $request->header('X-App-Version')];
     }
 
     /**

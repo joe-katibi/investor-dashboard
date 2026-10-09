@@ -11,6 +11,7 @@ use App\Filament\Resources\Users\RelationManagers\AvailabilityHistoryRelationMan
 use App\Filament\Resources\Users\RelationManagers\LeavesRelationManager;
 use App\Filament\Resources\Users\RelationManagers\ShiftAssignmentsRelationManager;
 use App\Filament\Resources\Users\RelationManagers\SkillsRelationManager;
+use App\Filament\Resources\Users\Widgets\UserStats;
 use App\Filament\Support\AuditFields;
 use App\Models\User;
 use App\Services\Fifo\FifoAssignmentEngine;
@@ -116,6 +117,8 @@ class UserResource extends Resource
                 TextColumn::make('availability_status')->label('Availability')->badge()->sortable(),
                 TextColumn::make('active_assignments_count')->label('Active tickets')->sortable(),
                 TextColumn::make('last_login_at')->label('Last login')->since()->sortable()->toggleable(),
+                TextColumn::make('last_web_login_at')->label('Last on the website')->since()->placeholder('Never')->sortable()->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('last_mobile_login_at')->label('Last on the mobile app')->since()->placeholder('Never')->sortable()->toggleable(isToggledHiddenByDefault: true),
                 AuditFields::activeColumn(),
                 ...AuditFields::columns(),
             ])
@@ -155,6 +158,11 @@ class UserResource extends Resource
                         }),
                 ]),
             ]);
+    }
+
+    public static function getWidgets(): array
+    {
+        return [UserStats::class];
     }
 
     public static function getRelations(): array

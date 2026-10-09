@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Services\Mobile\MobileProfile;
+use App\Support\AuditContext;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -40,6 +41,8 @@ class EnsureMobileUser
             return response()->json(['message' => 'This version of the app is too old. Please update it.', 'code' => 'update_required'], 426);
         }
 
-        return $next($request);
+        // Everything this request changes is recorded as done from the mobile app (audit trail, status
+        // and assignment history).
+        return AuditContext::as(AuditContext::MOBILE, fn () => $next($request));
     }
 }

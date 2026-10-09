@@ -103,10 +103,18 @@ class AuditLog extends Model
         return str_starts_with((string) $this->event, self::TICKET_PREFIX);
     }
 
-    /** A named workflow action (4G or customer ticket) carrying ticket / status / details. */
+    /** What a person did in the mobile app: mobile_login, mobile_logout, mobile_action, mobile_raised… */
+    public const MOBILE_PREFIX = 'mobile_';
+
+    public function isMobileAppAction(): bool
+    {
+        return str_starts_with((string) $this->event, self::MOBILE_PREFIX);
+    }
+
+    /** A named workflow action (4G, customer ticket, mobile app) carrying ticket / status / details. */
     public function isNamedAction(): bool
     {
-        return $this->isMobilityAction() || $this->isTicketAction();
+        return $this->isMobilityAction() || $this->isTicketAction() || $this->isMobileAppAction();
     }
 
     /** "4g_vendor_update" → "4G: Vendor update"; "created" → "Created". */
@@ -120,6 +128,14 @@ class AuditLog extends Model
         return match (true) {
             str_starts_with($event, self::MOBILITY_PREFIX) => '4G: '.Str::of($event)->after(self::MOBILITY_PREFIX)->replace('_', ' ')->ucfirst()->replace('noc', 'NOC')->replace('fifo', 'FIFO')->replace('Fifo', 'FIFO'),
             str_starts_with($event, self::TICKET_PREFIX) => 'Ticket: '.Str::of($event)->after(self::TICKET_PREFIX)->replace('_', ' ')->ucfirst()->replace('noc', 'NOC')->replace('fifo', 'FIFO')->replace('Fifo', 'FIFO')->replace('sms', 'SMS')->replace('Sms', 'SMS'),
+            str_starts_with($event, self::MOBILE_PREFIX) => 'Mobile app: '.match ($event) {
+                'mobile_login' => 'Signed in',
+                'mobile_logout' => 'Signed out',
+                'mobile_login_failed' => 'Sign-in failed',
+                'mobile_action' => 'Action on a ticket',
+                'mobile_raised' => 'Raised from the app',
+                default => Str::of($event)->after(self::MOBILE_PREFIX)->replace('_', ' ')->ucfirst()->toString(),
+            },
             default => Str::of($event)->replace('_', ' ')->ucfirst()->toString(),
         };
     }

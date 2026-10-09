@@ -218,6 +218,27 @@ FIFO queues, FIFO & SLA settings, notification rules, e-mail templates & schedul
 (with team coverage), departments, teams & sub-teams, users (skills, shifts, leave, availability history), roles &
 permissions, notification log (with retry) and audit trail.
 
+**Users at a glance.** Above the user list (*People → Users*) five figures: **total users**, **active**,
+**inactive**, **signed in on the website** and **signed in on the mobile app** — each of the last two with how many
+did so in the last 7 days, and for the app how many are signed in on a phone right now. The website and the app
+keep their own "last signed in" time (columns *Last on the website* / *Last on the mobile app*, hidden by default);
+*Last login* stays the latest of the two. Sign-ins from before this was added were split as well as they could be
+known: an app sign-in still on file counts for the app, the rest for the website.
+
+**The mobile app in the audit trail.** Everything done from the app is in *Monitoring → Audit Trail*, marked
+**Mobile app** in the *Done from* column (filter *Done from*: Mobile app / Website / System):
+
+| Entry | When |
+|---|---|
+| Mobile app: Signed in / Signed out | with the phone's name and the app version |
+| Mobile app: Sign-in failed | a wrong password on a real account, or an inactive account (the password tried is never recorded) |
+| Mobile app: Action on a ticket | every action run from the app — the ticket, the action, the resulting status, the phone |
+| Mobile app: Raised from the app | corrective / preventive maintenance raised in the app |
+
+The changes an action makes (status, assignee, photos…) are recorded as before, and they too carry *Mobile app* —
+as do the status history and the FIFO assignment history of the ticket, so it is always visible whether a step was
+taken on the website or on a phone.
+
 ---
 
 ## Outage lifecycle
@@ -782,6 +803,43 @@ override event is written to the assignment history.
 acting on it implicitly accepts the assignment.
 
 **Clusters**: each queue is processed under a distributed cache lock, so every node can run the engine safely.
+
+## Workflow configuration
+
+*Configuration → Workflow Configuration* (permission `workflow.configure`; on an installation in use it was given to
+the roles that hold `config.admin`). One tab per flow:
+
+| Flow | Steps shown |
+|---|---|
+| Network outage | Reported → NOC review → Dispatch → Field work (+ Support technician) → NOC restore confirmation; Customer call-back after a reject |
+| System outage | Reported → Review (IT or the system's team) → NOC when escalated → Confirmation |
+| Planned maintenance | Requested → CRF and sign-off → Dispatch → Field work → NOC confirmation → Customers told |
+| Preventive / corrective maintenance | Raised on site → the two approvals (preventive) → Field work → NOC confirmation |
+| 4G outage (own engineers) · 4G outage (vendor) | Reported → Engineer / technician or the vendor → 4G NOC verification |
+| Customer ticket | Raised → the desks (CX frontline, Tier II, Billing, Billing Manager, Commercial, CX Manager, NOC) + pending follow-up |
+| Site visit | Booked → Dispatch → Technician → Confirmation with the customer; the escalation desks |
+
+For every step the page shows **who works it** (the roles holding the step's permission and how many active
+people that is), **how tickets are given out**, the **time to accept**, the **desk SLA target** and the
+**notification events** of the step with the number of rules on each.
+
+**What can be changed from the screen, without code:**
+
+* **Per step — "Change"**: automatic FIFO or manual assignment, narrow it to a department and / or a team, the time
+  to accept, after how many rejections / time-outs it is escalated, and the desk SLA target.
+* **Per flow — "Change switches"**: the switches that add or drop a step or change how it behaves — for example
+  *NOC confirms before it goes on* and *worked by a field team* per major outage type, *reviewed by IT first* for
+  system outages, *on the field within N minutes*, photos mandatory or not, *CX Field Support confirms with the
+  customer before a visit closes*, visits per technician per day, vendor chase and escalation times.
+* Links to the rest of a flow's configuration: roles (who), notification rules (who is told), desk routes and
+  issues (customer tickets and visits), affected services (system outages), FIFO queues.
+
+**Past tickets are not touched.** A change applies to tickets that reach a step from then on: a ticket already
+at a step keeps the person it was given to and the SLA target it arrived with, and nothing in its history is
+rewritten. *Latest changes* at the bottom lists who changed what and when (the same entries as the audit trail).
+
+This is **stage 1**: the existing flows made adjustable. The order of a flow's fixed steps cannot be rearranged
+yet and new flows cannot be drawn from scratch — that is stage 2.
 
 ## SLA management
 

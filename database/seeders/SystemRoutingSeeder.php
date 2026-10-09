@@ -54,7 +54,8 @@ class SystemRoutingSeeder extends Seeder
             }
         }
 
-        $departmentId = Department::query()->where('code', 'IT')->value('id');
+        // Teams belong to a department: IT, or whichever comes first where IT was renamed away.
+        $departmentId = Department::query()->where('code', 'IT')->value('id') ?? Department::query()->orderBy('id')->value('id');
         $newTeams = [];
 
         foreach (self::SYSTEMS as $system => $teamName) {

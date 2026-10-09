@@ -9,7 +9,22 @@ namespace App\Support;
  */
 final class AuditContext
 {
+    /** Done by a person in the mobile app (every API request runs under it). */
+    public const MOBILE = 'mobile';
+
     private static ?string $trigger = null;
+
+    /** "Website", "Mobile app", "System (sla-check)" — for screens and reports. */
+    public static function label(?string $trigger): string
+    {
+        return match (true) {
+            $trigger === self::MOBILE => 'Mobile app',
+            $trigger === 'user' => 'Website',
+            $trigger === null, $trigger === '' => '—',
+            str_starts_with($trigger, 'system:') => 'System ('.substr($trigger, 7).')',
+            default => ucfirst($trigger),
+        };
+    }
 
     public static function trigger(): string
     {

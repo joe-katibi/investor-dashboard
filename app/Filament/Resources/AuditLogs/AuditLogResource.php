@@ -5,6 +5,7 @@ namespace App\Filament\Resources\AuditLogs;
 use App\Filament\Concerns\ReadOnlyResource;
 use App\Filament\Resources\AuditLogs\Pages\ManageAuditLogs;
 use App\Models\AuditLog;
+use App\Support\AuditContext;
 use BackedEnum;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
@@ -65,7 +66,7 @@ class AuditLogResource extends Resource
             TextEntry::make('user.name')->label('User')->placeholder('System'),
             TextEntry::make('event')->badge()->formatStateUsing(fn (AuditLog $record) => $record->eventLabel()),
             TextEntry::make('subject')->state(fn (AuditLog $record) => $record->subjectLabel()),
-            TextEntry::make('trigger'),
+            TextEntry::make('trigger')->label('Done from')->formatStateUsing(fn (?string $state) => AuditContext::label($state)),
             TextEntry::make('ip_address')->placeholder('—'),
             TextEntry::make('url')->columnSpanFull()->placeholder('—'),
             KeyValueEntry::make('old_values')->label('Before')->state(fn (AuditLog $record) => $flatten($record->old_values))->columnSpan(3),
@@ -91,7 +92,8 @@ class AuditLogResource extends Resource
                     }),
                 TextColumn::make('changes')->label('What')->state(fn (AuditLog $record) => $record->changeLines())
                     ->listWithLineBreaks()->limitList(3)->expandableLimitedList()->wrap()->visibleFrom('lg'),
-                TextColumn::make('trigger')->color('gray'),
+                TextColumn::make('trigger')->label('Done from')->badge()->formatStateUsing(fn (?string $state) => AuditContext::label($state))
+                    ->color(fn (?string $state) => $state === AuditContext::MOBILE ? 'warning' : 'gray'),
                 TextColumn::make('ip_address')->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
@@ -112,6 +114,14 @@ class AuditLogResource extends Resource
                     ->options(fn () => AuditLog::query()->distinct()->orderBy('event')->pluck('event')
                         ->mapWithKeys(fn (string $event) => [$event => AuditLog::labelFor($event)])->all()),
                 SelectFilter::make('user_id')->relationship('user', 'name')->searchable()->label('User'),
+                // Where it was done: on the website, in the mobile app, or by the system itself.
+                SelectFilter::make('source')->label('Done from')->options(['mobile' => 'Mobile app', 'user' => 'Website', 'system' => 'System (automatic)'])
+                    ->query(fn (Builder $query, array $data) => match ($data['value'] ?? null) {
+                        'mobile' => $query->where('trigger', AuditContext::MOBILE),
+                        'user' => $query->where('trigger', 'user'),
+                        'system' => $query->where('trigger', 'like', 'system%'),
+                        default => $query,
+                    }),
                 Filter::make('period')->schema([DatePicker::make('from'), DatePicker::make('until')])
                     ->query(fn (Builder $query, array $data) => $query
                         ->when($data['from'] ?? null, fn ($q, $d) => $q->where('created_at', '>=', $d))
