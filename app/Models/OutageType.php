@@ -125,6 +125,11 @@ class OutageType extends Model
 
     public const CODE_CX_TICKET = 'customer_ticket';
 
+    /** Tickets of the workflows built under Configuration → Custom Workflows (one type; the number takes the flow's prefix). */
+    public const WORKFLOW_CUSTOM = 'custom';
+
+    public const CODE_CUSTOM = 'custom_flow';
+
     public const CODE_SITE_VISIT = 'site_visit';
 
     /** Customer tickets are numbered TKT-000123; site visits by their visit type (INS-1, SUP-1…). */

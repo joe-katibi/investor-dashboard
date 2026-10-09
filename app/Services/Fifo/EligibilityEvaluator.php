@@ -147,8 +147,13 @@ class EligibilityEvaluator
             );
         }
 
-        $permission = $this->permissionFor($entry);
-        $checks['permission'] = $this->check('Permission', $user->hasPermissionTo($permission), $permission);
+        // A step of a custom workflow is worked by the members of its team: no permission of its own.
+        if (! $entry->queue_type->isCustom()) {
+            $permission = $this->permissionFor($entry);
+            $checks['permission'] = $this->check('Permission', $user->hasPermissionTo($permission), $permission);
+        } elseif (! $entry->team_id) {
+            $checks['team'] = $this->check('Team', false, 'The step has no team');
+        }
 
         // 4G: transmission outages go to the engineers, eNodeB outages to the technicians.
         if ($outage && $entry->queue_type === QueueType::MobilityEngineer && ($handles = OutageType::handlerPermission($outage->fault_domain))) {
@@ -227,7 +232,8 @@ class EligibilityEvaluator
     /** @return Collection<int, User> */
     private function population(OutageQueueEntry $entry, bool $includeInactive): Collection
     {
-        $permission = $this->permissionFor($entry);
+        $custom = $entry->queue_type->isCustom();
+        $permission = $custom ? 'team:'.(int) $entry->team_id : $this->permissionFor($entry);
         $departmentId = $entry->department_id;
         $key = implode('|', [$permission, $departmentId, (int) $includeInactive]);
 
@@ -238,7 +244,10 @@ class EligibilityEvaluator
         $now = $this->now();
 
         try {
-            $query = User::permission($permission);
+            // Custom workflow step: the members of the step's team (and of its sub-teams).
+            $query = $custom
+                ? User::query()->whereHas('teams', fn ($team) => $team->whereIn('teams.id', $entry->team_id ? $this->teamScope((int) $entry->team_id) : [0]))
+                : User::permission($permission);
         } catch (PermissionDoesNotExist) {
             return $this->populations[$key] = collect();
         }

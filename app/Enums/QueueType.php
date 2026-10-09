@@ -45,6 +45,9 @@ enum QueueType: string implements HasColor, HasLabel
     // Tickets pending past the follow-up trigger (9 hours): a call to the customer, alongside the main work.
     case TicketFollowUp = 'ticket_follow_up';
 
+    // A step of a custom workflow: one queue type, each entry for the team (and with the name) of its step.
+    case CustomStep = 'custom_step';
+
     public function getLabel(): string
     {
         return match ($this) {
@@ -74,6 +77,7 @@ enum QueueType: string implements HasColor, HasLabel
             self::Access => 'Access Team',
             self::CxFieldSupport => 'CX Field Support',
             self::TicketFollowUp => 'Pending Ticket Follow-up',
+            self::CustomStep => 'Custom Workflow Step',
         };
     }
 
@@ -96,6 +100,7 @@ enum QueueType: string implements HasColor, HasLabel
             self::VisitDispatch, self::InfraSupportDispatch => 'warning',
             self::VisitTechnician, self::InfraSupportTechnician => 'primary',
             self::TicketFollowUp => 'danger',
+            self::CustomStep => 'info',
         };
     }
 
@@ -147,6 +152,12 @@ enum QueueType: string implements HasColor, HasLabel
     public function isMobility(): bool
     {
         return in_array($this, [self::MobilityEngineer, self::MobilityNoc], true);
+    }
+
+    /** A step of a workflow built from the screen: worked by the members of the step's team. */
+    public function isCustom(): bool
+    {
+        return $this === self::CustomStep;
     }
 
     /** A desk of the customer ticketing / site visit module. */

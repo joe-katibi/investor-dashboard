@@ -95,6 +95,30 @@
             @endif
         </x-filament::section>
 
+        <x-filament::section heading="Custom workflows" description="Workflows built from scratch: your own steps, in your own order, each for a team. Their tickets are raised under Operations → Workflow Tickets." compact>
+            <div class="oms-scroll"><table class="oms-table">
+                <thead><tr><th>Workflow</th><th>Prefix</th><th>Steps, in order</th><th>Version</th><th>State</th></tr></thead>
+                <tbody>
+                @forelse ($customFlows as $custom)
+                    <tr>
+                        <td class="oms-value">{{ $custom->name }}</td>
+                        <td>{{ $custom->prefix }}</td>
+                        <td>{{ $custom->steps->pluck('name')->implode(' → ') ?: '—' }}</td>
+                        <td>v{{ $custom->version }}</td>
+                        <td class="{{ ! $custom->is_active ? 'oms-muted' : ($custom->problems() === [] ? 'oms-ok' : 'oms-bad') }}">
+                            {{ ! $custom->is_active ? 'Switched off' : ($custom->problems() === [] ? 'Active' : implode(' ', $custom->problems())) }}
+                        </td>
+                    </tr>
+                @empty
+                    <tr><td colspan="5" class="oms-muted">No custom workflow has been built yet.</td></tr>
+                @endforelse
+                </tbody>
+            </table></div>
+            @if ($customUrl)
+                <div><a class="underline" href="{{ $customUrl }}" wire:navigate>Build or change custom workflows</a></div>
+            @endif
+        </x-filament::section>
+
         <x-filament::section heading="Latest changes" description="A change applies to tickets reaching a step from then on. Tickets already past it keep what was in force: their history, queue entries and SLA targets are never rewritten." compact collapsible>
             <div class="oms-scroll"><table class="oms-table">
                 <thead><tr><th>When</th><th>By</th><th>What</th><th>Change</th></tr></thead>

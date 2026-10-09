@@ -155,7 +155,8 @@ class MyWork extends Page implements HasTable
             ->columns([
                 TextColumn::make('ticket_number')->label('Ticket')->weight('bold')->wrap()->formatStateUsing(fn (?string $state) => str_replace('-', "\u{2011}", (string) $state))->description(fn (Outage $record) => str($record->title)->limit(45)),
                 TextColumn::make('queue')->label('My step')->badge()->visibleFrom('sm')
-                    ->state(fn (Outage $record) => $record->assignments->first()?->queue_type?->getLabel())
+                    // A step of a custom workflow shows its own name.
+                    ->state(fn (Outage $record) => $record->assignments->first()?->queueEntry?->label() ?? $record->assignments->first()?->queue_type?->getLabel())
                     // The time this desk has to act on it (SLA per desk), when the desk has a target.
                     ->description(fn (Outage $record) => ($due = $record->assignments->first()?->queueEntry?->sla_due_at) ? 'desk target: '.DeskSla::describe($due) : null),
                 TextColumn::make('assignment_status')->label('Assignment')->badge()->wrap()

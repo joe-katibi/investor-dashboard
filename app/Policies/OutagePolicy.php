@@ -21,6 +21,53 @@ use App\Models\User;
  */
 class OutagePolicy
 {
+    /** What applies to a ticket of a custom workflow; every other ability of this policy is for other kinds of ticket. */
+    private const CUSTOM_ABILITIES = ['view', 'addUpdate', 'workCustomStep', 'cancelCustom', 'overrideAssignment'];
+
+    /**
+     * A ticket of a custom workflow only knows its own actions: none of the outage, 4G or customer
+     * ticket transitions apply to it, whatever permissions the person holds.
+     */
+    public function before(User $user, string $ability, mixed ...$arguments): ?bool
+    {
+        $outage = $arguments[0] ?? null;
+
+        if ($outage instanceof Outage && $outage->isCustomFlow() && ! in_array($ability, self::CUSTOM_ABILITIES, true)) {
+            return false;
+        }
+
+        return null;
+    }
+
+    // ------------------------------------------------------------------ custom workflows
+
+    public function raiseCustom(User $user): bool
+    {
+        return $user->can('custom.raise');
+    }
+
+    /** The step is worked by whoever holds the ticket — or someone who may override FIFO. */
+    public function workCustomStep(User $user, Outage $outage): bool
+    {
+        return $outage->isCustomFlow() && ! $outage->is_closed
+            && ((int) $outage->current_assignee_id === (int) $user->id || $user->can('queue.override'));
+    }
+
+    public function cancelCustom(User $user, Outage $outage): bool
+    {
+        return $outage->isCustomFlow() && ! $outage->is_closed
+            && ($user->can('custom.cancel') || ((int) $outage->created_by === (int) $user->id && $outage->current_assignee_id === null));
+    }
+
+    /** Everyone with "custom.view"; otherwise the raiser, anyone who holds or held it, and the team of its current step. */
+    private function viewCustom(User $user, Outage $outage): bool
+    {
+        return $user->can('custom.view')
+            || (int) $outage->created_by === (int) $user->id
+            || $outage->assignments()->where('user_id', $user->id)->exists()
+            || $outage->openQueueEntries()->whereIn('team_id', $user->teams()->pluck('teams.id'))->exists();
+    }
+
     public function viewAny(User $user): bool
     {
         return $user->can('outage.view');
@@ -31,6 +78,7 @@ class OutagePolicy
     {
         return match (true) {
             $outage->isTicket() => $user->can('ticket.view'),
+            $outage->isCustomFlow() => $this->viewCustom($user, $outage),
             $outage->isMobility() => $user->can('mobility.view'),
             default => $user->can('outage.view'),
         };
@@ -80,6 +128,11 @@ class OutagePolicy
     {
         if ($outage->isTicket()) {
             return ! $outage->is_closed && $user->canAny(['ticket.work', 'visit.dispatch', 'visit.work', 'ticket.create', 'ticket.intervene']);
+        }
+
+        // Custom workflows: whoever may see the ticket can add to its time line while it is open.
+        if ($outage->isCustomFlow()) {
+            return ! $outage->is_closed && $this->viewCustom($user, $outage);
         }
 
         if ($outage->workflow !== null) {
@@ -136,7 +189,7 @@ class OutagePolicy
 
     public function overrideAssignment(User $user, Outage $outage): bool
     {
-        return $user->can('queue.override') && ! $outage->is_closed && $outage->workflow === null;
+        return $user->can('queue.override') && ! $outage->is_closed && ($outage->workflow === null || $outage->isCustomFlow());
     }
 
     // ------------------------------------------------------------------ 4G NOC

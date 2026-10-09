@@ -27,6 +27,9 @@ class MajorOutageType extends Model
     /** Customer tickets and site visits (Customer Care): worked desk by desk, not a network outage. */
     public const CUSTOMER = 'customer';
 
+    /** Tickets of custom workflows: not a network outage either. */
+    public const CUSTOM = 'custom';
+
     protected function casts(): array
     {
         return [

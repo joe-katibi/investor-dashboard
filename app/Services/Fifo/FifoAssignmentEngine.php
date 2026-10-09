@@ -81,7 +81,7 @@ class FifoAssignmentEngine
      * Place the outage in a queue. Idempotent: an existing open entry of the same type is
      * returned unchanged, preserving its original FIFO timestamp.
      *
-     * @param  array{team_id?: ?int, sub_team_id?: ?int, reason?: ?string, queued_at?: mixed, eligible_from?: mixed, any_department?: bool}  $options
+     * @param  array{team_id?: ?int, sub_team_id?: ?int, reason?: ?string, queued_at?: mixed, eligible_from?: mixed, any_department?: bool, step_name?: ?string, sla_minutes?: ?int, manual?: bool}  $options
      */
     public function enqueue(Outage $outage, QueueType $type, array $options = []): OutageQueueEntry
     {
@@ -99,6 +99,9 @@ class FifoAssignmentEngine
                 'outage_id' => $outage->id,
                 'queue_definition_id' => $definition?->id,
                 'queue_type' => $type,
+                // A step of a custom workflow carries its own name; a "manual" step waits for a manager.
+                'step_name' => $options['step_name'] ?? null,
+                'auto_assign_blocked' => ! empty($options['manual']),
                 'priority_id' => $outage->priority_id,
                 'priority_rank' => $outage->priority?->queue_rank ?? 999,
                 // "any_department": the team named for the ticket decides who gets it, whatever their department.
@@ -112,14 +115,14 @@ class FifoAssignmentEngine
                 'status' => QueueEntryStatus::Pending,
             ]);
 
-            $this->deskSla->stamp($entry, $outage);
+            $this->deskSla->stamp($entry, $outage, $options['sla_minutes'] ?? null);
 
             // A parallel queue (support technician) runs alongside; the ticket keeps its main owner.
             if (! $type->isParallel()) {
                 $outage->forceFill(['current_queue' => $type, 'current_assignee_id' => null])->save();
             }
 
-            $this->history($outage, null, $type, null, null, 'queued', $options['reason'] ?? 'Placed in '.$type->getLabel().' queue');
+            $this->history($outage, null, $type, null, null, 'queued', $options['reason'] ?? 'Placed in '.$entry->label().' queue');
 
             $this->scheduleProcessing($type);
 
@@ -490,7 +493,8 @@ class FifoAssignmentEngine
         ]));
 
         // Overrides never bypass hard controls: the target must be active and permitted.
-        if (! $checks['active']['passed'] || ! $checks['permission']['passed']) {
+        // (A step of a custom workflow has no permission of its own: its team decides, and a manager may go outside it.)
+        if (! $checks['active']['passed'] || ! ($checks['permission']['passed'] ?? true)) {
             throw ValidationException::withMessages(['user_id' => 'The selected user is inactive or lacks permission to work this queue.']);
         }
 

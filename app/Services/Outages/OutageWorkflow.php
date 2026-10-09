@@ -30,6 +30,7 @@ use App\Models\Team;
 use App\Models\User;
 use App\Services\Fifo\FifoAssignmentEngine;
 use App\Services\Notifications\NotificationDispatcher;
+use App\Services\Outages\Concerns\ManagesCustomFlows;
 use App\Services\Outages\Concerns\ManagesFieldMaintenance;
 use App\Services\Outages\Concerns\ManagesMobilityOutages;
 use App\Services\Outages\Concerns\ManagesPlannedMaintenance;
@@ -56,7 +57,7 @@ use Illuminate\Validation\ValidationException;
  */
 class OutageWorkflow
 {
-    use ManagesFieldMaintenance, ManagesMobilityOutages, ManagesPlannedMaintenance, ManagesTickets;
+    use ManagesCustomFlows, ManagesFieldMaintenance, ManagesMobilityOutages, ManagesPlannedMaintenance, ManagesTickets;
 
     public function __construct(
         private readonly TicketNumberGenerator $tickets,
@@ -84,6 +85,10 @@ class OutageWorkflow
 
             if ($type->isTicketing()) {
                 throw ValidationException::withMessages(['outage_type_id' => 'Customer tickets and site visits are raised under “Customer Care”.']);
+            }
+
+            if ($type->workflow === OutageType::WORKFLOW_CUSTOM) {
+                throw ValidationException::withMessages(['outage_type_id' => 'Tickets of custom workflows are raised under “Workflow Tickets”.']);
             }
 
             // Planned maintenance has its own request → CRF → sign-off flow.

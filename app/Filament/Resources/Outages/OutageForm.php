@@ -50,7 +50,7 @@ final class OutageForm
                     TextInput::make('title')->label('Outage title')->required()->maxLength(255)->columnSpanFull(),
                     Select::make('major_outage_type_id')->label('Major outage type')->required()->live()
                         // The 4G major type belongs to the 4G NOC form.
-                        ->options(fn () => MajorOutageType::query()->active()->where('code', '!=', MajorOutageType::MOBILITY)->orderBy('sort_order')->pluck('name', 'id'))
+                        ->options(fn () => MajorOutageType::query()->active()->whereNotIn('code', [MajorOutageType::MOBILITY, MajorOutageType::CUSTOM])->orderBy('sort_order')->pluck('name', 'id'))
                         ->disabledOn('edit')
                         ->afterStateUpdated(fn (Set $set) => $set('outage_type_id', null)),
                     Select::make('outage_type_id')->label('Outage type')->required()->live()

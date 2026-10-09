@@ -3,12 +3,14 @@
 namespace App\Filament\Pages;
 
 use App\Enums\QueueType;
+use App\Filament\Resources\CustomFlows\CustomFlowResource;
 use App\Filament\Resources\DeskRoutes\DeskRouteResource;
 use App\Filament\Resources\NotificationRules\NotificationRuleResource;
 use App\Filament\Resources\QueueDefinitions\QueueDefinitionResource;
 use App\Filament\Resources\Roles\RoleResource;
 use App\Filament\Resources\Services\ServiceResource;
 use App\Filament\Resources\TicketSubcategories\TicketSubcategoryResource;
+use App\Models\CustomFlow;
 use App\Models\Department;
 use App\Models\Team;
 use App\Services\Workflows\WorkflowConfig;
@@ -82,6 +84,9 @@ class WorkflowConfiguration extends Page
             'switches' => $config->switches($flow),
             'history' => $config->history(),
             'links' => $this->links($flow),
+            // Stage 2: the workflows built from scratch, with their steps.
+            'customFlows' => CustomFlow::query()->with('steps')->orderBy('name')->get(),
+            'customUrl' => CustomFlowResource::canAccess() ? CustomFlowResource::getUrl() : null,
         ];
     }
 

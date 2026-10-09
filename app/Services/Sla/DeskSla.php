@@ -77,9 +77,10 @@ class DeskSla
     }
 
     /** The target of a desk as the ticket arrives there; it is not changed afterwards. */
-    public function stamp(OutageQueueEntry $entry, Outage $outage): void
+    public function stamp(OutageQueueEntry $entry, Outage $outage, ?int $minutes = null): void
     {
-        $minutes = $this->enabled() ? $this->minutesFor($entry->queue_type) : 0;
+        // A step of a custom workflow brings its own target; a desk takes the configured one.
+        $minutes = $this->enabled() ? ($minutes ?? $this->minutesFor($entry->queue_type)) : 0;
 
         if ($minutes <= 0) {
             return;
@@ -210,18 +211,19 @@ class DeskSla
         $entry->forceFill($breached ? ['sla_breached_at' => $now, 'sla_warned_at' => $entry->sla_warned_at ?? $now] : ['sla_warned_at' => $now])->save();
 
         $desk = $entry->queue_type;
+        $deskName = $entry->label();
         $holder = $entry->activeAssignment?->user;
         $with = $holder ? "with {$holder->name}" : 'not yet picked up by anyone';
         $reason = $breached
-            ? "Waiting at {$desk->getLabel()} past its target of {$entry->sla_minutes} min ({$with})."
-            : "At {$desk->getLabel()} — ".self::describe($entry->sla_due_at, $now)." of its {$entry->sla_minutes} min target ({$with}).";
+            ? "Waiting at {$deskName} past its target of {$entry->sla_minutes} min ({$with})."
+            : "At {$deskName} — ".self::describe($entry->sla_due_at, $now)." of its {$entry->sla_minutes} min target ({$with}).";
 
         $this->record($outage, $breached ? 'desk_breached' : 'desk_pre_breach', [
-            'desk' => $desk->value, 'target_minutes' => $entry->sla_minutes, 'held_by' => $holder?->name,
+            'desk' => $desk->value, 'step' => $entry->step_name, 'target_minutes' => $entry->sla_minutes, 'held_by' => $holder?->name,
         ], $now);
 
         $this->tell($breached ? NotificationEvent::DeskSlaBreach : NotificationEvent::DeskSlaPreBreach, $outage, $breached, [
-            'assignee_id' => $holder?->id, 'queue' => $desk->getLabel(), 'reason' => $reason, 'by' => 'System (SLA per desk)',
+            'assignee_id' => $holder?->id, 'queue' => $deskName, 'reason' => $reason, 'by' => 'System (SLA per desk)',
         ]);
 
         return $breached ? 'breached' : 'warned';
@@ -294,6 +296,7 @@ class DeskSla
 
         $permission = match (true) {
             $outage->isTicket() => 'ticket.view',
+            $outage->isCustomFlow() => 'custom.view',
             $outage->isMobility() => 'mobility.view',
             default => 'outage.view',
         };

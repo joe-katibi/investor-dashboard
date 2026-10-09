@@ -60,8 +60,8 @@ class DeskSlaReports
         $now = CarbonImmutable::now();
 
         foreach ($this->stays($from, $to, $modules) as $entry) {
-            $key = $entry->queue_type->value;
-            $groups[$key] ??= ['desk' => $entry->queue_type->getLabel(), 'target' => [], 'arrived' => 0, 'handled' => 0, 'waiting' => 0, 'within' => 0, 'breached' => 0, 'waiting_breached' => 0, 'minutes' => []];
+            $key = $entry->queue_type->value.'|'.$entry->step_name;
+            $groups[$key] ??= ['desk' => $entry->label(), 'target' => [], 'arrived' => 0, 'handled' => 0, 'waiting' => 0, 'within' => 0, 'breached' => 0, 'waiting_breached' => 0, 'minutes' => []];
             $g = &$groups[$key];
             $end = $entry->completed_at ?? $now;
             $late = $end->greaterThan($entry->sla_due_at);

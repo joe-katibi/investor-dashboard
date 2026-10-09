@@ -29,6 +29,7 @@ class ReferenceDataSeeder extends Seeder
         VendorSeeder::class,
         VendorTemplateSeeder::class,
         TicketCatalogSeeder::class,
+        CustomWorkflowSeeder::class,
     ];
 
     public function run(): void

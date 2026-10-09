@@ -5,6 +5,8 @@ namespace App\Services\Workflows;
 use App\Enums\NotificationEvent as E;
 use App\Enums\QueueType as Q;
 use App\Models\AuditLog;
+use App\Models\CustomFlow;
+use App\Models\CustomFlowStep;
 use App\Models\DeskRoute;
 use App\Models\MajorOutageType;
 use App\Models\NotificationRule;
@@ -227,7 +229,7 @@ class WorkflowConfig
 
         return AuditLog::query()
             ->where(fn ($q) => $q
-                ->whereIn('auditable_type', [$morph(QueueDefinition::class), $morph(MajorOutageType::class), $morph(DeskRoute::class)])
+                ->whereIn('auditable_type', [$morph(QueueDefinition::class), $morph(MajorOutageType::class), $morph(DeskRoute::class), $morph(CustomFlow::class), $morph(CustomFlowStep::class)])
                 ->orWhere(fn ($setting) => $setting->where('auditable_type', $morph(Setting::class))->whereIn('auditable_id', $settingIds->keys()->all() ?: [0]))
                 ->orWhere(fn ($service) => $service->where('auditable_type', $morph(Service::class))->where('event', 'updated')))
             ->with('user:id,name')
@@ -245,6 +247,8 @@ class WorkflowConfig
                     $morph(QueueDefinition::class) => 'Step / queue #'.$log->auditable_id,
                     $morph(MajorOutageType::class) => 'Major outage type #'.$log->auditable_id,
                     $morph(DeskRoute::class) => 'Desk route #'.$log->auditable_id,
+                    $morph(CustomFlow::class) => 'Custom workflow #'.$log->auditable_id,
+                    $morph(CustomFlowStep::class) => 'Step of a custom workflow #'.$log->auditable_id,
                     default => 'Affected service #'.$log->auditable_id,
                 }.' — '.$log->eventLabel(),
                 'changes' => array_slice($log->changeLines(), 0, 6),

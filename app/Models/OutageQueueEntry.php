@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable([
-    'outage_id', 'queue_definition_id', 'queue_type', 'priority_id', 'priority_rank', 'department_id',
+    'outage_id', 'queue_definition_id', 'queue_type', 'step_name', 'priority_id', 'priority_rank', 'department_id',
     'team_id', 'sub_team_id', 'queued_at', 'eligible_from', 'assigned_at', 'completed_at', 'status',
     'attempts', 'rejected_user_ids', 'auto_assign_blocked', 'escalated_at',
 ])]
@@ -109,6 +109,12 @@ class OutageQueueEntry extends Model
         }
 
         $query->orderBy('queued_at')->orderBy('id');
+    }
+
+    /** "NOC Review" — or, for a custom workflow, the name of the step ("Finance approval"). */
+    public function label(): string
+    {
+        return filled($this->step_name) ? (string) $this->step_name : $this->queue_type->getLabel();
     }
 
     public function hasRejected(int $userId): bool

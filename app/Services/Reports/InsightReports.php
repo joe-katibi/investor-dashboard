@@ -122,7 +122,7 @@ class InsightReports
             $last = $entry->assignments->last();
             $late = $entry->sla_due_at && $end->greaterThan($entry->sla_due_at);
 
-            $rows[] = $line($i + 1, $entry->queue_type->getLabel(), [
+            $rows[] = $line($i + 1, $entry->label(), [
                 'arrived' => $start->format('Y-m-d H:i'),
                 'with' => $entry->assignments->map(fn ($a) => $a->user?->name)->filter()->unique()->implode(' → ') ?: 'Nobody (queue)',
                 'accepted' => $entry->assignments->pluck('accepted_at')->filter()->last()?->format('Y-m-d H:i'),
@@ -467,6 +467,7 @@ class InsightReports
                     'mobility' => $q->orWhereIn('workflow', OutageType::MOBILITY_WORKFLOWS),
                     'ticket' => $q->orWhere('workflow', OutageType::WORKFLOW_CX_TICKET),
                     'visit' => $q->orWhere('workflow', OutageType::WORKFLOW_SITE_VISIT),
+                    'custom' => $q->orWhere('workflow', OutageType::WORKFLOW_CUSTOM),
                     default => null,
                 };
             }

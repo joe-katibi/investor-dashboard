@@ -224,6 +224,8 @@ final class MobileActions
         // Field steps belong to the person holding the ticket (or someone who may override FIFO).
         $holding = $assignment !== null || $user->can('queue.override');
         $can = fn (string $ability) => $user->can($ability, $outage);
+        // Custom workflow: the flow, its steps and the one the ticket is at.
+        $custom = $outage->isCustomFlow() ? $outage->customTicket : null;
         $ticket = $outage->isTicket() ? $outage->ticket : null;
         $approvalSlot = $can('approvePreventive') ? MaintenanceApproval::openSlotFor($outage, $user) : null;
         // Emergency / Regular outage worked by a field team: position => photo on the ticket (or null).
@@ -768,6 +770,32 @@ final class MobileActions
                     $this->workflow->cancelTicket($outage, $user, $data['reason'], ! empty($data['duplicate']));
 
                     return ! empty($data['duplicate']) ? 'Marked as a duplicate' : 'Ticket cancelled';
+                },
+            ],
+
+            // ---------------------------------------------------------- custom workflows
+            'custom_complete' => [
+                'visible' => $can('workCustomStep') && $assignment !== null,
+                'label' => $custom?->isLastStep() ? 'Complete ticket' : 'Complete step',
+                'style' => 'success',
+                'primary' => true,
+                'description' => $custom ? $custom->progressLabel().(filled($custom->step()['instructions'] ?? null) ? ' — '.$custom->step()['instructions'] : '') : null,
+                'fields' => fn () => [$this->textarea('note', $custom?->isLastStep() ? 'How it was resolved' : 'Note', max: 5000)],
+                'handle' => function (array $data) use ($outage, $user): string {
+                    $done = $this->workflow->completeCustomStep($outage, $user, $data['note'] ?? null);
+
+                    return $done->is_closed ? 'Ticket completed' : 'Step completed — on to “'.($done->customTicket?->step()['name'] ?? 'the next step').'”';
+                },
+            ],
+            'custom_send_back' => [
+                'visible' => $can('workCustomStep') && $assignment !== null && ($custom?->step_index ?? 0) > 0 && ($custom?->step()['can_send_back'] ?? false),
+                'label' => 'Send back',
+                'style' => 'warning',
+                'fields' => fn () => [$this->textarea('reason', 'Why is it sent back?', required: true)],
+                'handle' => function (array $data) use ($outage, $user): string {
+                    $this->workflow->sendBackCustomStep($outage, $user, $data['reason']);
+
+                    return 'Sent back to the step before';
                 },
             ],
 

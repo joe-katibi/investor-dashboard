@@ -72,6 +72,11 @@ class NotificationDispatcher
      */
     private function deliverToAlertList(NotificationEvent $event, Outage $outage, array $context, array &$seen): void
     {
+        // Tickets of custom workflows have no alert list: their team, the raiser and the notification rules are told.
+        if ($outage->isCustomFlow()) {
+            return;
+        }
+
         $settings = app(Settings::class);
 
         // 4G NOC tickets go to the 4G lists (4G NOC → 4G Settings), never to the FTTH ones.

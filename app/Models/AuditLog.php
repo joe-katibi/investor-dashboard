@@ -103,6 +103,9 @@ class AuditLog extends Model
         return str_starts_with((string) $this->event, self::TICKET_PREFIX);
     }
 
+    /** Named actions on tickets of custom workflows: wf_raised, wf_step_completed, wf_sent_back, wf_completed, wf_cancelled. */
+    public const WORKFLOW_PREFIX = 'wf_';
+
     /** What a person did in the mobile app: mobile_login, mobile_logout, mobile_action, mobile_raised… */
     public const MOBILE_PREFIX = 'mobile_';
 
@@ -114,7 +117,7 @@ class AuditLog extends Model
     /** A named workflow action (4G, customer ticket, mobile app) carrying ticket / status / details. */
     public function isNamedAction(): bool
     {
-        return $this->isMobilityAction() || $this->isTicketAction() || $this->isMobileAppAction();
+        return $this->isMobilityAction() || $this->isTicketAction() || $this->isMobileAppAction() || str_starts_with((string) $this->event, self::WORKFLOW_PREFIX);
     }
 
     /** "4g_vendor_update" → "4G: Vendor update"; "created" → "Created". */
@@ -128,6 +131,7 @@ class AuditLog extends Model
         return match (true) {
             str_starts_with($event, self::MOBILITY_PREFIX) => '4G: '.Str::of($event)->after(self::MOBILITY_PREFIX)->replace('_', ' ')->ucfirst()->replace('noc', 'NOC')->replace('fifo', 'FIFO')->replace('Fifo', 'FIFO'),
             str_starts_with($event, self::TICKET_PREFIX) => 'Ticket: '.Str::of($event)->after(self::TICKET_PREFIX)->replace('_', ' ')->ucfirst()->replace('noc', 'NOC')->replace('fifo', 'FIFO')->replace('Fifo', 'FIFO')->replace('sms', 'SMS')->replace('Sms', 'SMS'),
+            str_starts_with($event, self::WORKFLOW_PREFIX) => 'Workflow: '.Str::of($event)->after(self::WORKFLOW_PREFIX)->replace('_', ' ')->ucfirst(),
             str_starts_with($event, self::MOBILE_PREFIX) => 'Mobile app: '.match ($event) {
                 'mobile_login' => 'Signed in',
                 'mobile_logout' => 'Signed out',

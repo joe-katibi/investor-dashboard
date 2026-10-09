@@ -285,6 +285,11 @@ class RolesAndPermissionsSeeder extends Seeder
             }
         }
 
+        // Managers and team leaders (who may override FIFO) see and may cancel tickets of custom workflows.
+        if (in_array('queue.override', $granted, true)) {
+            array_push($granted, 'custom.view', 'custom.cancel');
+        }
+
         return array_values(array_unique($granted));
     }
 

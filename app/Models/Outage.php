@@ -434,6 +434,25 @@ class Outage extends Model
         return $this->hasManyThrough(Outage::class, Ticket::class, 'parent_outage_id', 'id', 'id', 'outage_id');
     }
 
+    // ---------------------------------------------------------------- custom workflows
+
+    /** The custom-flow side of the ticket: its flow, the steps it follows and the one it is at. */
+    public function customTicket(): HasOne
+    {
+        return $this->hasOne(CustomTicket::class);
+    }
+
+    /** A ticket of a workflow built under Configuration → Custom Workflows. */
+    public function isCustomFlow(): bool
+    {
+        return $this->workflow === OutageType::WORKFLOW_CUSTOM;
+    }
+
+    public function scopeCustomFlows(Builder $query): void
+    {
+        $query->where($query->qualifyColumn('workflow'), OutageType::WORKFLOW_CUSTOM);
+    }
+
     /** A customer ticket or a site visit (not a network outage). */
     public function isTicket(): bool
     {

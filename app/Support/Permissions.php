@@ -72,6 +72,11 @@ final class Permissions
             'customer.manage' => 'Manage and import customers',
             'ticket.configure' => 'Configure regions, categories, visit types, reasons, desk routes and ticket settings',
         ],
+        'Custom Workflows' => [
+            'custom.view' => 'View every ticket of the custom workflows (without it: the tickets you raised, hold, or that wait for your team)',
+            'custom.raise' => 'Raise tickets in custom workflows (a flow can narrow this to roles)',
+            'custom.cancel' => 'Cancel tickets of custom workflows',
+        ],
         'FIFO Queues' => [
             'queue.view' => 'View FIFO queues',
             'queue.work_mobility_noc' => 'Receive 4G tickets to verify (NOC)',

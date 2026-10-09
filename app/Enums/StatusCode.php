@@ -80,6 +80,11 @@ enum StatusCode: string
     case VisitClosed = 'visit_closed';
     case VisitClosedEscalated = 'visit_closed_escalated';
 
+    // Custom workflows: in progress through the steps, then completed — or cancelled.
+    case CustomOpen = 'custom_open';
+    case CustomClosed = 'custom_closed';
+    case CustomCancelled = 'custom_cancelled';
+
     /** Closed without the work being done: no SLA outcome. */
     public function isTicketVoid(): bool
     {

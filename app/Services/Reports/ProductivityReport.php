@@ -42,6 +42,7 @@ class ProductivityReport
         'mobility' => '4G outages',
         'ticket' => 'Customer tickets',
         'visit' => 'Site visits',
+        'custom' => 'Custom workflows',
     ];
 
     public const GROUPS = ['hour' => 'Hourly', 'day' => 'Daily', 'week' => 'Weekly', 'month' => 'Monthly', 'period' => 'Whole period'];
@@ -293,6 +294,7 @@ class ProductivityReport
             'mobility' => ! $user || $user->can('mobility.view'),
             'ticket' => ! $user || $user->can('ticket.view'),
             'visit' => ! $user || $user->can('ticket.view'),
+            'custom' => ! $user || $user->can('custom.view'),
         ]));
 
         $requested = array_values(array_intersect(array_map('strval', $requested), array_keys(self::MODULES)));
@@ -306,6 +308,7 @@ class ProductivityReport
             in_array($workflow, OutageType::MOBILITY_WORKFLOWS, true) => 'mobility',
             $workflow === OutageType::WORKFLOW_CX_TICKET => 'ticket',
             $workflow === OutageType::WORKFLOW_SITE_VISIT => 'visit',
+            $workflow === OutageType::WORKFLOW_CUSTOM => 'custom',
             default => 'outage',
         };
     }
@@ -319,7 +322,8 @@ class ProductivityReport
 
                 foreach ($modules as $module) {
                     match ($module) {
-                        'outage' => $q->orWhere(fn (Builder $w) => $w->whereNull('o.workflow')->orWhereNotIn('o.workflow', [...OutageType::MOBILITY_WORKFLOWS, ...OutageType::TICKET_WORKFLOWS])),
+                        'outage' => $q->orWhere(fn (Builder $w) => $w->whereNull('o.workflow')->orWhereNotIn('o.workflow', [...OutageType::MOBILITY_WORKFLOWS, ...OutageType::TICKET_WORKFLOWS, OutageType::WORKFLOW_CUSTOM])),
+                        'custom' => $q->orWhere('o.workflow', OutageType::WORKFLOW_CUSTOM),
                         'mobility' => $q->orWhereIn('o.workflow', OutageType::MOBILITY_WORKFLOWS),
                         'ticket' => $q->orWhere('o.workflow', OutageType::WORKFLOW_CX_TICKET),
                         'visit' => $q->orWhere('o.workflow', OutageType::WORKFLOW_SITE_VISIT),

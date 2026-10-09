@@ -838,8 +838,56 @@ people that is), **how tickets are given out**, the **time to accept**, the **de
 at a step keeps the person it was given to and the SLA target it arrived with, and nothing in its history is
 rewritten. *Latest changes* at the bottom lists who changed what and when (the same entries as the audit trail).
 
-This is **stage 1**: the existing flows made adjustable. The order of a flow's fixed steps cannot be rearranged
-yet and new flows cannot be drawn from scratch — that is stage 2.
+That is **stage 1**: the built-in flows made adjustable. **Stage 2** adds workflows built from scratch:
+
+### Custom workflows (stage 2)
+
+*Configuration → Custom Workflows* (permission `workflow.configure`): build a flow of your own — a purchase
+request, a vehicle request, an access request, an internal approval — without code.
+
+* **The flow**: a name, a **ticket prefix** (`PUR` → `PUR-000001`), a description, the SLA of the whole ticket, the
+  roles that may raise a ticket in it (empty = everyone who may raise custom tickets), whether a closing note is
+  required, and active / switched off.
+* **The steps, in order**: add, remove and **drag to reorder**. Each step has a name, the **team** that works it,
+  automatic FIFO or manual assignment, its own SLA target, whether it may send the ticket back to the step before,
+  whether a note is required to complete it, and instructions for the person doing it.
+* **Who works a step**: the members of the step's team (and its sub-teams) — no extra permission. The oldest
+  ticket goes to the team member waiting longest, with the same rules as every queue (availability, shift, leave,
+  workload). A *manual* step waits until a manager assigns it.
+
+*Operations → Workflow Tickets*: **Raise ticket** (choose the workflow, title, details, priority), then on the
+ticket page the person holding it uses **Complete step** — the ticket moves to the next step's team — or **Send
+back** with a reason. The last step is **Complete ticket** with the closing note. Managers can **Assign** within
+the step's team and **Cancel**. The page shows the steps as chips (done / here now / to come) and every stay at a
+step: team, person, from, until, time taken, the step's target and whether it was kept.
+
+| Permission | Meaning |
+|---|---|
+| `workflow.configure` | build and edit custom workflows |
+| `custom.raise` | raise tickets in custom workflows (a flow can narrow this to roles) |
+| `custom.view` | see every custom ticket — without it a person sees the tickets they raised, hold or held, and the ones waiting for their team |
+| `custom.cancel` | cancel custom tickets (the person who raised one may cancel it while nobody holds it) |
+
+When these arrived, `custom.view` and `custom.cancel` were given to the roles that may override FIFO (managers,
+team leaders) and all three to the roles holding `workflow.configure`. **Give `custom.raise` to the roles that
+should raise tickets** — nobody else has it at first.
+
+**Editing a flow never touches tickets already on their way.** A ticket carries a copy of the steps as they were
+when it was raised (and the version number of the flow), and follows that copy to the end — reorder, rename,
+remove or add steps, change teams or switch the flow off at any time. Changes apply to tickets raised afterwards.
+Every change is a new version and is on the audit trail.
+
+Custom tickets take part in everything else: **My Work** (under the step's name), the **FIFO Queues** screen
+(tab *Custom Workflow Step*), **SLA per desk** (a step's target is warned and reported like a desk's), the
+**audit trail** (*Workflow: Raised / Step completed / Sent back / Completed / Cancelled*), the reports *Ticket
+Life Cycle*, *SLA: Desk Response Times* and *Staff Productivity* (module *Custom workflows*), and the **mobile
+app** — whoever holds a ticket can accept it, complete the step or send it back from the phone.
+
+**What stage 2 does not do.** The order of the steps of the **built-in** flows (network outage, system outage,
+maintenance, 4G, customer tickets, site visits) stays as it is: their steps carry rules of their own — photos, the
+CRF signatures, the two approvals, vendor e-mails — that a free reordering would break. Those flows are adjusted
+with the step settings and switches above. Custom tickets have a title, details and a priority; extra form fields
+per flow and attachments are not part of this version.
 
 ## SLA management
 

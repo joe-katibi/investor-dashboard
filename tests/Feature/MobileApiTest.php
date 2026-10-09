@@ -6,6 +6,7 @@ use App\Enums\NotificationEvent;
 use App\Enums\QueueType;
 use App\Enums\StatusCode;
 use App\Events\MobileNotification;
+use App\Models\CustomFlow;
 use App\Models\MobileDevice;
 use App\Models\Outage;
 use App\Models\OutagePhoto;
@@ -580,6 +581,42 @@ class MobileApiTest extends TestCase
             'technician_id' => $technician->id,
         ], $dispatcher);
         $this->assertNotContains('ticket_cancel', $this->actions($technician, $other));
+    }
+
+    public function test_a_step_of_a_custom_workflow_is_worked_from_the_app(): void
+    {
+        $flow = CustomFlow::query()->create(['name' => 'Tool request', 'prefix' => 'TOOL']);
+        $flow->steps()->create(['name' => 'Stores check', 'team_id' => $this->team->id, 'position' => 0]);
+        $flow->steps()->create(['name' => 'Hand-over', 'team_id' => $this->team->id, 'position' => 1, 'instructions' => 'Have the receipt signed.']);
+        $raiser = $this->makeUser('Super Admin', 'MGMT', attributes: ['availability_status' => 'offline']);
+        $this->dispatcher->forceFill(['availability_status' => 'offline'])->save();
+
+        Auth::setUser($raiser);
+        $ticket = $this->workflow->raiseCustomTicket($flow->refresh(), ['title' => 'OTDR for the Kira crew'], $raiser);
+        $this->assertSame($this->technician->id, $ticket->current_assignee_id);
+
+        // The person holding it sees it in the app and completes the step there.
+        $detail = $this->api($this->technician, 'GET', "tickets/{$ticket->id}")->assertOk();
+        $this->assertSame('TOOL-000001', $detail->json('ticket.number'));
+        $this->assertSame(['accept', 'reject', 'custom_complete', 'add_update'], array_column($detail->json('ticket.actions'), 'key'));
+        $this->assertSame('Complete step', collect($detail->json('ticket.actions'))->firstWhere('key', 'custom_complete')['label']);
+
+        $this->act($this->technician, $ticket, 'custom_complete', ['note' => 'In stock'])->assertOk()
+            ->assertJsonPath('message', 'Step completed — on to “Hand-over”');
+        $this->assertSame('Step 2 of 2: Hand-over', $ticket->refresh()->customTicket->progressLabel());
+
+        // The second step may send it back; completing it closes the ticket (a closing note is required).
+        $actions = collect($this->api($this->technician, 'GET', "tickets/{$ticket->id}")->json('ticket.actions'))->keyBy('key');
+        $this->assertSame('Complete ticket', $actions['custom_complete']['label']);
+        $this->assertStringContainsString('Have the receipt signed.', $actions['custom_complete']['description']);
+        $this->assertArrayHasKey('custom_send_back', $actions->all());
+        $this->act($this->technician, $ticket, 'custom_complete', [])->assertUnprocessable();
+        $this->act($this->technician, $ticket, 'custom_complete', ['note' => 'Handed to the crew leader'])->assertOk()->assertJsonPath('message', 'Ticket completed');
+        $this->assertTrue($ticket->refresh()->is_closed);
+
+        // Someone the ticket does not concern cannot open it.
+        $other = $this->makeUser('Outage Technician', 'INFRA', attributes: ['email' => 'other@example.com']);
+        $this->api($other, 'GET', "tickets/{$ticket->id}")->assertForbidden();
     }
 
     public function test_notifications_devices_and_availability(): void

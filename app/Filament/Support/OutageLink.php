@@ -2,6 +2,7 @@
 
 namespace App\Filament\Support;
 
+use App\Filament\Resources\CustomTickets\CustomTicketResource;
 use App\Filament\Resources\MobilityOutages\MobilityOutageResource;
 use App\Filament\Resources\Outages\OutageResource;
 use App\Filament\Resources\SiteVisits\SiteVisitResource;
@@ -27,6 +28,7 @@ final class OutageLink
             $outage->isSiteVisit() => SiteVisitResource::getUrl('view', ['record' => $outage->id]),
             $outage->isCxTicket() => TicketResource::getUrl('view', ['record' => $outage->id]),
             $outage->isMobility() => MobilityOutageResource::getUrl('view', ['record' => $outage->id]),
+            $outage->isCustomFlow() => CustomTicketResource::getUrl('view', ['record' => $outage->id]),
             default => OutageResource::getUrl('view', ['record' => $outage->id]),
         };
     }
