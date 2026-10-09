@@ -168,7 +168,8 @@ class ProductivityReportTest extends TestCase
         $manager = $this->makeUser('Ticketing Manager', 'CX');
         $this->actingAs($manager);
         $this->assertArrayHasKey(ProductivityReport::KEY, ReportRegistry::availableTo($manager));
-        $this->assertSame(['ticket', 'visit'], app(ProductivityReport::class)->modules());
+        // (…and, as a manager who may override FIFO, the custom workflows.)
+        $this->assertSame(['ticket', 'visit', 'custom'], app(ProductivityReport::class)->modules());
         $report = app(ReportRegistry::class)->run(ProductivityReport::KEY, ['from' => '2026-10-05', 'to' => '2026-10-05', 'group' => 'day']);
         $this->assertSame(['Customer tickets'], collect($report->rowsArray())->pluck('module')->unique()->values()->all());
 
