@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\CustomTickets\Pages;
 
+use App\Filament\Concerns\LogsTicketView;
 use App\Filament\Concerns\RefreshesOnOmsEvents;
 use App\Filament\Resources\CustomTickets\CustomTicketActions;
 use App\Filament\Resources\CustomTickets\CustomTicketResource;
@@ -12,7 +13,7 @@ use Filament\Support\Icons\Heroicon;
 
 class ViewCustomTicket extends ViewRecord
 {
-    use RefreshesOnOmsEvents;
+    use LogsTicketView, RefreshesOnOmsEvents;
 
     protected static string $resource = CustomTicketResource::class;
 

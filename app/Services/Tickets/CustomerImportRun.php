@@ -8,6 +8,7 @@ use Filament\Notifications\Notification;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use InvalidArgumentException;
 use Throwable;
 
@@ -54,6 +55,9 @@ class CustomerImportRun
             $disk->delete($file);
             $lock?->release();
         }
+
+        // The import as a whole is on the audit trail (each customer it created or changed has its own entry).
+        $user->audit($dryRun ? 'customers_import_previewed' : 'customers_imported', ['result' => $outcome['title'], 'details' => Str::limit(implode(' ', $outcome['lines']), 600)], [], $user->id);
 
         $user->notifyNow(self::notification($outcome)->toDatabase());
         DatabaseNotificationsSent::dispatch($user);

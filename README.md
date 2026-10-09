@@ -235,6 +235,27 @@ known: an app sign-in still on file counts for the app, the rest for the website
 | Mobile app: Action on a ticket | every action run from the app — the ticket, the action, the resulting status, the phone |
 | Mobile app: Raised from the app | corrective / preventive maintenance raised in the app |
 
+**What the audit trail records.** Every entry carries who, when, what changed (before / after), where it was done
+from (website, mobile app or the system) and the address of the computer.
+
+| What | How it appears |
+|---|---|
+| Every create, change and deletion of tickets, users, customers, settings, queues, types, statuses, SLA policies, notification rules, templates, teams, topology, workflows… | *Created / Updated / Deleted* with the values before and after |
+| Each step of a ticket | named entries per module (*4G: …*, *Ticket: …*, *Workflow: …*) plus the status, assignment and SLA histories on the ticket |
+| Signing in and out on the website, failed attempts (also on an address nobody has), too many attempts | *Website: Signed in / Signed out / Sign-in failed / Too many sign-in attempts* |
+| The same in the mobile app | *Mobile app: Signed in / Signed out / Sign-in failed* |
+| A password changed (by the person, an administrator or the reset link) | *Password changed*, *Password reset by e-mail link* — never the password, nor its hash |
+| A person given or losing a role or a team (user screen and staff import) | *Roles / Teams of a person changed*: added, removed, what they have now |
+| A permission given to or taken from a role | *Permissions of a role changed*: added, removed |
+| A report or the outage list exported | *Report exported*: which report, format and period |
+| A customer import from the website | *Customers imported* / *Customer import previewed* with the outcome |
+| A ticket opened — its page on the website, or the ticket in the mobile app | *Ticket opened*: who, which ticket, from where. At most one entry per person and ticket every 15 minutes, so reloading a page is not a new visit. Switch: *FIFO & SLA Settings → Audit trail → Record who opens a ticket* |
+| Notifications sent (in-app, e-mail, SMS, push) | *Monitoring → Notification Log*, with delivery status and retries |
+
+Not recorded: opening a list, a dashboard or a report on screen (only tickets are followed), and what a browser
+shows as a desktop notification (the notification itself is in the Notification Log). Entries are append-only: the application never changes or
+deletes them.
+
 The changes an action makes (status, assignee, photos…) are recorded as before, and they too carry *Mobile app* —
 as do the status history and the FIFO assignment history of the ticket, so it is always visible whether a step was
 taken on the website or on a phone.

@@ -18,8 +18,13 @@ use App\Services\Notifications\Sms\SmsGateway;
 use App\Services\Notifications\Sms\TwilioSmsGateway;
 use App\Services\Outages\OutageWorkflow;
 use App\Services\Reports\DashboardMetrics;
+use App\Support\ActivityLog;
 use App\Support\Settings;
+use Illuminate\Auth\Events\Failed;
+use Illuminate\Auth\Events\Lockout;
 use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\Logout;
+use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Middleware\TrustProxies;
@@ -31,6 +36,7 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 use Throwable;
 
@@ -95,6 +101,37 @@ class AppServiceProvider extends ServiceProvider
         ]);
         RateLimiter::for('mobile', fn (Request $request) => Limit::perMinute(180)->by('mobile|'.($request->user()?->id ?: $request->ip())));
         RateLimiter::for('mobile-write', fn (Request $request) => Limit::perMinute(40)->by('mobile-write|'.($request->user()?->id ?: $request->ip())));
+
+        // The audit trail of signing in on the website (the mobile app writes its own entries: mobile_login…).
+        Event::listen(Login::class, function (Login $event): void {
+            if ($event->user instanceof User && $event->guard !== 'sanctum') {
+                $event->user->audit('auth_login', ['person' => $event->user->name, 'remembered' => $event->remember ? 'yes' : 'no'], [], $event->user->id);
+            }
+        });
+        Event::listen(Logout::class, function (Logout $event): void {
+            if ($event->user instanceof User && $event->guard !== 'sanctum') {
+                $event->user->audit('auth_logout', ['person' => $event->user->name], [], $event->user->id);
+            }
+        });
+        // A failed attempt: on the account when there is one, otherwise with the address that was tried. Never the password.
+        Event::listen(Failed::class, function (Failed $event): void {
+            $login = Str::limit((string) ($event->credentials['email'] ?? $event->credentials['username'] ?? ''), 150, '');
+
+            $event->user instanceof User
+                ? $event->user->audit('auth_login_failed', ['person' => $event->user->name, 'reason' => $event->user->is_active ? 'Wrong password' : 'Account is inactive'], [], false)
+                : ActivityLog::record(User::class, 'auth_login_failed', ['login' => $login, 'reason' => 'No such account'], [], false);
+        });
+        Event::listen(Lockout::class, function (Lockout $event): void {
+            ActivityLog::record(User::class, 'auth_lockout', [
+                'login' => Str::limit((string) ($event->request->input('email') ?? $event->request->input('data.email') ?? ''), 150, ''),
+                'reason' => 'Too many sign-in attempts',
+            ], [], false);
+        });
+        Event::listen(PasswordReset::class, function (PasswordReset $event): void {
+            if ($event->user instanceof User) {
+                $event->user->audit('auth_password_reset', ['person' => $event->user->name, 'how' => 'By the e-mailed link'], [], $event->user->id);
+            }
+        });
 
         Event::listen(Login::class, function (Login $event): void {
             if ($event->user instanceof User) {

@@ -83,6 +83,9 @@ class ListOutages extends ListRecords
         }
         RateLimiter::hit($key, 60);
 
+        // Who took the outage list out of the system (with the filters that were on).
+        Auth::user()->audit('report_exported', ['report' => 'Outage Register (list as filtered)', 'format' => 'XLSX', 'tab' => $this->activeTab]);
+
         $registry = app(ReportRegistry::class);
         $query = $this->getFilteredSortedTableQuery()->with(OutageQuery::RELATIONS);
 

@@ -6,6 +6,7 @@ use App\Models\Department;
 use App\Models\Team;
 use App\Models\User;
 use App\Services\Topology\DryRunRollback;
+use App\Support\ActivityLog;
 use App\Support\AuditContext;
 use App\Support\InMemorySharedStrings;
 use Illuminate\Support\Facades\DB;
@@ -411,8 +412,10 @@ class UserImporter
                 $user->save();
                 $memberships = fn () => [$user->roles()->pluck('id')->sort()->values()->all(), $user->teams()->pluck('teams.id')->sort()->values()->all()];
                 $before = $memberships();
+                $named = ActivityLog::memberships($user);
                 $user->roles()->syncWithoutDetaching($person['role_ids']);
                 $user->teams()->syncWithoutDetaching($person['team_ids']);
+                ActivityLog::membershipsChanged($user, $named);
 
                 $changed || $before !== $memberships() ? $report['updated']++ : $report['skipped']++;
 
@@ -432,6 +435,7 @@ class UserImporter
             $user->forceFill(['email_verified_at' => now()])->save();
             $user->roles()->sync($person['role_ids']);
             $user->teams()->sync($person['team_ids']);
+            ActivityLog::membershipsChanged($user, []);
             $report['created']++;
         }
     }

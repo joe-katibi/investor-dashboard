@@ -140,14 +140,32 @@ class AuditLog extends Model
                 'mobile_raised' => 'Raised from the app',
                 default => Str::of($event)->after(self::MOBILE_PREFIX)->replace('_', ' ')->ucfirst()->toString(),
             },
+            isset(self::ACTIVITY_LABELS[$event]) => self::ACTIVITY_LABELS[$event],
             default => Str::of($event)->replace('_', ' ')->ucfirst()->toString(),
         };
     }
 
+    /** Entries that are not a change of one record: signing in, roles, permissions, exports, imports. */
+    public const ACTIVITY_LABELS = [
+        'auth_login' => 'Website: Signed in',
+        'auth_logout' => 'Website: Signed out',
+        'auth_login_failed' => 'Website: Sign-in failed',
+        'auth_lockout' => 'Website: Too many sign-in attempts',
+        'auth_password_reset' => 'Password reset by e-mail link',
+        'auth_password_changed' => 'Password changed',
+        'roles_changed' => 'Roles of a person changed',
+        'teams_changed' => 'Teams of a person changed',
+        'permissions_changed' => 'Permissions of a role changed',
+        'report_exported' => 'Report exported',
+        'customers_imported' => 'Customers imported',
+        'customers_import_previewed' => 'Customer import previewed',
+        'viewed' => 'Ticket opened',
+    ];
+
     public function subjectLabel(): string
     {
         // Action entries carry the ticket number, which says more than "Outage #12".
-        if ($this->isNamedAction() && filled($this->new_values['ticket'] ?? null)) {
+        if (($this->isNamedAction() || $this->event === 'viewed') && filled($this->new_values['ticket'] ?? null)) {
             return (string) $this->new_values['ticket'];
         }
 

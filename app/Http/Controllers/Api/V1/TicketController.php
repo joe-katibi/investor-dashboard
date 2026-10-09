@@ -11,6 +11,7 @@ use App\Services\Mobile\MobileActions;
 use App\Services\Mobile\MobileProfile;
 use App\Services\Mobile\TicketPresenter;
 use App\Services\Mobile\TicketScopes;
+use App\Support\ActivityLog;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -69,6 +70,7 @@ class TicketController extends Controller
     public function show(Request $request, Outage $ticket): JsonResponse
     {
         $this->authorizeView($request, $ticket);
+        ActivityLog::viewed($ticket, $request->user());
 
         return response()->json(['ticket' => $this->presenter->detail($ticket, $request->user())]);
     }

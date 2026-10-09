@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Tickets\Pages;
 
+use App\Filament\Concerns\LogsTicketView;
 use App\Filament\Concerns\RefreshesOnOmsEvents;
 use App\Filament\Resources\Outages\OutageActions;
 use App\Filament\Resources\Tickets\TicketActions;
@@ -12,7 +13,7 @@ use Filament\Support\Icons\Heroicon;
 
 class ViewTicket extends ViewRecord
 {
-    use RefreshesOnOmsEvents;
+    use LogsTicketView, RefreshesOnOmsEvents;
 
     protected static string $resource = TicketResource::class;
 

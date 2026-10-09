@@ -22,6 +22,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Auth;
 use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
 
@@ -51,6 +52,17 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
             'last_mobile_login_at' => 'datetime',
             'max_active_assignments' => 'integer',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        // Passwords are hidden from the audit trail, so a change of password would leave no trace at all:
+        // record that it happened and who did it — never the password.
+        static::updated(function (User $user): void {
+            if ($user->wasChanged('password')) {
+                $user->audit('auth_password_changed', ['person' => $user->name, 'by' => Auth::id() === $user->id ? 'The person themselves' : (Auth::user()?->name ?? 'The system / a reset link')]);
+            }
+        });
     }
 
     public function canAccessPanel(Panel $panel): bool

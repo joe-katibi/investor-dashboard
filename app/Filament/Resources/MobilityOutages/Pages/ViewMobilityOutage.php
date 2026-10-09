@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\MobilityOutages\Pages;
 
+use App\Filament\Concerns\LogsTicketView;
 use App\Filament\Concerns\RefreshesOnOmsEvents;
 use App\Filament\Resources\MobilityOutages\MobilityActions;
 use App\Filament\Resources\MobilityOutages\MobilityOutageResource;
@@ -13,7 +14,7 @@ use Filament\Support\Icons\Heroicon;
 
 class ViewMobilityOutage extends ViewRecord
 {
-    use RefreshesOnOmsEvents;
+    use LogsTicketView, RefreshesOnOmsEvents;
 
     protected static string $resource = MobilityOutageResource::class;
 

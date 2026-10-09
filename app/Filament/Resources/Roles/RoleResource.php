@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Roles;
 
 use App\Filament\Concerns\GuardsWithPermission;
 use App\Filament\Resources\Roles\Pages\ManageRoles;
+use App\Support\ActivityLog;
 use App\Support\Permissions;
 use BackedEnum;
 use Filament\Actions\EditAction;
@@ -79,7 +80,19 @@ class RoleResource extends Resource
             ->values()
             ->all();
 
+        $before = $role->permissions()->pluck('name')->all();
         $role->syncPermissions(Permission::query()->whereIn('name', $selected)->get());
+
+        // Who gave or took which permission: the roles decide what everyone may do.
+        $added = array_values(array_diff($selected, $before));
+        $removed = array_values(array_diff($before, $selected));
+
+        if ($added !== [] || $removed !== []) {
+            ActivityLog::record($role, 'permissions_changed', array_filter([
+                'role' => $role->name, 'added' => implode(', ', $added) ?: null, 'removed' => implode(', ', $removed) ?: null,
+                'permissions_now' => count($selected),
+            ]), ['permissions_before' => count($before)]);
+        }
     }
 
     public static function table(Table $table): Table

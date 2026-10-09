@@ -52,6 +52,9 @@ class Settings
         ],
         'desk_sla.stakeholder_emails' => [],
 
+        // Audit trail: also record who opened a ticket (one entry per person and ticket every 15 minutes).
+        'audit.ticket_views' => true,
+
         // Field photos: mandatory, or offered but optional (Configuration → FIFO & SLA Settings)
         'photos.outage_required' => true,        // Emergency / Regular outage: the three site photos before "Report restored"
         'photos.maintenance_required' => true,   // preventive / corrective: "before" photos to raise it, "after" photos to complete it

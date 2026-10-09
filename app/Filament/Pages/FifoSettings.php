@@ -153,6 +153,13 @@ class FifoSettings extends Page
                         ->nestedRecursiveRules(['email']),
                 ])->columns(2),
 
+            Section::make('Audit trail')
+                ->description('Everything that is changed is always recorded. This switch is for reading only.')
+                ->schema([
+                    Toggle::make($key('audit.ticket_views'))->label('Record who opens a ticket')
+                        ->helperText('“Ticket opened” in the audit trail — on the website and in the mobile app, at most one entry per person and ticket every 15 minutes.'),
+                ]),
+
             Section::make('Field photos')
                 ->description('Mandatory, or offered but optional. The website and the mobile app follow this at once — in the app the photo fields stop being required, they do not disappear.')
                 ->schema([

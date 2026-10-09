@@ -151,6 +151,13 @@ class Reports extends Page
 
         $report = $this->getReport();
 
+        if ($report) {
+            // Who took which report out of the system, in which form and for which period.
+            Auth::user()->audit('report_exported', array_filter([
+                'report' => $report->title, 'format' => strtoupper($format), 'from' => $this->data['from'] ?? null, 'to' => $this->data['to'] ?? null,
+            ]));
+        }
+
         return $report ? app(ReportExporter::class)->download($report, $format, $this->filters()) : null;
     }
 
