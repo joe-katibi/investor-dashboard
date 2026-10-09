@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Enums\NotificationChannel;
+use App\Events\DesktopAlert;
 use App\Events\MobileNotification;
 use App\Filament\Support\OutageLink;
 use App\Mail\MaintenanceMail;
@@ -159,6 +160,9 @@ class SendNotificationJob implements ShouldQueue
         $user->notifyNow($stored);
         DatabaseNotificationsSent::dispatch($user);
         $notification->broadcast($user);
+
+        // …and for the desktop: the person's open OMS pages show a browser notification, also from a background tab.
+        DesktopAlert::dispatch($user->id, DesktopAlert::describe($stored->id, $log->subject, $log->event, $log->outage_id, $log->outage?->ticket_number, $log->body));
 
         // The same alert for the phones this person is signed in on with the mobile app, two ways:
         //   Reverb   — instant, while the app is open;

@@ -60,6 +60,8 @@ class AdminPanelProvider extends PanelProvider
             ->brandLogoHeight(fn () => request()->routeIs('filament.*.auth.*') ? '9.5rem' : '2.25rem')
             ->favicon(asset('favicon.ico'))
             ->renderHook(PanelsRenderHook::HEAD_START, fn () => view('filament.head-icons'))
+            // Desktop notifications: the prompt to switch them on and the listener (signed-in pages only).
+            ->renderHook(PanelsRenderHook::BODY_END, fn () => view('filament.partials.desktop-notifications'))
             // OMS styles, cache-busted by content hash so every deploy reaches browsers immediately.
             ->renderHook(PanelsRenderHook::STYLES_AFTER, fn () => new HtmlString(
                 '<link rel="stylesheet" href="'.e(asset('css/oms.css')).'?v='.substr((string) @md5_file(public_path('css/oms.css')), 0, 12).'">'

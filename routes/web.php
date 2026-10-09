@@ -3,8 +3,10 @@
 use App\Filament\Support\OutageLink;
 use App\Http\Controllers\CrfDocumentController;
 use App\Http\Controllers\CrfSignController;
+use App\Http\Controllers\DesktopAlertController;
 use App\Http\Controllers\OutageAttachmentController;
 use App\Http\Controllers\OutagePhotoController;
+use App\Http\Middleware\EnsureUserIsActive;
 use App\Models\Outage;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Route;
@@ -26,6 +28,9 @@ Route::middleware(['auth', 'throttle:60,1'])->get('/mobile/tickets/{outage}', fu
 
     return redirect()->to(OutageLink::url($outage));
 })->whereNumber('outage')->name('mobile.ticket');
+
+// Desktop notifications: the person's open pages ask whether there is anything new for them (their own unread notifications only).
+Route::middleware(['auth', EnsureUserIsActive::class, 'throttle:120,1'])->get('/desktop-alerts', DesktopAlertController::class)->name('desktop-alerts');
 
 // View / download a ticket's CRF (signed-in users).
 Route::middleware(['auth', 'throttle:60,1'])->get('/crf/{outage}/pdf', CrfDocumentController::class)->name('crf.pdf');

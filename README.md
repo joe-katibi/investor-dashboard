@@ -1162,6 +1162,34 @@ Broadcast events: `OutageCreated`, `OutageUpdated`, `OutageAssigned`, `OutageAcc
 * Assignees get Filament notifications (bell + toast) in real time.
 * Filament's Echo client is configured in `config/filament.php` from the `REVERB_*` / `VITE_REVERB_*` variables.
 
+### Desktop notifications
+
+Everything that lands in a person's bell — a ticket assigned to them, an escalation, an SLA or desk-SLA warning
+or breach, a returned ticket, a step of a custom workflow — is also shown as a **browser desktop notification**,
+so it is seen when OMS is in a background tab or the person is working in another program. Clicking it brings
+OMS to the front and opens the ticket.
+
+* **Switching it on.** After signing in, a small card asks *Enable notifications*. The browser's own permission
+  question only appears when the person clicks it (a browser will not let a site ask by itself, and permission
+  can never be granted for someone). *Remind me later* hides the card until the next sign-in in that tab; *Don't
+  ask again on this computer* hides it for good. If notifications were blocked, the card says how to unblock
+  them (padlock next to the address → Notifications → Allow). Permission is per browser and per computer.
+* **How it arrives.** Two ways, and each notification is shown once:
+  live over Reverb (the event `desktop.alert` on the person's own private channel), and — so it does not depend on
+  Reverb — every open page asks the server every 40 seconds for the person's unread notifications since it last
+  asked (`GET /desktop-alerts`). With Reverb down, an alert is therefore at most about a minute late.
+* **While looking at OMS** no desktop notification is shown: the page shows its own message instead.
+* **What is on the desktop**: the title ("Ticket assigned to you: OUT-…", "SLA BREACHED: …") and the ticket
+  number — never customer names or phone numbers, since a desktop notification can be read by anyone near the
+  screen. Breaches and escalations stay on screen until dismissed.
+* **Requirements and limits.** The site must be served over **HTTPS** (browsers only allow notifications on
+  secure pages) — on an `http://` address the card appears and says so instead of offering the button. To try it
+  on a development machine with Herd: `herd secure outagemanagement`, set `APP_URL=https://outagemanagement.test`
+  and open that address. OMS must be open in a tab — any page, in the background is fine. With the browser closed
+  nothing can be shown (that needs web push, which is not part of this; phones get push through the mobile app).
+  Works in Chrome, Edge, Brave and Firefox; the operating system's "Do not disturb / Focus" mode hides them.
+* **Nothing to configure**: no setting, no build step (the script is part of the page), no migration.
+
 ## Mobile app API
 
 A JSON API under **`/api/v1`** for the field app (Flutter, in its own repository `oms-mobile`), used by three kinds
