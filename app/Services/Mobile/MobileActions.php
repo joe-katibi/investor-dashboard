@@ -154,8 +154,8 @@ final class MobileActions
             $this->number('customers_affected', 'Customers affected (estimate)', max: 10_000_000),
         ];
         $photos = fn (): array => [
-            $this->photo('photo_outside', 'Photo before the work — outside', OutagePhoto::POSITIONS['outside'], required: $photosRequired, camera: true),
-            $this->photo('photo_inside', 'Photo before the work — inside', OutagePhoto::POSITIONS['inside'], required: $photosRequired, camera: true),
+            $this->photo('photo_outside', 'Photo before the work — outside', OutagePhoto::POSITIONS['outside'], required: $photosRequired),
+            $this->photo('photo_inside', 'Photo before the work — inside', OutagePhoto::POSITIONS['inside'], required: $photosRequired),
         ];
 
         $raise = function (string $kind, array $data) use ($user): array {
@@ -270,8 +270,8 @@ final class MobileActions
                 'primary' => true,
                 'description' => 'Pick the team. Leave the technician on automatic and the next eligible technician of that team gets it (FIFO).',
                 'fields' => fn () => [
-                    $this->select('team_id', 'Team', $this->options(OutageActions::teamOptions(null)), required: true, default: $outage->team_id),
-                    $this->select('technician_id', 'Technician', $this->technicianOptions(), placeholder: 'Automatic — next eligible technician (FIFO)', dependsOn: 'team_id'),
+                    $this->select('team_id', 'Team', $this->options(OutageActions::teamOptions(null)), required: true, default: $outage->team_id, search: true),
+                    $this->select('technician_id', 'Technician', $this->technicianOptions(), placeholder: 'Automatic — next eligible technician (FIFO)', dependsOn: 'team_id', search: true),
                     $this->textarea('note', 'Dispatch note', max: 2000),
                 ],
                 'handle' => function (array $data) use ($outage, $user): string {
@@ -330,7 +330,6 @@ final class MobileActions
                     'site_'.$position,
                     $photo[0],
                     ($sitePhotos[$position] ?? null) ? 'On the ticket — '.$sitePhotos[$position]->caption().'. Take it again only to replace it.' : $photo[1],
-                    camera: true,
                 ))->values()->all(),
                 'handle' => function (array $data) use ($outage, $user): string {
                     $photos = $this->cameraPhotos($data, $this->sitePhotoFields());
@@ -360,12 +359,12 @@ final class MobileActions
                     $this->textarea('note', $outage->maintenance_kind ? 'Work done' : 'Restoration details', required: true, max: 5000),
                     // Field maintenance closes with two photos of the finished work.
                     ...($outage->maintenance_kind ? [
-                        $this->photo('after_outside', 'After — outside', OutagePhoto::POSITIONS['outside'], required: $maintenancePhotosRequired, camera: true),
-                        $this->photo('after_inside', 'After — inside', OutagePhoto::POSITIONS['inside'], required: $maintenancePhotosRequired, camera: true),
+                        $this->photo('after_outside', 'After — outside', OutagePhoto::POSITIONS['outside'], required: $maintenancePhotosRequired),
+                        $this->photo('after_inside', 'After — inside', OutagePhoto::POSITIONS['inside'], required: $maintenancePhotosRequired),
                     ] : []),
                     // Emergency / Regular outage: whichever site photos are not on the ticket yet.
                     ...collect($missingPhotos)->map(fn (string $label, string $position) => $this->photo(
-                        'site_'.$position, $label, OutagePhoto::SITE_PHOTOS[$position][1], required: $photosRequired, camera: true,
+                        'site_'.$position, $label, OutagePhoto::SITE_PHOTOS[$position][1], required: $photosRequired,
                     ))->values()->all(),
                 ],
                 'handle' => function (array $data) use ($outage, $user): string {
@@ -498,8 +497,8 @@ final class MobileActions
                 'primary' => $outage->current_queue === QueueType::VisitDispatch && $ticket?->completed_at === null,
                 'description' => 'Pick a technician, or leave it on automatic: the visit goes to the technician queue (FIFO). The customer is texted the technician\'s name and number.',
                 'fields' => fn () => [
-                    $this->select('technician_id', 'Technician', $this->options(TicketActions::deskUsers(QueueType::VisitTechnician)), placeholder: 'Automatic — next available technician (FIFO)'),
-                    $this->select('team_id', 'Only offer it to this team (optional)', $this->options(TicketActions::teams()), default: $outage->team_id),
+                    $this->select('technician_id', 'Technician', $this->options(TicketActions::deskUsers(QueueType::VisitTechnician)), placeholder: 'Automatic — next available technician (FIFO)', search: true),
+                    $this->select('team_id', 'Only offer it to this team (optional)', $this->options(TicketActions::teams()), default: $outage->team_id, search: true),
                     $this->datetime('scheduled_at', 'Visit date / time', help: 'Leave empty for “today, as soon as possible”.', default: $ticket?->scheduled_at, future: true),
                     $this->textarea('note', 'Instructions (optional)', max: 2000),
                 ],
@@ -609,10 +608,9 @@ final class MobileActions
                     return [
                         $this->select('final_reason_id', 'Final reason', $this->options(TicketActions::finalReasons('visit', $outage->current_queue)), required: true),
                         $this->text('fat_number', 'FAT number', required: $evidence, max: 60, default: $ticket?->fat_number),
-                        // Taken on the spot, with the camera only: nothing from the gallery.
-                        $this->photo('geo_photo', 'Geolocation photo', 'Photo with the location stamp at the customer premise.', camera: true,
+                        $this->photo('geo_photo', 'Geolocation photo', 'Photo with the location stamp at the customer premise.',
                             required: $evidence && ! $outage->attachments()->where('kind', 'geo_photo')->exists()),
-                        $this->photo('speed_photo', 'Speed test photo', 'Photo of the speed test result after the fix.', camera: true,
+                        $this->photo('speed_photo', 'Speed test photo', 'Photo of the speed test result after the fix.',
                             required: $evidence && ! $outage->attachments()->where('kind', 'speed_test')->exists()),
                         $this->textarea('resolution_notes', 'Work done', required: true, max: 5000),
                         $this->text('onu_type', 'ONU type used', max: 60),
@@ -741,8 +739,7 @@ final class MobileActions
                 'visible' => $can('ticketAttach') && ($holding || MobileProfile::dispatchQueues($user) !== []),
                 'label' => 'Add photos',
                 'fields' => fn () => [
-                    // On a site visit the photos are evidence of the work: taken there, with the camera only.
-                    $this->photos('files', 'Photos', required: true, camera: $outage->isSiteVisit()),
+                    $this->photos('files', 'Photos', required: true),
                     $this->select('kind', 'What is it?', [
                         ['value' => 'geo_photo', 'label' => 'Geolocation photo'],
                         ['value' => 'speed_test', 'label' => 'Speed test photo'],
@@ -830,12 +827,17 @@ final class MobileActions
         return ['name' => $name, 'type' => 'number', 'label' => $label, 'required' => $required, 'max' => $max, 'default' => null];
     }
 
-    /** @param list<array{value: mixed, label: string, group?: mixed}> $options */
-    private function select(string $name, string $label, array $options, bool $required = false, mixed $default = null, ?string $placeholder = null, ?string $help = null, ?string $dependsOn = null): array
+    /**
+     * @param  list<array{value: mixed, label: string, group?: mixed}>  $options
+     * @param  bool  $search  the app always shows a search box (people and teams), however short the list;
+     *                        other lists get one once they are long
+     */
+    private function select(string $name, string $label, array $options, bool $required = false, mixed $default = null, ?string $placeholder = null, ?string $help = null, ?string $dependsOn = null, bool $search = false): array
     {
         return [
             'name' => $name, 'type' => 'select', 'label' => $label, 'required' => $required, 'options' => array_values($options),
             'default' => $default === null ? null : (string) $default, 'placeholder' => $placeholder, 'help' => $help, 'depends_on' => $dependsOn,
+            'search' => $search,
         ];
     }
 
@@ -855,15 +857,15 @@ final class MobileActions
     }
 
     /**
-     * @param  bool  $camera  the photo can only be taken with the phone's camera, there and then — nothing
-     *                        from the gallery. The app stamps the time on the picture and sends it as "{name}_taken_at".
+     * Every photo in the app is taken with the phone's camera, there and then — nothing from the
+     * gallery. The app stamps the time on the picture and sends it as "{name}_taken_at".
      */
-    private function photo(string $name, string $label, ?string $help = null, bool $required = false, bool $camera = false): array
+    private function photo(string $name, string $label, ?string $help = null, bool $required = false): array
     {
         return [
             'name' => $name, 'type' => 'photo', 'label' => $label, 'required' => $required, 'help' => $help,
             'max_kb' => (int) config('oms.mobile.max_upload_kb'),
-            'capture' => $camera ? 'camera' : 'any',
+            'capture' => 'camera',
         ];
     }
 
@@ -895,9 +897,9 @@ final class MobileActions
         return $photos;
     }
 
-    private function photos(string $name, string $label, bool $required = false, bool $camera = false): array
+    private function photos(string $name, string $label, bool $required = false): array
     {
-        return ['name' => $name, 'type' => 'photos', 'label' => $label, 'required' => $required, 'max_files' => 8, 'max_kb' => (int) config('oms.mobile.max_upload_kb'), 'capture' => $camera ? 'camera' : 'any'];
+        return ['name' => $name, 'type' => 'photos', 'label' => $label, 'required' => $required, 'max_files' => 8, 'max_kb' => (int) config('oms.mobile.max_upload_kb'), 'capture' => 'camera'];
     }
 
     /**

@@ -21,6 +21,9 @@ Schedule::command('oms:maintenance-tick')->everyMinute()->onOneServer()->without
 Schedule::command('oms:mobility-tick')->everyMinute()->onOneServer()->withoutOverlapping(5);
 Schedule::command('oms:ticket-tick')->everyFiveMinutes()->onOneServer()->withoutOverlapping(10);
 
+// Report exports are kept six hours: the file and its row then go; a run whose worker died is closed.
+Schedule::command('oms:prune-report-exports')->everyTenMinutes()->onOneServer()->withoutOverlapping(10);
+
 // The database cache driver never deletes expired rows on its own (Redis does); keep the table small.
 Schedule::call(function (): void {
     if (config('cache.default') === 'database') {

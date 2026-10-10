@@ -186,11 +186,18 @@
                 }
             }
 
+            /** True when this page is the one that showed it (not shown before, here or in another tab). */
             function show(alert, live) {
                 if (!alert?.id || alreadyShown(alert.id)) {
-                    return;
+                    return false;
                 }
 
+                present(alert, live);
+
+                return true;
+            }
+
+            function present(alert, live) {
                 const looking = document.visibilityState === 'visible' && document.hasFocus();
 
                 if (looking) {
@@ -234,7 +241,26 @@
                 }
 
                 subscribedFor = id;
-                window.Echo.private(`App.Models.User.${id}`).listen('.desktop.alert', (alert) => show(alert, true));
+                window.Echo.private(`App.Models.User.${id}`).listen('.desktop.alert', (alert) => {
+                    liveProven = true;
+                    show(alert, true);
+                });
+            }
+
+            // With thousands of people signed in, every page asking every 40 seconds is a lot of requests for
+            // nothing. Once the live connection has delivered an alert here, asking becomes a safety net
+            // (every few minutes); if asking ever finds something the live connection missed, it is back to normal.
+            const QUIET_SECONDS = 300;
+            let liveProven = false;
+            let lastAsked = 0;
+            const connected = () => window.Echo?.connector?.pusher?.connection?.state === 'connected';
+
+            function tick() {
+                if (liveProven && connected() && Date.now() - lastAsked < QUIET_SECONDS * 1000) {
+                    return;
+                }
+
+                ask();
             }
 
             let since = new Date().toISOString();
@@ -249,6 +275,7 @@
                 }
 
                 asking = true;
+                lastAsked = Date.now();
 
                 try {
                     const response = await fetch(`${url}?after=${encodeURIComponent(since)}`, {
@@ -261,7 +288,11 @@
                     } else if (response.ok) {
                         const answer = await response.json();
                         since = answer.now || since;
-                        (answer.alerts || []).forEach((alert) => show(alert, false));
+                        (answer.alerts || []).forEach((alert) => {
+                            if (show(alert, false)) {
+                                liveProven = false; // the live connection did not bring this one
+                            }
+                        });
                     }
                 } catch (error) {
                     // offline for a moment: the next round asks again
@@ -280,7 +311,7 @@
             window.addEventListener('EchoLoaded', listen);
             document.addEventListener('livewire:navigated', start);
             document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { ask(); } });
-            setInterval(ask, Math.max(15, Number(root()?.dataset.pollSeconds || 40)) * 1000);
+            setInterval(tick, Math.max(15, Number(root()?.dataset.pollSeconds || 40)) * 1000);
 
             if (document.readyState === 'loading') {
                 document.addEventListener('DOMContentLoaded', start, { once: true });

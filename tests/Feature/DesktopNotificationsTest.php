@@ -103,10 +103,11 @@ class DesktopNotificationsTest extends TestCase
 
         $this->assertSame(now()->toIso8601String(), $answer->json('now'));
         $alerts = collect($answer->json('alerts'))->keyBy('title');
-        // The assignment, the "assigned to NOC" notice of the notification rules, and the bell-only one — oldest first.
+        // The assignment, the "assigned to NOC" notice of the notification rules, and the bell-only one.
+        // (All three were made in the same second: their order among themselves is not defined.)
         $this->assertSame(
-            ["Ticket assigned to you: {$outage->ticket_number}", "Assigned to NOC for review: {$outage->ticket_number}", '3 tickets ready for credit'],
-            $alerts->keys()->all(),
+            ['3 tickets ready for credit', "Assigned to NOC for review: {$outage->ticket_number}", "Ticket assigned to you: {$outage->ticket_number}"],
+            $alerts->keys()->sort()->values()->all(),
         );
         $this->assertArrayNotHasKey('Not for the NOC user', $alerts->all());
         $this->assertSame(OutageLink::url($outage), $alerts["Ticket assigned to you: {$outage->ticket_number}"]['url']);

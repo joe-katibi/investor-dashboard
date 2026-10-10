@@ -4,12 +4,14 @@ namespace App\Filament\Pages;
 
 use App\Enums\SlaState;
 use App\Filament\Resources\Outages\OutageForm;
+use App\Jobs\GenerateReportExportJob;
 use App\Models\MajorOutageType;
 use App\Models\Olt;
 use App\Models\OutageStatus;
 use App\Models\OutageType;
 use App\Models\Priority;
 use App\Models\Region;
+use App\Models\ReportExport;
 use App\Models\Service;
 use App\Models\Team;
 use App\Models\User;
@@ -17,7 +19,6 @@ use App\Models\Vertical;
 use App\Models\VisitType;
 use App\Services\Reports\DeskSlaReports;
 use App\Services\Reports\ProductivityReport;
-use App\Services\Reports\ReportExporter;
 use App\Services\Reports\ReportRegistry;
 use App\Services\Reports\ReportResult;
 use BackedEnum;
@@ -33,11 +34,11 @@ use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
-use Symfony\Component\HttpFoundation\Response;
 use UnitEnum;
 
 /**
- * Reports (spec §20): 17 reports, shared filters, on-screen view and CSV / Excel / PDF export.
+ * Reports (spec §20): 17 reports, shared filters, on-screen view and CSV / Excel / PDF export (prepared in the
+ * background, collected from Report Downloads).
  */
 class Reports extends Page
 {
@@ -137,28 +138,55 @@ class Reports extends Page
         ];
     }
 
-    public function export(string $format): ?Response
+    /**
+     * Ask for an export. Nothing is written while the page waits: a queue worker prepares the file
+     * (GenerateReportExportJob) and it is collected from Report Downloads, where it is kept six hours.
+     */
+    public function export(string $format): void
     {
-        abort_unless(Auth::user()?->can('reports.export'), 403);
+        $user = Auth::user();
+        abort_unless($user?->can('reports.export') && isset(ReportExport::FORMATS[$format]), 403);
 
-        $key = 'report-export:'.Auth::id();
+        $key = 'report-export:'.$user->id;
         if (RateLimiter::tooManyAttempts($key, 10)) {
             Notification::make()->title('Too many exports — try again in a minute')->warning()->send();
 
-            return null;
+            return;
         }
         RateLimiter::hit($key, 60);
 
-        $report = $this->getReport();
+        $report = $this->data['report'] ?? null;
+        $title = ReportRegistry::availableTo($user)[$report] ?? null;
 
-        if ($report) {
-            // Who took which report out of the system, in which form and for which period.
-            Auth::user()->audit('report_exported', array_filter([
-                'report' => $report->title, 'format' => strtoupper($format), 'from' => $this->data['from'] ?? null, 'to' => $this->data['to'] ?? null,
-            ]));
+        if ($title === null) {
+            return;
         }
 
-        return $report ? app(ReportExporter::class)->download($report, $format, $this->filters()) : null;
+        $filters = $this->filters();
+        $export = ReportExport::query()->create([
+            'user_id' => $user->id,
+            'report_key' => $report,
+            'title' => $title,
+            'format' => $format,
+            'filters' => $filters,
+            'date_from' => $filters['from'] ?? null,
+            'date_to' => $filters['to'] ?? null,
+            'expires_at' => now()->addHours(ReportExport::KEEP_HOURS),
+        ]);
+
+        // Who took which report out of the system, in which form and for which period.
+        $user->audit('report_exported', array_filter([
+            'report' => $title, 'format' => strtoupper($format), 'from' => $filters['from'] ?? null, 'to' => $filters['to'] ?? null,
+        ]));
+
+        GenerateReportExportJob::dispatch($export->id);
+
+        Notification::make()
+            ->title('Your report is being prepared')
+            ->body('You can keep working. It will be under Report Downloads when it is ready, and stays there for '.ReportExport::KEEP_HOURS.' hours.')
+            ->success()
+            ->actions([Action::make('downloads')->label('Open Report Downloads')->button()->url(ReportDownloads::getUrl())])
+            ->send();
     }
 
     private function filters(): array

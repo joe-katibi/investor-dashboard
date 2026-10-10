@@ -34,19 +34,36 @@ class ReportExporter
         return Str::slug($report->title).'-'.now()->format('Ymd-His').'.'.$extension;
     }
 
+    /**
+     * Write the export to a file instead of sending it to the browser: what the background export
+     * does (GenerateReportExportJob), so a long report never keeps a page waiting.
+     */
+    public function store(ReportResult $report, string $format, array $filters, string $path): void
+    {
+        match ($format) {
+            'csv' => $this->writeCsv($report, $path),
+            'xlsx' => $this->writeXlsx($report, $path),
+            'pdf' => $this->pdfDocument($report, $filters)->save($path),
+            default => throw new \InvalidArgumentException("Unsupported export format: {$format}"),
+        };
+    }
+
     public function csv(ReportResult $report): StreamedResponse
     {
-        return response()->streamDownload(function () use ($report): void {
-            $out = fopen('php://output', 'w');
-            fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM so Excel opens accents correctly
-            fputcsv($out, array_values($report->columns), escape: '\\');
+        return response()->streamDownload(fn () => $this->writeCsv($report, 'php://output'), $this->filename($report, 'csv'), ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
 
-            foreach ($report->rows() as $row) {
-                fputcsv($out, array_map(fn ($v) => $this->safeCell($v), array_values($row)), escape: '\\');
-            }
+    private function writeCsv(ReportResult $report, string $target): void
+    {
+        $out = fopen($target, 'w');
+        fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM so Excel opens accents correctly
+        fputcsv($out, array_values($report->columns), escape: '\\');
 
-            fclose($out);
-        }, $this->filename($report, 'csv'), ['Content-Type' => 'text/csv; charset=UTF-8']);
+        foreach ($report->rows() as $row) {
+            fputcsv($out, array_map(fn ($v) => $this->safeCell($v), array_values($row)), escape: '\\');
+        }
+
+        fclose($out);
     }
 
     public function xlsx(ReportResult $report): BinaryFileResponse
@@ -58,10 +75,10 @@ class ReportExporter
         ])->deleteFileAfterSend();
     }
 
-    /** Write the report to a temporary XLSX file (also used for email attachments). */
-    public function writeXlsx(ReportResult $report): string
+    /** Write the report to an XLSX file — a temporary one unless a path is given (also used for email attachments). */
+    public function writeXlsx(ReportResult $report, ?string $path = null): string
     {
-        $path = sys_get_temp_dir().DIRECTORY_SEPARATOR.'oms-report-'.Str::uuid().'.xlsx';
+        $path ??= sys_get_temp_dir().DIRECTORY_SEPARATOR.'oms-report-'.Str::uuid().'.xlsx';
 
         $writer = new XlsxWriter;
         $writer->openToFile($path);
@@ -89,6 +106,11 @@ class ReportExporter
 
     public function pdf(ReportResult $report, array $filters): Response
     {
+        return $this->pdfDocument($report, $filters)->download($this->filename($report, 'pdf'));
+    }
+
+    private function pdfDocument(ReportResult $report, array $filters): \Barryvdh\DomPDF\PDF
+    {
         $rows = $report->rowsArray(self::PDF_ROW_LIMIT);
 
         return Pdf::loadView('reports.pdf', [
@@ -96,7 +118,7 @@ class ReportExporter
             'rows' => $rows,
             'filters' => array_filter($filters),
             'truncated' => count($rows) >= self::PDF_ROW_LIMIT,
-        ])->setPaper('a4', 'landscape')->download($this->filename($report, 'pdf'));
+        ])->setPaper('a4', 'landscape');
     }
 
     /** Neutralise spreadsheet formula injection (=, +, -, @ prefixes) in exported text. */

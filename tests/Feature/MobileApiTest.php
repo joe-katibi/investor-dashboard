@@ -261,6 +261,8 @@ class MobileApiTest extends TestCase
         $this->assertSame(['team_id', 'technician_id', 'note'], array_column($dispatch['fields'], 'name'));
         $technicians = collect($dispatch['fields'])->firstWhere('name', 'technician_id');
         $this->assertSame('team_id', $technicians['depends_on']);
+        // Team and technician can always be searched in the app, however few there are.
+        $this->assertSame([true, true, null], array_map(fn (array $field) => $field['search'] ?? null, $dispatch['fields']));
         $this->assertContains(['value' => (string) $this->technician->id, 'group' => (string) $this->team->id], array_map(fn ($o) => ['value' => $o['value'], 'group' => $o['group']], $technicians['options']));
 
         // Input is checked on the server: the team is mandatory and must be one of the options.
@@ -384,6 +386,8 @@ class MobileApiTest extends TestCase
 
         // Dispatcher: assign from the app.
         $this->assertContains('visit_assign', $this->actions($dispatcher, $visit));
+        $assign = collect($this->api($dispatcher, 'GET', "tickets/{$visit->id}")->json('ticket.actions'))->firstWhere('key', 'visit_assign');
+        $this->assertSame(['technician_id' => true, 'team_id' => true], collect($assign['fields'])->where('type', 'select')->pluck('search', 'name')->all(), 'a search box on both');
         $this->act($dispatcher, $visit, 'visit_assign', ['technician_id' => $technician->id, 'note' => 'Go first thing'])
             ->assertOk()->assertJsonPath('ticket.assignment.technician', $technician->name);
 
@@ -472,6 +476,8 @@ class MobileApiTest extends TestCase
         $detail = $this->fixture('ticket_mobility_engineer', $this->api($engineer, 'GET', "tickets/{$ticket->id}")->assertOk());
         $detail->assertJsonPath('ticket.module', 'mobility')->assertJsonPath('ticket.network.domain', 'Transmission')->assertJsonPath('ticket.network.link', 'MW-17 · Microwave');
         $this->assertSame(['accept', 'reject', 'mobility_start', 'mobility_resolve', 'mobility_status', 'mobility_attach', 'add_update'], array_column($detail->json('ticket.actions'), 'key'));
+        // Every photo in the app comes from the camera — 4G tickets too.
+        $this->assertSame('camera', collect($detail->json('ticket.actions'))->firstWhere('key', 'mobility_attach')['fields'][0]['capture']);
 
         $this->act($engineer, $ticket, 'mobility_start', ['note' => 'Heading to the hub'])->assertOk()->assertJsonPath('ticket.status.code', StatusCode::MobilityInProgress->value);
         $this->act($engineer, $ticket, 'mobility_attach', ['files' => [UploadedFile::fake()->image('odu.jpg')], 'note' => 'ODU alarm'])->assertOk();

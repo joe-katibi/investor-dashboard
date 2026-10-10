@@ -212,6 +212,15 @@ tickets in the tab's title, `(2) My Work`. It does not depend on Reverb.
 17 reports with filters, on-screen view and **CSV / Excel (.xlsx) / PDF** export — see
 [Reports and exports](#reports-and-exports).
 
+An export never keeps the page waiting: pressing *Export* only queues it, a queue worker writes the file
+(`GenerateReportExportJob`), and it is collected from **Reporting → Report Downloads** — a list with the date
+range, the report, who pulled it, when, and a *Download* button. A file is kept for **6 hours**, then the file and
+its row are removed (`oms:prune-report-exports`). People see their own exports; whoever reads the audit trail sees
+everyone's and may download a report they could run themselves. Requesting and downloading are both in the audit
+trail. A queue worker must be running (`php artisan queue:work`), locally too, or exports stay *Waiting to be prepared*.
+Exports share the queue with everything else unless `OMS_EXPORTS_QUEUE` says otherwise: behind a long backlog
+(a worker that was off for days) they wait their turn.
+
 ### Administration
 Verticals, affected services, major outage types, outage types, statuses, impact / priority rules, SLA policies,
 FIFO queues, FIFO & SLA settings, notification rules, e-mail templates & schedules, OLTs / FDTs / Slots / Ports
@@ -1571,6 +1580,7 @@ tests/Feature/             FIFO, workflow, SLA, reports, panel & security tests
 | `oms:mobility-tick` | every minute | 4G NOC: remind the NOC / escalate to management when a vendor has not updated a ticket |
 | `oms:ticket-tick` | every 5 minutes | Customer tickets: queue tickets pending past the follow-up time for a customer call; send the ready-for-credit list |
 | `oms:import-4g-topology {file} [--dry-run]` | manual | Import the 4G workbook: eNodeB sites and transmission nodes (RSG → ASG → CSG → SSG) |
+| `oms:prune-report-exports` | every 10 minutes | Remove report exports older than 6 hours (file and row); close exports whose worker died |
 | `oms:prune-expired-cache` (scheduled closure) | hourly | Clean expired rows when the database cache driver is used |
 | `queue:prune-failed`, `queue:prune-batches` | daily | Housekeeping |
 | `oms:create-admin` | manual | Create a Super Admin |
@@ -1600,6 +1610,7 @@ All scheduled tasks use `onOneServer()` and `withoutOverlapping()`.
 | `OMS_SEED_DEMO` | `true` | Seed demo data (never in production) |
 | `OMS_REPORT_SCREEN_LIMIT` | `500` | Rows rendered on the Reports page |
 | `OMS_NOTIFICATIONS_QUEUE`, `OMS_REPORTS_QUEUE` | `default` | Dedicated queues for scaling workers |
+| `OMS_EXPORTS_QUEUE` | `default` | Queue of the report exports. Set it to `exports` and list that queue first on the workers (`--queue=exports,default,notifications,reports`) so an export never waits behind a backlog of notifications |
 | `SMS_DRIVER` | `log` | SMS gateway: `log`, `africastalking`, `twilio` or `http` |
 | `SMS_SENDER`, `SMS_DEFAULT_COUNTRY_CODE`, `SMS_MAX_LENGTH` | `OMS`, `256`, `306` | Sender ID, calling code for local numbers, message length cap |
 | `AFRICASTALKING_USERNAME`, `AFRICASTALKING_API_KEY`, `AFRICASTALKING_SANDBOX` | `sandbox`, —, `true` | Africa's Talking credentials |
@@ -1674,7 +1685,12 @@ Checklist:
 * Dashboard aggregates cached for seconds and invalidated by real-time events, so many wallboards share one set of
   queries; settings, priorities, notification rules, status codes and major-type flags cached (arrays only).
 * Real-time pushes replace aggressive polling; Filament SPA mode.
-* Streamed CSV / Excel exports; queued notifications with retry / backoff; post-commit FIFO processing.
+* Streamed CSV / Excel exports, written by a queue worker rather than in the person's request; queued
+  notifications with retry / backoff; post-commit FIFO processing.
+* Indexes on the columns behind "my tickets", a technician's and a team's tickets, the bell and the audit
+  filters (`2026_10_12_100003_add_indexes_for_load`) — PostgreSQL does not index foreign keys by itself.
+* Desktop alerts stop asking the server every 40 seconds once the live connection has delivered one (then every
+  5 minutes as a safety net).
 * Aggregations that differ between SQL dialects are computed in PHP for identical results on MySQL and PostgreSQL.
 
 ## Security

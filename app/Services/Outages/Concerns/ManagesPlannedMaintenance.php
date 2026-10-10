@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Services\Maintenance\MaintenanceNotifier;
 use App\Support\AuditContext;
 use App\Support\Settings;
+use App\Support\SignatureStyles;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -160,8 +161,12 @@ trait ManagesPlannedMaintenance
         $approve = ($data['decision'] ?? '') === 'approve';
         $this->requireText($data['signed_name'] ?? null, 'signed_name', 'Type your full name.');
 
+        // Drawn in the box, or the name written in a chosen style: either way the page sends a picture.
+        $style = SignatureStyles::label($data['signature_style'] ?? null) ? $data['signature_style'] : null;
+        $typed = ($data['signature_method'] ?? null) === SignatureStyles::TYPED && $style !== null;
+
         if ($approve && ! preg_match('#^data:image/png;base64,[A-Za-z0-9+/=]+$#', (string) ($data['signature_image'] ?? ''))) {
-            throw ValidationException::withMessages(['signature_image' => 'Draw your signature in the box.']);
+            throw ValidationException::withMessages(['signature_image' => $typed ? 'Your signature could not be prepared — choose the style again, or draw your signature.' : 'Draw your signature in the box.']);
         }
 
         if (strlen((string) ($data['signature_image'] ?? '')) > 400_000) {
@@ -172,7 +177,7 @@ trait ManagesPlannedMaintenance
             $this->requireText($data['comment'] ?? null, 'comment', 'Describe the changes you need.');
         }
 
-        return DB::transaction(function () use ($signature, $data, $approve): ChangeRequest {
+        return DB::transaction(function () use ($signature, $data, $approve, $typed, $style): ChangeRequest {
             $changeRequest = ChangeRequest::query()->lockForUpdate()->findOrFail($signature->change_request_id);
             $signature = ChangeRequestSignature::query()->lockForUpdate()->findOrFail($signature->id);
 
@@ -184,6 +189,8 @@ trait ManagesPlannedMaintenance
                 'status' => $approve ? ChangeRequestSignature::APPROVED : ChangeRequestSignature::CHANGES_REQUESTED,
                 'signed_name' => trim($data['signed_name']),
                 'signature_image' => $approve ? $data['signature_image'] : null,
+                'signature_method' => $approve ? ($typed ? SignatureStyles::TYPED : SignatureStyles::DRAWN) : null,
+                'signature_style' => $approve && $typed ? $style : null,
                 'comment' => $data['comment'] ?? null,
                 'signed_at' => now(),
                 'signed_ip' => $data['ip'] ?? null,
@@ -197,6 +204,20 @@ trait ManagesPlannedMaintenance
             $notifier = app(MaintenanceNotifier::class);
 
             AuditContext::as('crf-signoff', function () use ($approve, $changeRequest, $outage, $by, $who, $signature, $data, $notifier): void {
+                // Who signed which document, when, from where and how — never the picture itself.
+                $outage->audit('crf_signed', [
+                    'ticket' => $outage->ticket_number,
+                    'decision' => $approve ? 'Approved' : 'Changes requested',
+                    'signed_by' => $signature->signed_name,
+                    'role' => $signature->role_label,
+                    'email' => $signature->email,
+                    'signature' => match (true) {
+                        ! $approve => null,
+                        $signature->signature_method === SignatureStyles::TYPED => 'Signature style: '.SignatureStyles::label($signature->signature_style),
+                        default => 'Drawn by hand',
+                    },
+                ], [], $signature->user_id ?: false);
+
                 if (! $approve) {
                     // Back to NOC to update and re-issue; the other open links stop working.
                     $changeRequest->forceFill(['status' => ChangeRequest::CHANGES_REQUESTED])->save();

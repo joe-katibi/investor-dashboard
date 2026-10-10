@@ -13,6 +13,9 @@ return [
     'queues' => [
         'notifications' => env('OMS_NOTIFICATIONS_QUEUE', 'default'),
         'reports' => env('OMS_REPORTS_QUEUE', 'default'),
+        // Report exports asked for on the Reports page. Give them their own queue and list it first on the
+        // workers (--queue=exports,default,…) and an export never waits behind a backlog of notifications.
+        'exports' => env('OMS_EXPORTS_QUEUE', 'default'),
     ],
 
     /*

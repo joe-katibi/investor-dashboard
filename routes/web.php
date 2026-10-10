@@ -6,6 +6,7 @@ use App\Http\Controllers\CrfSignController;
 use App\Http\Controllers\DesktopAlertController;
 use App\Http\Controllers\OutageAttachmentController;
 use App\Http\Controllers\OutagePhotoController;
+use App\Http\Controllers\ReportExportController;
 use App\Http\Middleware\EnsureUserIsActive;
 use App\Models\Outage;
 use Illuminate\Support\Facades\Gate;
@@ -31,6 +32,10 @@ Route::middleware(['auth', 'throttle:60,1'])->get('/mobile/tickets/{outage}', fu
 
 // Desktop notifications: the person's open pages ask whether there is anything new for them (their own unread notifications only).
 Route::middleware(['auth', EnsureUserIsActive::class, 'throttle:120,1'])->get('/desktop-alerts', DesktopAlertController::class)->name('desktop-alerts');
+
+// A report export prepared in the background (Reporting → Report Downloads), while it is kept.
+Route::middleware(['auth', EnsureUserIsActive::class, 'throttle:60,1'])->get('/report-exports/{export}/download', ReportExportController::class)
+    ->whereNumber('export')->name('report-exports.download');
 
 // View / download a ticket's CRF (signed-in users).
 Route::middleware(['auth', 'throttle:60,1'])->get('/crf/{outage}/pdf', CrfDocumentController::class)->name('crf.pdf');

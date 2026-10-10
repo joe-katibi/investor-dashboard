@@ -157,15 +157,17 @@ class AuditLog extends Model
         'teams_changed' => 'Teams of a person changed',
         'permissions_changed' => 'Permissions of a role changed',
         'report_exported' => 'Report exported',
+        'report_downloaded' => 'Report downloaded',
         'customers_imported' => 'Customers imported',
         'customers_import_previewed' => 'Customer import previewed',
         'viewed' => 'Ticket opened',
+        'crf_signed' => 'CRF signed',
     ];
 
     public function subjectLabel(): string
     {
         // Action entries carry the ticket number, which says more than "Outage #12".
-        if (($this->isNamedAction() || $this->event === 'viewed') && filled($this->new_values['ticket'] ?? null)) {
+        if (($this->isNamedAction() || in_array($this->event, ['viewed', 'crf_signed'], true)) && filled($this->new_values['ticket'] ?? null)) {
             return (string) $this->new_values['ticket'];
         }
 

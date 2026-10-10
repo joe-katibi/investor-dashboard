@@ -10,6 +10,7 @@ use App\Filament\Resources\MaintenanceTemplates\MaintenanceTemplateResource;
 use App\Filament\Resources\Outages\OutageResource;
 use App\Mail\MaintenanceMail;
 use App\Models\ChangeRequest;
+use App\Models\AuditLog;
 use App\Models\ChangeRequestSignature;
 use App\Models\MaintenanceMailSend;
 use App\Models\NotificationLog;
@@ -17,6 +18,7 @@ use App\Models\Outage;
 use App\Models\OutageType;
 use App\Models\SlaPolicy;
 use App\Models\User;
+use App\Models\UserSignature;
 use App\Models\Vertical;
 use App\Services\Maintenance\CrfPdf;
 use App\Services\Maintenance\MaintenanceScheduler;
@@ -194,6 +196,55 @@ class PlannedMaintenanceTest extends TestCase
         $this->assertTrue($outage->status->isCode(StatusCode::CrfPendingSignoff));
         $this->assertSame(2, $outage->changeRequest->signatures()->where('status', ChangeRequestSignature::PENDING)->count());
         $this->get($this->signLinkFor('cto@example.com'))->assertOk();
+    }
+
+    public function test_a_crf_is_signed_with_a_signature_style_which_is_remembered_and_audited(): void
+    {
+        $infraLead = $this->makeUser('Infrastructure Team Leader', 'INFRA', attributes: ['availability_status' => 'offline']);
+        $noc = $this->makeUser('NOC Tier II', 'NOC');
+        $nocManager = $this->makeUser('NOC Manager', 'NOC', attributes: ['availability_status' => 'offline', 'email' => 'noc.manager@example.com']);
+        $signatories = [['role' => 'NOC', 'user_id' => $nocManager->id], ['role' => 'CTO', 'email' => 'cto@example.com']];
+        $outage = $this->sendForSignoff($this->request($infraLead), $noc, $signatories);
+
+        // The page offers the twenty styles next to the drawing box; nothing is saved for this person yet.
+        $link = $this->signLinkFor('noc.manager@example.com');
+        $page = $this->get($link)->assertOk()->assertSee('Choose a style')->assertSee('Draw it')->assertSee('Classic Script')->assertSee('Heavy Bold Signature');
+        $this->assertCount(20, $page->viewData('styles'));
+        $this->assertNull($page->viewData('savedStyle'));
+
+        // A style has to be chosen, be one of ours, and be confirmed as the signer's own — every time.
+        $typed = ['decision' => 'approve', 'signed_name' => 'Nora Manager', 'signature_image' => self::PNG, 'signature_method' => 'typed'];
+        $this->post($link, $typed)->assertSessionHasErrors('signature_style');
+        $this->post($link, $typed + ['signature_style' => 'comic_sans', 'adopt_signature' => 1])->assertSessionHasErrors('signature_style');
+        $this->post($link, $typed + ['signature_style' => 'classic_script'])->assertSessionHasErrors('adopt_signature');
+        $this->assertSame(ChangeRequestSignature::PENDING, ChangeRequestSignature::query()->where('user_id', $nocManager->id)->value('status'));
+
+        $this->post($link, $typed + ['signature_style' => 'classic_script', 'adopt_signature' => 1, 'remember_style' => 1])->assertRedirect();
+
+        $signature = ChangeRequestSignature::query()->where('user_id', $nocManager->id)->firstOrFail();
+        $this->assertSame([ChangeRequestSignature::APPROVED, 'typed', 'classic_script', self::PNG], [$signature->status, $signature->signature_method, $signature->signature_style, $signature->signature_image]);
+        $this->assertSame(['style_key' => 'classic_script', 'display_name_snapshot' => 'Nora Manager'], UserSignature::query()->where('user_id', $nocManager->id)->firstOrFail()->only(['style_key', 'display_name_snapshot']));
+
+        // Who signed, which document, how — in the audit trail, without the picture.
+        $entry = AuditLog::query()->where('event', 'crf_signed')->latest('id')->firstOrFail();
+        $this->assertSame($nocManager->id, $entry->user_id);
+        $this->assertSame([$outage->ticket_number, 'Approved', 'Nora Manager', 'Signature style: Classic Script'], [$entry->new_values['ticket'], $entry->new_values['decision'], $entry->new_values['signed_by'], $entry->new_values['signature']]);
+        $this->assertStringNotContainsString('base64', json_encode($entry->new_values));
+
+        // A signatory without an account draws instead; nothing is remembered for them unless they ask.
+        $cto = $this->signLinkFor('cto@example.com');
+        $this->post($cto, ['decision' => 'approve', 'signed_name' => 'Chief Tech', 'signature_image' => self::PNG, 'signature_method' => 'drawn', 'remember_style' => 1])->assertRedirect();
+        $drawn = ChangeRequestSignature::query()->where('email', 'cto@example.com')->firstOrFail();
+        $this->assertSame(['drawn', null], [$drawn->signature_method, $drawn->signature_style]);
+        $this->assertSame('Drawn by hand', AuditLog::query()->where('event', 'crf_signed')->latest('id')->firstOrFail()->new_values['signature']);
+        $this->assertSame(1, UserSignature::query()->count());
+
+        // Next CRF: the saved style is offered first to the manager; the CTO's is kept by e-mail address once chosen.
+        $next = $this->sendForSignoff($this->request($infraLead, ['title' => 'Seguku OLT card swap']), $noc, $signatories);
+        $this->assertSame('classic_script', $this->get($this->signLinkFor('noc.manager@example.com'))->viewData('savedStyle'));
+        $this->post($this->signLinkFor('cto@example.com'), ['decision' => 'approve', 'signed_name' => 'Chief Tech', 'signature_image' => self::PNG, 'signature_method' => 'typed', 'signature_style' => 'marker_style', 'adopt_signature' => 1, 'remember_style' => 1])->assertRedirect();
+        $this->assertSame('marker_style', UserSignature::query()->where('email', 'cto@example.com')->value('style_key'));
+        $this->assertSame(ChangeRequest::PENDING_SIGNOFF, $next->changeRequest->refresh()->status, 'the manager has not signed this one yet');
     }
 
     public function test_reminders_start_alert_and_reschedule(): void
