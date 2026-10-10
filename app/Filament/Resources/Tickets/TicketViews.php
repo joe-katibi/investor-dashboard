@@ -38,6 +38,30 @@ final class TicketViews
         'priority:id,name,color', 'status:id,name,color', 'currentAssignee:id,name', 'technician:id,name', 'activeAssignments',
     ];
 
+    /**
+     * The site visit a customer ticket is waiting for (the latest one still open), with its desk and
+     * holder. Looked up once per ticket shown and kept with it.
+     */
+    public static function openVisit(Outage $record): ?Outage
+    {
+        if (! $record->isCxTicket() || $record->is_closed) {
+            return null;
+        }
+
+        self::$openVisits ??= new \WeakMap;
+
+        if (! isset(self::$openVisits[$record])) {
+            // Wrapped: "no open visit" is an answer too, and is not asked for again.
+            self::$openVisits[$record] = [$record->siteVisits()->where('outages.is_closed', false)
+                ->with(['status', 'currentAssignee:id,name'])->latest('outages.id')->first()];
+        }
+
+        return self::$openVisits[$record][0];
+    }
+
+    /** @var \WeakMap<Outage, array{0: ?Outage}>|null per ticket shown; gone with it */
+    private static ?\WeakMap $openVisits = null;
+
     /** What the search box at the top of every page looks in, for customer tickets and site visits. */
     public const GLOBAL_SEARCH = [
         'ticket_number', 'title', 'ticket.account_number', 'ticket.customer_name',
@@ -199,10 +223,17 @@ final class TicketViews
                     ])->columns(2),
 
                     Section::make('Desk')->icon(Heroicon::OutlinedQueueList)->schema([
+                        // A ticket that waits for its site visit shows where the visit is and who has it:
+                        // the work is at that desk, not nowhere.
                         TextEntry::make('current_queue')->label('At desk')->badge()
+                            ->state(fn (Outage $record) => $record->current_queue ?? self::openVisit($record)?->current_queue)
+                            ->helperText(fn (Outage $record) => ! $record->current_queue && ($visit = self::openVisit($record))
+                                ? "Site visit {$visit->ticket_number} ({$visit->status?->name}) — this ticket waits for it and closes with it" : null)
+                            ->url(fn (Outage $record) => ! $record->current_queue && ($visit = self::openVisit($record)) ? OutageLink::url($visit) : null)
                             ->placeholder(fn (Outage $record) => $record->is_closed ? 'Closed' : 'Waiting for the site visit'),
                         TextEntry::make('currentAssignee.name')->label('With')
-                            ->placeholder(fn (Outage $record) => $record->current_queue ? 'Waiting for the next available person (FIFO)' : '—'),
+                            ->state(fn (Outage $record) => $record->currentAssignee?->name ?? ($record->current_queue ? null : self::openVisit($record)?->currentAssignee?->name))
+                            ->placeholder(fn (Outage $record) => $record->current_queue || self::openVisit($record)?->current_queue ? 'Waiting for the next available person (FIFO)' : '—'),
                         TextEntry::make('currentAssignment.status')->label('Assignment')->badge()->placeholder('—'),
                         TextEntry::make('currentAssignment.ack_due_at')->label('Accept by')->dateTime('H:i')->placeholder('—'),
                         TextEntry::make('ticket.escalated_to')->label('Last escalated to')->badge()->placeholder('—')

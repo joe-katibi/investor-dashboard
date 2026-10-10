@@ -25,7 +25,10 @@ use Illuminate\Database\Seeder;
  */
 class DemoDataSeeder extends Seeder
 {
-    public const PASSWORD = 'Password123!';
+    /** How many days ahead the demo staff are on shift. */
+    public const SHIFT_DAYS = 90;
+
+    public const PASSWORD ='Password123!';
 
     public function run(): void
     {
@@ -102,9 +105,11 @@ class DemoDataSeeder extends Seeder
             UserSkill::query()->firstOrCreate(['user_id' => $tech->id, 'service_id' => $internet], ['skill' => 'Internet service restoration', 'is_active' => true]);
         }
 
-        // Shifts: everyone on shift for the next 7 days so FIFO assigns immediately in the demo.
+        // Shifts: everyone on shift for the next 90 days so FIFO assigns immediately in the demo.
+        // (One week was too short: when the shifts ran out, tickets were given to nobody and every flow
+        // stopped at its first desk without an error. Re-run this seeder to extend them.)
         foreach (User::query()->where('username', '!=', 'admin')->get() as $user) {
-            foreach (range(0, 7) as $day) {
+            foreach (range(0, self::SHIFT_DAYS) as $day) {
                 $date = now()->startOfDay()->addDays($day);
                 ShiftAssignment::query()->firstOrCreate(
                     ['user_id' => $user->id, 'work_date' => $date->toDateString()],
