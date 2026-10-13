@@ -6,6 +6,7 @@ use App\Enums\AssignmentStatus;
 use App\Enums\QueueType;
 use App\Models\AuditLog;
 use App\Models\OutageAssignment;
+use App\Models\OutageAttachment;
 use App\Models\OutageType;
 use App\Models\Ticket;
 use App\Models\TicketDeskMove;
@@ -38,6 +39,7 @@ class TicketReports
         'ticket_people' => 'Tickets: Agent / Technician Performance',
         'ticket_delay_reasons' => 'Tickets: Reasons for Delay',
         'ticket_follow_ups' => 'Tickets: Customer Follow-ups',
+        'ticket_geolocation' => 'Tickets: Geolocation Photos',
         'ticket_credit' => 'Tickets: Ready for Credit',
         'ticket_reopened' => 'Tickets: Reopened & Repeat Work',
         'ticket_fairness' => 'Tickets: Assignment Fairness',
@@ -61,6 +63,7 @@ class TicketReports
             'ticket_people' => $this->people($filters),
             'ticket_delay_reasons' => $this->delayReasons($filters),
             'ticket_follow_ups' => $this->followUps($filters),
+            'ticket_geolocation' => $this->geolocation($filters),
             'ticket_credit' => $this->credit($filters),
             'ticket_reopened' => $this->reopened($filters),
             'ticket_fairness' => $this->fairness($filters),
@@ -297,6 +300,43 @@ class TicketReports
             'Customer reached' => $query()->whereNotIn('outcome', TicketFollowUp::NOT_REACHED)->count(),
             'Not reached' => $query()->whereIn('outcome', TicketFollowUp::NOT_REACHED)->count(),
         ], $from->format('d M Y').' – '.$to->format('d M Y').'.');
+    }
+
+    /**
+     * Every geolocation photo of the period: whose premise, which ticket, where it was taken and
+     * when — with the address of the photo itself (the person opening it signs in and must be
+     * allowed to see the ticket, like everywhere else).
+     */
+    private function geolocation(array $filters): ReportResult
+    {
+        [$from, $to] = $this->period($filters);
+        $query = fn () => OutageAttachment::query()->where('kind', 'geo_photo')->whereBetween('created_at', [$from, $to]);
+
+        return new ReportResult(self::REPORTS['ticket_geolocation'], [
+            'account' => 'Account Number', 'ticket' => 'Ticket No', 'latitude' => 'Latitude', 'longitude' => 'Longitude', 'created' => 'Date created',
+            'place' => 'Place', 'accuracy' => 'Accuracy (m)', 'by' => 'Taken by', 'photo' => 'Photo (download)',
+        ], function (?int $limit) use ($query) {
+            $q = $query()->with(['user:id,name', 'outage:id,ticket_number', 'outage.ticket:id,outage_id,account_number'])->orderByDesc('id');
+
+            foreach ($limit ? $q->limit($limit)->get() : $q->lazyByIdDesc(500) as $photo) {
+                yield [
+                    'account' => $photo->outage?->ticket?->account_number,
+                    'ticket' => $photo->outage?->ticket_number,
+                    'latitude' => $photo->latitude !== null ? number_format($photo->latitude, 6, '.', '') : null,
+                    'longitude' => $photo->longitude !== null ? number_format($photo->longitude, 6, '.', '') : null,
+                    // When the photo was taken, where the phone said so; otherwise when it was added.
+                    'created' => ($photo->taken_at ?? $photo->created_at)?->format('Y-m-d H:i'),
+                    'place' => $photo->place,
+                    'accuracy' => $photo->accuracy_m,
+                    'by' => $photo->user?->name,
+                    'photo' => $photo->url(),
+                ];
+            }
+        }, [
+            'Geolocation photos' => $query()->count(),
+            'With a position' => $query()->whereNotNull('latitude')->whereNotNull('longitude')->count(),
+            'Without a position' => $query()->where(fn ($q) => $q->whereNull('latitude')->orWhereNull('longitude'))->count(),
+        ], $from->format('d M Y').' – '.$to->format('d M Y').'. A photo without a position was added before positions were kept, or on the website from a file that carries none.');
     }
 
     /** Tickets pending past the follow-up time: the credit list. */

@@ -241,6 +241,12 @@ stamps the picture like a GPS camera does — a small map with a pin, the place,
   back from the file wherever it ends up. A geolocation photo that arrives without figures — added on the website,
   taken with another GPS camera app — is read for them (`App\Services\Geo\PhotoLocation`).
 
+**Report — *Tickets: Geolocation Photos*** (Reporting → Reports): one row per geolocation photo of the period with the
+customer's account number, the ticket number, latitude, longitude, the date the photo was taken (or added), the
+place, the accuracy, who took it and the link to the photo. On screen the link is *View* (the pop-up) and *Download*;
+in the Excel / CSV export it is the address of the photo, which asks the person opening it to sign in and to be
+allowed to see the ticket.
+
 The place name and the map are looked up by **this server** at OpenStreetMap (`GET /api/v1/geo/place`,
 `App\Services\Geo\PlaceLookup`): only a latitude and a longitude are sent, answers are kept (30 days), and a phone
 never talks to a map service itself. Two switches under **Customer Care → Ticket Settings**: *the geolocation photo

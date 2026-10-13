@@ -32,7 +32,19 @@
                         @forelse ($rows as $row)
                             <tr>
                                 @foreach (array_keys($report->columns) as $key)
-                                    <td>{{ $row[$key] ?? '' }}</td>
+                                    @php($value = $row[$key] ?? '')
+                                    {{-- A cell that is the address of a file: looked at in the pop-up, or downloaded — the report stays open. --}}
+                                    @if (is_string($value) && preg_match('#^https?://[^\s]+$#', $value))
+                                        <td style="white-space: nowrap">
+                                            @if (str_contains($value, '/attachments/') || str_contains($value, '/photos/'))
+                                                <a href="{{ $value }}" class="underline" x-data="{}" x-on:click.prevent="{{ \App\Filament\Support\PhotoViewer::open($value, $report->columns[$key] ?? 'Photo', collect([$row['ticket'] ?? null, $row['account'] ?? null, $row['place'] ?? null])->filter()->implode(' · ') ?: null) }}">View</a>
+                                                &nbsp;·&nbsp;
+                                            @endif
+                                            <a href="{{ $value }}" class="underline" download>Download</a>
+                                        </td>
+                                    @else
+                                        <td>{{ $value }}</td>
+                                    @endif
                                 @endforeach
                             </tr>
                         @empty

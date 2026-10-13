@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Filament\Pages\Reports;
 use App\Filament\Pages\TicketSettings;
 use App\Filament\Resources\Tickets\RelationManagers\TicketAttachmentsRelationManager;
 use App\Filament\Resources\Tickets\Pages\ViewTicket;
@@ -9,6 +10,8 @@ use App\Models\OutageAttachment;
 use App\Models\TicketSubcategory;
 use App\Services\Geo\PhotoLocation;
 use App\Services\Outages\OutageWorkflow;
+use App\Services\Reports\ReportExporter;
+use App\Services\Reports\ReportRegistry;
 use App\Support\Settings;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -115,6 +118,67 @@ class GeolocationPhotoTest extends TestCase
             ->assertSee('0.338276, 32.581402')
             ->assertSee('13 Oct 2026 09:21:05')
             ->assertSeeHtml('https://www.google.com/maps?q=0.3382760,32.5814020');
+    }
+
+    public function test_the_geolocation_report_lists_account_ticket_position_date_and_the_photo(): void
+    {
+        $frontline = $this->makeUser('CX Frontline', 'CX');
+        $tier2 = $this->makeUser('CX Tier II', 'CX');
+        $manager = $this->makeUser('CX Manager', 'CX', attributes: ['availability_status' => 'offline']);
+        $manager->givePermissionTo(['reports.view', 'reports.export', 'ticket.view']);
+        $workflow = app(OutageWorkflow::class);
+
+        Auth::setUser($frontline);
+        $ticket = $workflow->createTicket([
+            'subcategory_id' => TicketSubcategory::query()->where('name', 'LOS Flashing Red')->value('id'),
+            'account_number' => 'SF123456', 'customer_name' => 'Jane Customer', 'calling_number' => '0772000001', 'address' => 'Seguku',
+        ], $frontline);
+
+        // One photo with the position the app sent, one added without any, and a speed test photo (not in this report).
+        Storage::disk('local')->put($a = OutageAttachment::DIRECTORY.'/2026/10/geo-a.jpg', 'x');
+        Storage::disk('local')->put($b = OutageAttachment::DIRECTORY.'/2026/10/geo-b.jpg', 'x');
+        Storage::disk('local')->put($c = OutageAttachment::DIRECTORY.'/2026/10/speed.jpg', 'x');
+        $located = OutageAttachment::query()->create([
+            'outage_id' => $ticket->id, 'kind' => 'geo_photo', 'path' => $a, 'original_name' => 'geo-a.jpg', 'user_id' => $tier2->id,
+            'latitude' => 0.338276, 'longitude' => 32.581402, 'accuracy_m' => 8, 'place' => 'Kitante, Wandegeya, Kampala, Central Region, Uganda',
+            'taken_at' => '2026-10-13 09:21:05', 'location_source' => 'device',
+        ]);
+        $bare = OutageAttachment::query()->create(['outage_id' => $ticket->id, 'kind' => 'geo_photo', 'path' => $b, 'original_name' => 'geo-b.jpg', 'user_id' => $tier2->id]);
+        OutageAttachment::query()->create(['outage_id' => $ticket->id, 'kind' => 'speed_test', 'path' => $c, 'original_name' => 'speed.jpg', 'user_id' => $tier2->id]);
+
+        Auth::setUser($manager);
+        $this->assertArrayHasKey('ticket_geolocation', ReportRegistry::availableTo($manager));
+        $report = app(ReportRegistry::class)->run('ticket_geolocation', ['from' => '2026-10-01', 'to' => '2026-10-13']);
+
+        // Account number, ticket number, latitude, longitude, date created and the link to the photo — in that order.
+        $this->assertSame(['Account Number', 'Ticket No', 'Latitude', 'Longitude', 'Date created', 'Place', 'Accuracy (m)', 'Taken by', 'Photo (download)'], array_values($report->columns));
+        $this->assertSame(['Geolocation photos' => 2, 'With a position' => 1, 'Without a position' => 1], $report->summary);
+
+        $rows = collect($report->rowsArray())->keyBy('photo');
+        $this->assertCount(2, $rows);
+        $this->assertSame([
+            'account' => 'SF123456', 'ticket' => $ticket->ticket_number, 'latitude' => '0.338276', 'longitude' => '32.581402', 'created' => '2026-10-13 09:21',
+            'place' => 'Kitante, Wandegeya, Kampala, Central Region, Uganda', 'accuracy' => 8, 'by' => $tier2->name, 'photo' => $located->url(),
+        ], $rows[$located->url()]);
+        $this->assertSame(['SF123456', null, null, '2026-10-13 10:00'], [$rows[$bare->url()]['account'], $rows[$bare->url()]['latitude'], $rows[$bare->url()]['longitude'], $rows[$bare->url()]['created']]);
+
+        // Outside the period: nothing.
+        $this->assertSame([], app(ReportRegistry::class)->run('ticket_geolocation', ['from' => '2026-09-01', 'to' => '2026-09-30'])->rowsArray());
+
+        // On the Reports page the link is a link: View opens the photo on the page, Download saves it. And the photo really downloads.
+        $this->actingAs($manager);
+        Livewire::test(Reports::class)
+            ->set('data.report', 'ticket_geolocation')->set('data.from', '2026-10-01')->set('data.to', '2026-10-13')
+            ->assertSee('Tickets: Geolocation Photos')
+            ->assertSee('SF123456')->assertSee('0.338276')->assertSee('32.581402')
+            ->assertSeeHtml('href="'.$located->url().'" class="underline" download')
+            ->assertSeeHtml('oms-photo');
+        $this->get($located->url())->assertOk()->assertDownload('geo-a.jpg');
+
+        // The export carries the link as text, for Excel.
+        $path = app(ReportExporter::class)->writeXlsx($report);
+        $this->assertGreaterThan(1000, filesize($path));
+        @unlink($path);
     }
 
     public function test_the_two_switches_are_under_ticket_settings(): void
