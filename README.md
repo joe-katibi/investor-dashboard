@@ -221,6 +221,25 @@ trail. A queue worker must be running (`php artisan queue:work`), locally too, o
 Exports share the queue with everything else unless `OMS_EXPORTS_QUEUE` says otherwise: behind a long backlog
 (a worker that was off for days) they wait their turn.
 
+### Geolocation photo
+The **geolocation photo** of a site visit (mobile app, *Complete visit*) is taken at the phone's position. The app
+stamps the picture like a GPS camera does — a small map with a pin, the place, the address, latitude and longitude
+(with how exact the fix is), the day, time and time zone — and the same details are
+
+* **saved with the photo** (`outage_attachments`: `latitude`, `longitude`, `accuracy_m`, `place`, `taken_at`,
+  `location_source`), shown under *Photos & files* on the visit with a link to the spot on a map;
+* **written into the photo file itself** (EXIF: GPS position, accuracy, date/time, description), so they can be read
+  back from the file wherever it ends up. A geolocation photo that arrives without figures — added on the website,
+  taken with another GPS camera app — is read for them (`App\Services\Geo\PhotoLocation`).
+
+The place name and the map are looked up by **this server** at OpenStreetMap (`GET /api/v1/geo/place`,
+`App\Services\Geo\PlaceLookup`): only a latitude and a longitude are sent, answers are kept (30 days), and a phone
+never talks to a map service itself. Two switches under **Customer Care → Ticket Settings**: *the geolocation photo
+must carry the technician's position* (off: accepted when the phone cannot find where it is) and *add the place name
+and a small map* (off: coordinates and time only). The server needs outbound HTTPS to
+`nominatim.openstreetmap.org` and `tile.openstreetmap.org` for the lookup; without it the photo still carries the
+coordinates and the time.
+
 ### Administration
 Verticals, affected services, major outage types, outage types, statuses, impact / priority rules, SLA policies,
 FIFO queues, FIFO & SLA settings, notification rules, e-mail templates & schedules, OLTs / FDTs / Slots / Ports
@@ -1610,6 +1629,7 @@ All scheduled tasks use `onOneServer()` and `withoutOverlapping()`.
 | `OMS_SEED_DEMO` | `true` | Seed demo data (never in production) |
 | `OMS_REPORT_SCREEN_LIMIT` | `500` | Rows rendered on the Reports page |
 | `OMS_NOTIFICATIONS_QUEUE`, `OMS_REPORTS_QUEUE` | `default` | Dedicated queues for scaling workers |
+| `OMS_GEO_NOMINATIM_URL`, `OMS_GEO_TILE_URL`, `OMS_GEO_USER_AGENT` | OpenStreetMap, `SavannaFibre-OMS/1.0 (+https://oms.savannafibre.co.ug)` | Where the place name and the small map of a geolocation photo are looked up, and how OMS identifies itself there (OpenStreetMap refuses applications that do not: 403) |
 | `OMS_EXPORTS_QUEUE` | `default` | Queue of the report exports. Set it to `exports` and list that queue first on the workers (`--queue=exports,default,notifications,reports`) so an export never waits behind a backlog of notifications |
 | `SMS_DRIVER` | `log` | SMS gateway: `log`, `africastalking`, `twilio` or `http` |
 | `SMS_SENDER`, `SMS_DEFAULT_COUNTRY_CODE`, `SMS_MAX_LENGTH` | `OMS`, `256`, `306` | Sender ID, calling code for local numbers, message length cap |

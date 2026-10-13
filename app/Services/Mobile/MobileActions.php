@@ -608,8 +608,9 @@ final class MobileActions
                     return [
                         $this->select('final_reason_id', 'Final reason', $this->options(TicketActions::finalReasons('visit', $outage->current_queue)), required: true),
                         $this->text('fat_number', 'FAT number', required: $evidence, max: 60, default: $ticket?->fat_number),
-                        $this->photo('geo_photo', 'Geolocation photo', 'Photo with the location stamp at the customer premise.',
-                            required: $evidence && ! $outage->attachments()->where('kind', 'geo_photo')->exists()),
+                        // Taken at the phone's position: the place, the coordinates and the time are stamped on it and saved with it.
+                        $this->photo('geo_photo', 'Geolocation photo', 'Taken at the customer premise: your position, the place and the time are stamped on the photo.',
+                            required: $evidence && ! $outage->attachments()->where('kind', 'geo_photo')->exists(), location: true),
                         $this->photo('speed_photo', 'Speed test photo', 'Photo of the speed test result after the fix.',
                             required: $evidence && ! $outage->attachments()->where('kind', 'speed_test')->exists()),
                         $this->textarea('resolution_notes', 'Work done', required: true, max: 5000),
@@ -860,12 +861,15 @@ final class MobileActions
      * Every photo in the app is taken with the phone's camera, there and then — nothing from the
      * gallery. The app stamps the time on the picture and sends it as "{name}_taken_at".
      */
-    private function photo(string $name, string $label, ?string $help = null, bool $required = false): array
+    private function photo(string $name, string $label, ?string $help = null, bool $required = false, bool $location = false): array
     {
         return [
             'name' => $name, 'type' => 'photo', 'label' => $label, 'required' => $required, 'help' => $help,
             'max_kb' => (int) config('oms.mobile.max_upload_kb'),
             'capture' => 'camera',
+            // A geolocation photo: the app takes the phone's position with it and sends it as "{name}_lat", "{name}_lng",
+            // "{name}_accuracy" (metres) and "{name}_place". "required" = no photo without a position.
+            'location' => $location ? (app(Settings::class)->bool('ticketing.require_location') ? 'required' : 'optional') : null,
         ];
     }
 
@@ -945,6 +949,7 @@ final class MobileActions
     {
         $rules = [];
         $labels = [];
+        $messages = [];
         $maxKb = (int) config('oms.mobile.max_upload_kb');
         $image = ['file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:'.$maxKb];
 
@@ -972,9 +977,30 @@ final class MobileActions
             if (($field['capture'] ?? null) === 'camera') {
                 $rules[$name.'_taken_at'] = ['nullable', 'date'];
             }
+
+            // A geolocation photo comes with the position it was taken at.
+            if (filled($field['location'] ?? null)) {
+                $needed = $field['location'] === 'required' ? 'required_with:'.$name : 'nullable';
+                $rules[$name.'_lat'] = [$needed, 'numeric', 'between:-90,90'];
+                $rules[$name.'_lng'] = [$needed, 'numeric', 'between:-180,180'];
+                $rules[$name.'_accuracy'] = ['nullable', 'numeric', 'min:0', 'max:1000000'];
+                $rules[$name.'_place'] = ['nullable', 'string', 'max:255'];
+                $messages[$name.'_lat.required_with'] = $messages[$name.'_lng.required_with']
+                    = 'The '.strtolower($field['label']).' needs your position: switch on Location on the phone, allow it for OMS and take the photo again.';
+            }
         }
 
-        $data = Validator::make($request->all(), $rules, [], $labels)->validate();
+        $data = Validator::make($request->all(), $rules, $messages, $labels)->validate();
+
+        foreach ($fields as $field) {
+            if (filled($field['location'] ?? null)) {
+                $name = $field['name'];
+                $data[$name.'_location'] = filled($data[$name.'_lat'] ?? null) && filled($data[$name.'_lng'] ?? null) ? [
+                    'lat' => $data[$name.'_lat'], 'lng' => $data[$name.'_lng'], 'accuracy' => $data[$name.'_accuracy'] ?? null,
+                    'place' => $data[$name.'_place'] ?? null, 'taken_at' => $data[$name.'_taken_at'] ?? null,
+                ] : null;
+            }
+        }
 
         foreach ($fields as $field) {
             if (($field['capture'] ?? null) === 'camera') {

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\DeviceController;
+use App\Http\Controllers\Api\V1\GeoController;
 use App\Http\Controllers\Api\V1\MeController;
 use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\TicketController;
@@ -41,6 +42,9 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
 
         Route::get('attachments/{attachment}', [TicketController::class, 'attachment'])->whereNumber('attachment')->name('attachments.show');
         Route::get('photos/{photo}', [TicketController::class, 'photo'])->whereNumber('photo')->name('photos.show');
+
+        // The place and a small map for a position, for the stamp on a geolocation photo.
+        Route::get('geo/place', GeoController::class)->name('geo.place');
 
         Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
         Route::post('notifications/read-all', [NotificationController::class, 'readAll'])->name('notifications.read-all');

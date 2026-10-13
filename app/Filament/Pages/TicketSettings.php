@@ -103,6 +103,8 @@ class TicketSettings extends Page
             'credit_emails' => array_values((array) $s->get('ticketing.credit_emails')),
             'confirm_closure' => $s->bool('ticketing.confirm_closure'),
             'require_evidence' => $s->bool('ticketing.require_evidence'),
+            'require_location' => $s->bool('ticketing.require_location'),
+            'geo_lookup' => $s->bool('geo.lookup'),
             'max_daily_visits' => $s->int('ticketing.max_daily_visits'),
             'company_name' => (string) $s->get('ticketing.company_name'),
             'sms_customer' => $s->bool('ticketing.sms_customer'),
@@ -169,6 +171,10 @@ class TicketSettings extends Page
                             ->helperText('Off: the visit closes when the dispatcher verifies it.'),
                         Toggle::make('require_evidence')->label('FAT number, geolocation photo and speed-test photo are required to complete a visit')
                             ->helperText('Per visit type under Visit Types (“Needs evidence”).'),
+                        Toggle::make('require_location')->label('The geolocation photo must carry the technician’s position (mobile app)')
+                            ->helperText('The app takes the phone’s position with the photo: latitude, longitude and time are stamped on it and saved with it. Off: a photo is accepted when the phone cannot find its position.'),
+                        Toggle::make('geo_lookup')->label('Add the place name and a small map to the geolocation photo')
+                            ->helperText('Looked up by this server at OpenStreetMap with the latitude and longitude only — nothing about the ticket or the customer. Off: the photo carries the coordinates and the time alone.'),
                         TextInput::make('max_daily_visits')->label('Most visits per technician per day')->numeric()->minValue(0)->maxValue(100)->required()->helperText('0 = no limit.'),
                     ])->columns(1),
                     Section::make('SMS to the customer')
@@ -257,6 +263,8 @@ class TicketSettings extends Page
             'ticketing.credit_emails' => $emails((array) ($state['credit_emails'] ?? [])),
             'ticketing.confirm_closure' => (bool) ($state['confirm_closure'] ?? false),
             'ticketing.require_evidence' => (bool) ($state['require_evidence'] ?? false),
+            'ticketing.require_location' => (bool) ($state['require_location'] ?? false),
+            'geo.lookup' => (bool) ($state['geo_lookup'] ?? false),
             'ticketing.max_daily_visits' => (int) $state['max_daily_visits'],
             'ticketing.company_name' => trim((string) ($state['company_name'] ?? '')),
             'ticketing.sms_customer' => (bool) ($state['sms_customer'] ?? false),

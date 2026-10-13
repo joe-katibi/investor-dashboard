@@ -129,6 +129,8 @@ class Settings
         'ticketing.credit_emails' => [],
         'ticketing.confirm_closure' => true,           // site visits: CX Field Support confirms with the customer before closing
         'ticketing.require_evidence' => true,          // FAT number + geolocation and speed-test photos to complete a visit
+        'ticketing.require_location' => true,          // the geolocation photo must carry the phone's position (mobile app)
+        'geo.lookup' => true,                          // place name + small map on the geolocation photo (OpenStreetMap)
         'ticketing.max_daily_visits' => 0,             // per technician per day (0 = no limit)
         'ticketing.company_name' => 'Savanna Fibre',
         'ticketing.sms_customer' => true,

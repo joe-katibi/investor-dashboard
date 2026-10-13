@@ -29,6 +29,11 @@ abstract class TestCase extends BaseTestCase
             );
         }
 
+        // Cached routes are the routes of the day they were cached: a new one would simply not exist.
+        if ($app->routesAreCached()) {
+            throw new \RuntimeException('Refusing to run the tests against cached routes. Run "php artisan optimize:clear" first.');
+        }
+
         return $app;
     }
 

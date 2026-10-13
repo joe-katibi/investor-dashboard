@@ -9,6 +9,7 @@ use App\Events\MobileNotification;
 use App\Models\CustomFlow;
 use App\Models\MobileDevice;
 use App\Models\Outage;
+use App\Models\OutageAttachment;
 use App\Models\OutagePhoto;
 use App\Models\OutageType;
 use App\Models\Team;
@@ -17,6 +18,7 @@ use App\Models\User;
 use App\Models\VisitType;
 use App\Services\Notifications\NotificationDispatcher;
 use App\Services\Outages\OutageWorkflow;
+use App\Support\Settings;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Http\UploadedFile;
@@ -428,10 +430,30 @@ class MobileApiTest extends TestCase
             'geo_photo' => UploadedFile::fake()->create('shell.php', 10, 'application/x-php'), 'speed_photo' => UploadedFile::fake()->image('speed.jpg'),
         ])->assertStatus(422)->assertJsonValidationErrors('geo_photo');
 
-        $done = $this->act($technician, $visit, 'visit_complete', [
+        // The geolocation photo is taken at the phone's position: the form says so, and a photo without one is refused.
+        $this->assertSame(['required', null], [$fields['geo_photo']['location'], $fields['speed_photo']['location']]);
+        $complete = [
             'final_reason_id' => $reason, 'resolution_notes' => 'Broken core respliced', 'fat_number' => 'FAT-112', 'drop_cable_m' => 40,
             'geo_photo' => UploadedFile::fake()->image('geo.jpg', 800, 600), 'speed_photo' => UploadedFile::fake()->image('speed.jpg', 800, 600),
-        ])->assertOk()->assertJsonPath('message', 'Completed — sent to the dispatcher');
+        ];
+        $this->act($technician, $visit, 'visit_complete', $complete)->assertStatus(422)->assertJsonValidationErrors(['geo_photo_lat', 'geo_photo_lng'])
+            ->assertJsonPath('errors.geo_photo_lat.0', 'The geolocation photo needs your position: switch on Location on the phone, allow it for OMS and take the photo again.');
+        $this->act($technician, $visit, 'visit_complete', $complete + ['geo_photo_lat' => 91, 'geo_photo_lng' => 32.581402])->assertStatus(422)->assertJsonValidationErrors('geo_photo_lat');
+
+        $takenAt = now()->subMinutes(2)->startOfSecond();
+        $done = $this->act($technician, $visit, 'visit_complete', [
+            'geo_photo' => UploadedFile::fake()->image('geo.jpg', 800, 600), 'speed_photo' => UploadedFile::fake()->image('speed.jpg', 800, 600),
+            'geo_photo_lat' => '0.338276', 'geo_photo_lng' => '32.581402', 'geo_photo_accuracy' => '7.6',
+            'geo_photo_place' => 'Plot 114 Owen Rd, Kampala, Central Region, Uganda', 'geo_photo_taken_at' => $takenAt->copy()->utc()->toIso8601String(),
+        ] + $complete)->assertOk()->assertJsonPath('message', 'Completed — sent to the dispatcher');
+
+        // Saved with the photo: where, how exact, what the place is called and when — and nothing on the other photo.
+        $geo = OutageAttachment::query()->where('outage_id', $visit->id)->where('kind', 'geo_photo')->sole();
+        $this->assertSame([0.338276, 32.581402, 8, 'Plot 114 Owen Rd, Kampala, Central Region, Uganda', 'device'], [$geo->latitude, $geo->longitude, $geo->accuracy_m, $geo->place, $geo->location_source]);
+        $this->assertSame($takenAt->toDateTimeString(), $geo->taken_at->toDateTimeString());
+        $this->assertSame('0.338276, 32.581402 (± 8 m)', $geo->coordinates());
+        $this->assertSame('https://www.google.com/maps?q=0.3382760,32.5814020', $geo->mapUrl());
+        $this->assertFalse(OutageAttachment::query()->where('outage_id', $visit->id)->where('kind', 'speed_test')->sole()->hasLocation());
         $this->fixture('action_visit_complete', $done);
         $this->fixture('ticket_visit_dispatcher', $this->api($dispatcher, 'GET', "tickets/{$visit->id}"));
         $done->assertJsonPath('ticket.status.code', StatusCode::VisitPendingVerification->value)->assertJsonPath('ticket.visit.fat_number', 'FAT-112');
@@ -623,6 +645,47 @@ class MobileApiTest extends TestCase
         // Someone the ticket does not concern cannot open it.
         $other = $this->makeUser('Outage Technician', 'INFRA', attributes: ['email' => 'other@example.com']);
         $this->api($other, 'GET', "tickets/{$ticket->id}")->assertForbidden();
+    }
+
+    public function test_the_app_asks_oms_for_the_place_and_a_map_of_a_position(): void
+    {
+        $png = "\x89PNG\r\n\x1a\n".str_repeat('x', 200);
+        Http::fake([
+            'nominatim.openstreetmap.org/*' => Http::response(['display_name' => 'Owen Road, Kampala', 'address' => [
+                'house_number' => 'Plot 114', 'road' => 'Owen Rd', 'suburb' => 'Mulago', 'city' => 'Kampala', 'state' => 'Central Region', 'country' => 'Uganda',
+            ]]),
+            'tile.openstreetmap.org/*' => Http::response($png, 200, ['Content-Type' => 'image/png']),
+        ]);
+
+        $this->api($this->technician, 'GET', 'geo/place?lat=95&lng=32.58')->assertStatus(422);
+        Auth::forgetGuards();
+        $this->flushHeaders()->getJson('/api/v1/geo/place?lat=0.338276&lng=32.581402')->assertUnauthorized();
+
+        $answer = $this->fixture('geo_place', $this->api($this->technician, 'GET', 'geo/place?lat=0.338276&lng=32.581402')->assertOk());
+        $answer->assertJsonPath('place', 'Kampala, Central Region, Uganda')->assertJsonPath('address', 'Plot 114 Owen Rd, Mulago, Kampala')
+            ->assertJsonPath('map.png', base64_encode($png))->assertJsonPath('map.size', 256)->assertJsonPath('map.credit', 'OpenStreetMap');
+        // Where the position is on that map tile (zoom 16), in pixels.
+        $this->assertSame([67, 107], [$answer->json('map.pin_x'), $answer->json('map.pin_y')]);
+
+        // Only the coordinates left the building, and OMS said who it is.
+        Http::assertSent(fn ($request) => str_contains($request->url(), 'nominatim') && $request['lat'] == 0.338276 && $request['lon'] == 32.581402
+            && str_contains($request->header('User-Agent')[0], 'OMS') && ! str_contains($request->url(), 'TKT'));
+        Http::assertSentCount(2);
+
+        // The same spot is not asked for twice.
+        $this->api($this->technician, 'GET', 'geo/place?lat=0.338279&lng=32.581404')->assertOk()->assertJsonPath('place', 'Kampala, Central Region, Uganda');
+        Http::assertSentCount(2);
+
+        // Switched off (Customer Care → Ticket Settings): nothing is asked, the app stamps coordinates and time alone.
+        app(Settings::class)->set(['geo.lookup' => false]);
+        $this->api($this->technician, 'GET', 'geo/place?lat=1.5&lng=33.5')->assertOk()->assertExactJson(['place' => null, 'address' => null, 'map' => null]);
+        Http::assertSentCount(2);
+
+        // The map service not answering is not an error for the technician.
+        app(Settings::class)->set(['geo.lookup' => true]);
+        config(['oms.geo.nominatim_url' => 'https://maps-down.example', 'oms.geo.tile_url' => 'https://maps-down.example/{z}/{x}/{y}.png']);
+        Http::fake(['maps-down.example/*' => Http::response('down', 503)]);
+        $this->api($this->technician, 'GET', 'geo/place?lat=2.5&lng=31.5')->assertOk()->assertExactJson(['place' => null, 'address' => null, 'map' => null]);
     }
 
     public function test_notifications_devices_and_availability(): void

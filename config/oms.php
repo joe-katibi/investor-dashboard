@@ -85,6 +85,23 @@ return [
         'fcm_credentials' => env('OMS_FCM_CREDENTIALS', ''),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Geolocation photos
+    |--------------------------------------------------------------------------
+    | The place name and the small map stamped on a geolocation photo come from
+    | OpenStreetMap, asked for by this server (never by the phones) with nothing
+    | but a latitude and a longitude. Switch it off under Customer Care → Ticket
+    | Settings; point the addresses at your own Nominatim / tile server here.
+    */
+    'geo' => [
+        'nominatim_url' => env('OMS_GEO_NOMINATIM_URL', 'https://nominatim.openstreetmap.org'),
+        'tile_url' => env('OMS_GEO_TILE_URL', 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'),
+        // OpenStreetMap asks every application to identify itself, and refuses the ones that do not
+        // (403 "Access denied"): name the application and where it lives.
+        'user_agent' => env('OMS_GEO_USER_AGENT', 'SavannaFibre-OMS/1.0 (+https://oms.savannafibre.co.ug)'),
+    ],
+
     // Rows rendered on-screen in the reports page; exports always include every row.
     'report_screen_limit' => (int) env('OMS_REPORT_SCREEN_LIMIT', 500),
 ];

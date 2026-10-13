@@ -35,6 +35,17 @@ class TicketAttachmentsRelationManager extends RelationManager
                     ->color(fn (?string $state) => $state ? 'success' : 'gray'),
                 TextColumn::make('original_name')->label('File')->state(fn (OutageAttachment $record) => $record->name())->icon(Heroicon::OutlinedPaperClip)->wrap(),
                 TextColumn::make('note')->placeholder('—')->wrap(),
+                // Where and when a geolocation photo was taken: the phone's position, saved with the photo.
+                TextColumn::make('latitude')->label('Taken at')->placeholder('—')->wrap()
+                    ->state(fn (OutageAttachment $record) => $record->coordinates())
+                    ->description(fn (OutageAttachment $record) => collect([$record->place, $record->taken_at?->format('d M Y H:i:s')])->filter()->implode(' · ') ?: null)
+                    ->icon(fn (OutageAttachment $record) => $record->hasLocation() ? Heroicon::OutlinedMapPin : null)
+                    ->url(fn (OutageAttachment $record) => $record->mapUrl(), shouldOpenInNewTab: true)
+                    ->tooltip(fn (OutageAttachment $record) => match ($record->location_source) {
+                        'device' => 'The position of the phone when the photo was taken — open it on a map',
+                        'photo' => 'Read from the photo file itself — open it on a map',
+                        default => null,
+                    }),
                 TextColumn::make('user.name')->label('Added by')->placeholder('—'),
                 TextColumn::make('created_at')->label('Added')->dateTime('d M Y H:i'),
             ])

@@ -34,6 +34,7 @@ use App\Models\TicketSubcategory;
 use App\Models\User;
 use App\Models\Vertical;
 use App\Models\VisitType;
+use App\Services\Geo\PhotoLocation;
 use App\Services\Notifications\Sms\PhoneNumber;
 use App\Services\Tickets\OutageLocator;
 use App\Support\AuditContext;
@@ -569,7 +570,8 @@ trait ManagesTickets
 
             $evidence = app(Settings::class)->bool('ticketing.require_evidence') && (bool) $ticket->visitType()->value('requires_evidence');
             $photos = $this->storeTicketPhotos($outage, $by, [
-                'geo_photo' => [$data['geo_photo'] ?? null, $data['geo_photo_name'] ?? null, 'Geolocation photo'],
+                // With the position it was taken at (sent by the app, or read from the photo itself).
+                'geo_photo' => [$data['geo_photo'] ?? null, $data['geo_photo_name'] ?? null, 'Geolocation photo', $data['geo_photo_location'] ?? null],
                 'speed_test' => [$data['speed_photo'] ?? null, $data['speed_photo_name'] ?? null, 'Speed test photo'],
             ]);
 
@@ -999,7 +1001,8 @@ trait ManagesTickets
             ->values()
             ->map(fn (string $path) => OutageAttachment::query()->create([
                 'outage_id' => $outage->id, 'kind' => $kind, 'path' => $path, 'original_name' => $names[$path] ?? null, 'note' => $note, 'user_id' => $by->id,
-            ]));
+                // A geolocation photo added later carries its position in the photo itself.
+            ] + ($kind === 'geo_photo' ? app(PhotoLocation::class)->for($path) : [])));
     }
 
     /**
@@ -1670,7 +1673,8 @@ trait ManagesTickets
     {
         $stored = 0;
 
-        foreach ($photos as $kind => [$path, $name, $note]) {
+        foreach ($photos as $kind => $photo) {
+            [$path, $name, $note, $location] = array_pad($photo, 4, null);
             $path = is_array($path) ? (array_values($path)[0] ?? null) : $path;
 
             if (! is_string($path) || ! Str::startsWith($path, OutageAttachment::DIRECTORY.'/') || str_contains($path, '..') || ! Storage::disk('local')->exists($path)) {
@@ -1680,7 +1684,7 @@ trait ManagesTickets
             OutageAttachment::query()->create([
                 'outage_id' => $outage->id, 'kind' => $kind, 'path' => $path,
                 'original_name' => is_array($name) ? ($name[$path] ?? null) : $name, 'note' => $note, 'user_id' => $by->id,
-            ]);
+            ] + ($kind === 'geo_photo' ? app(PhotoLocation::class)->for($path, is_array($location) ? $location : null) : []));
             $stored++;
         }
 
