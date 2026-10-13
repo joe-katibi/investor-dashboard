@@ -18,6 +18,7 @@ use App\Filament\Resources\Outages\RelationManagers\SlaEventsRelationManager;
 use App\Filament\Resources\Outages\RelationManagers\StatusHistoriesRelationManager;
 use App\Filament\Resources\Outages\RelationManagers\SupportRequestsRelationManager;
 use App\Filament\Resources\Outages\RelationManagers\UpdatesRelationManager;
+use App\Filament\Support\PhotoViewer;
 use App\Models\ChangeRequest;
 use App\Models\MaintenanceApproval;
 use App\Models\Outage;
@@ -262,7 +263,8 @@ class OutageResource extends Resource
                     ->map(fn (array $pair) => ImageEntry::make("photo_{$pair[0]}_{$pair[1]}")
                         ->label(ucfirst($pair[0]).' — '.$pair[1])
                         ->state(fn (Outage $record) => $record->photos->where('stage', $pair[0])->where('position', $pair[1])->last()?->url())
-                        ->url(fn (Outage $record) => $record->photos->where('stage', $pair[0])->where('position', $pair[1])->last()?->url(), shouldOpenInNewTab: true)
+                        // A click opens it large in a pop-up on this page.
+                        ->extraImgAttributes(fn (Outage $record) => PhotoViewer::imageAttributes($record->loadMissing('photos.user')->photos->where('stage', $pair[0])->where('position', $pair[1])->last()))
                         ->imageHeight(150)
                         ->placeholder($pair[0] === OutagePhoto::AFTER ? 'Added when the work is reported done' : '—'))
                     ->all())->columnSpanFull(),
@@ -275,7 +277,7 @@ class OutageResource extends Resource
                 ->schema(collect(OutagePhoto::SITE_PHOTOS)->map(fn (array $photo, string $position) => ImageEntry::make("site_photo_{$position}")
                     ->label($photo[0])
                     ->state(fn (Outage $record) => self::sitePhoto($record, $position)?->url())
-                    ->url(fn (Outage $record) => self::sitePhoto($record, $position)?->url(), shouldOpenInNewTab: true)
+                    ->extraImgAttributes(fn (Outage $record) => PhotoViewer::imageAttributes(self::sitePhoto($record, $position)))
                     ->imageHeight(180)
                     ->helperText(fn (Outage $record) => self::sitePhoto($record, $position)?->caption())
                     ->placeholder('Not taken yet'))->values()->all())

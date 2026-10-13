@@ -62,6 +62,8 @@ class AdminPanelProvider extends PanelProvider
             ->renderHook(PanelsRenderHook::HEAD_START, fn () => view('filament.head-icons'))
             // Desktop notifications: the prompt to switch them on and the listener (signed-in pages only).
             ->renderHook(PanelsRenderHook::BODY_END, fn () => view('filament.partials.desktop-notifications'))
+            // The photo pop-up: any photo on the website opens large in the middle of the page (PhotoViewer).
+            ->renderHook(PanelsRenderHook::BODY_END, fn () => view('filament.partials.photo-viewer'))
             // OMS styles, cache-busted by content hash so every deploy reaches browsers immediately.
             ->renderHook(PanelsRenderHook::STYLES_AFTER, fn () => new HtmlString(
                 '<link rel="stylesheet" href="'.e(asset('css/oms.css')).'?v='.substr((string) @md5_file(public_path('css/oms.css')), 0, 12).'">'
@@ -75,6 +77,9 @@ class AdminPanelProvider extends PanelProvider
                 'gray' => Color::Zinc,
             ])
             ->spa()
+            // Files are handed to the browser, not opened as if they were a page of the panel (which showed
+            // the raw contents of a photo or a PDF instead of downloading it).
+            ->spaUrlExceptions(fn (): array => [url('/attachments/*'), url('/photos/*'), url('/crf/*'), url('/report-exports/*')])
             ->unsavedChangesAlerts()
             ->sidebarCollapsibleOnDesktop()
             ->maxContentWidth(Width::Full)

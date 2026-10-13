@@ -3,8 +3,8 @@
 namespace App\Filament\Resources\MobilityOutages\RelationManagers;
 
 use App\Filament\Resources\MobilityOutages\MobilityActions;
+use App\Filament\Support\PhotoViewer;
 use App\Models\OutageAttachment;
-use Filament\Actions\Action;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
@@ -35,10 +35,8 @@ class AttachmentsRelationManager extends RelationManager
                 TextColumn::make('user.name')->label('Added by')->placeholder('—'),
                 TextColumn::make('created_at')->label('Added')->dateTime('d M Y H:i'),
             ])
-            ->recordActions([
-                Action::make('download')->label('Download')->icon(Heroicon::OutlinedArrowDownTray)
-                    ->url(fn (OutageAttachment $record) => $record->url()),
-            ])
+            // A photo opens large in a pop-up on this page; any file can be downloaded.
+            ->recordActions([PhotoViewer::viewAction(), PhotoViewer::downloadAction()])
             ->headerActions([MobilityActions::addAttachment()->record($this->getOwnerRecord())]);
     }
 }

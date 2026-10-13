@@ -221,6 +221,15 @@ trail. A queue worker must be running (`php artisan queue:work`), locally too, o
 Exports share the queue with everything else unless `OMS_EXPORTS_QUEUE` says otherwise: behind a long backlog
 (a worker that was off for days) they wait their turn.
 
+### Looking at photos
+A photo is looked at the same way everywhere on the website: **View** (or a click on the picture) opens it large in a
+pop-up in the middle of the page, with what is known about it underneath and a **Download** button — never in
+another tab, and the page behind stays where it was (Esc, the Close button or a click beside the photo closes it).
+One component does it (`App\Filament\Support\PhotoViewer`, `resources/views/filament/partials/photo-viewer.blade.php`):
+*Photos & files* of customer tickets and site visits, the attachments and vendor evidence of 4G tickets, and the site
+and maintenance photos on an outage. Files (photos, the CRF PDF, report exports) are excluded from the panel's
+single-page navigation (`spaUrlExceptions`), so a download is a download and not a page of raw data.
+
 ### Geolocation photo
 The **geolocation photo** of a site visit (mobile app, *Complete visit*) is taken at the phone's position. The app
 stamps the picture like a GPS camera does — a small map with a pin, the place, the address, latitude and longitude

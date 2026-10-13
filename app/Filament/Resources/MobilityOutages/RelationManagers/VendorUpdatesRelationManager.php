@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\MobilityOutages\RelationManagers;
 
 use App\Filament\Resources\MobilityOutages\MobilityActions;
+use App\Filament\Support\PhotoViewer;
 use App\Models\OutageAttachment;
 use App\Models\VendorUpdate;
 use Filament\Resources\RelationManagers\RelationManager;
@@ -52,7 +53,7 @@ class VendorUpdatesRelationManager extends RelationManager
                 TextColumn::make('comments')->label('Vendor comments')->wrap()->placeholder('—'),
                 TextColumn::make('files')->label('Evidence')->html()->placeholder('—')->visibleFrom('lg')
                     ->state(fn (VendorUpdate $record) => $record->attachments->isEmpty() ? null : new HtmlString($record->attachments
-                        ->map(fn (OutageAttachment $file) => '<a class="underline" href="'.e($file->url()).'">'.e($file->name()).'</a>')->implode('<br>'))),
+                        ->map(fn (OutageAttachment $file) => PhotoViewer::link($file)->toHtml())->implode('<br>'))),
                 TextColumn::make('user.name')->label('Recorded by')->placeholder('—')->visibleFrom('lg')
                     ->description(fn (VendorUpdate $record) => $record->created_at?->format('d M H:i')),
             ])

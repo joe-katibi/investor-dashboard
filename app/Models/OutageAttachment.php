@@ -55,6 +55,12 @@ class OutageAttachment extends Model
         return $this->belongsTo(User::class);
     }
 
+    /** A picture the browser can show (the rest — PDF, spreadsheet, e-mail — can only be downloaded). */
+    public function isImage(): bool
+    {
+        return (bool) preg_match('/\.(jpe?g|png|webp|gif)$/i', (string) $this->path);
+    }
+
     public function name(): string
     {
         return $this->original_name ?: basename($this->path);
