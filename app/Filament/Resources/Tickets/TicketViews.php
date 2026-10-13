@@ -7,8 +7,10 @@ use App\Enums\SlaState;
 use App\Filament\Resources\Outages\OutageActions;
 use App\Filament\Resources\SiteVisits\SiteVisitResource;
 use App\Filament\Support\OutageLink;
+use App\Filament\Support\PhotoViewer;
 use App\Models\Olt;
 use App\Models\Outage;
+use App\Models\OutageAttachment;
 use App\Models\OutageStatus;
 use App\Models\Region;
 use App\Models\Ticket;
@@ -16,9 +18,11 @@ use App\Models\TicketFollowUp;
 use App\Models\VisitType;
 use App\Services\Maintenance\MaintenanceNotifier;
 use App\Services\Tickets\BusinessClock;
+use App\Support\VisitPhotos;
 use Carbon\CarbonInterface;
 use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\DatePicker;
+use Filament\Infolists\Components\ImageEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
@@ -61,6 +65,18 @@ final class TicketViews
 
     /** @var \WeakMap<Outage, array{0: ?Outage}>|null per ticket shown; gone with it */
     private static ?\WeakMap $openVisits = null;
+
+    /** The photo of one kind on a visit (the latest), looked up once per page for all kinds. */
+    private static function visitPhoto(Outage $record, string $kind): ?OutageAttachment
+    {
+        self::$visitPhotos ??= new \WeakMap;
+        self::$visitPhotos[$record] ??= VisitPhotos::taken($record);
+
+        return self::$visitPhotos[$record][$kind] ?? null;
+    }
+
+    /** @var \WeakMap<Outage, \Illuminate\Support\Collection<string, ?OutageAttachment>>|null */
+    private static ?\WeakMap $visitPhotos = null;
 
     /** What the search box at the top of every page looks in, for customer tickets and site visits. */
     public const GLOBAL_SEARCH = [
@@ -261,6 +277,21 @@ final class TicketViews
                     ])->columns(2),
                 ])->columnSpan(['default' => 'full', 'lg' => 1]),
             ])->columnSpanFull(),
+
+            // Installation / relocation: the nine photos the visit is completed with, taken in the mobile app.
+            Section::make('Installation photos')->icon(Heroicon::OutlinedCamera)
+                ->description(fn (Outage $record) => VisitPhotos::progress($record).' taken. They are taken in the mobile app, with the camera — there is no upload for them here. Click a photo to view it.')
+                ->schema(fn (): array => collect(VisitPhotos::PHOTOS)->except('geo_photo')->keys()->map(fn (string $kind) => ImageEntry::make("visit_photo_{$kind}")
+                    ->label(fn (Outage $record) => VisitPhotos::of($record)[$kind]['label'] ?? VisitPhotos::short($kind))
+                    ->state(fn (Outage $record) => self::visitPhoto($record, $kind)?->url())
+                    ->extraImgAttributes(fn (Outage $record) => PhotoViewer::attachmentImageAttributes(self::visitPhoto($record, $kind)))
+                    ->imageHeight(170)
+                    ->helperText(fn (Outage $record) => ($photo = self::visitPhoto($record, $kind)) ? collect([
+                        $photo->coordinates(), $photo->place, ($photo->taken_at ?? $photo->created_at)?->format('d M Y H:i'), $photo->user?->name,
+                    ])->filter()->implode(' · ') : null)
+                    ->placeholder('Not taken yet'))->all())
+                ->columns(['default' => 1, 'sm' => 2, 'lg' => 3])->columnSpanFull()
+                ->visible(fn (Outage $record) => $visits && VisitPhotos::appOnly($record)),
 
             Section::make('Outcome')->icon(Heroicon::OutlinedCheckBadge)->schema([
                 TextEntry::make('ticket.finalReason.name')->label('Final reason')->placeholder('—')->weight('bold'),

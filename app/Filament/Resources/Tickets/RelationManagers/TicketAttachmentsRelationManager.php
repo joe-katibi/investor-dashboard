@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Tickets\RelationManagers;
 use App\Filament\Resources\Tickets\TicketActions;
 use App\Filament\Support\PhotoViewer;
 use App\Models\OutageAttachment;
+use App\Support\VisitPhotos;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
@@ -17,7 +18,8 @@ class TicketAttachmentsRelationManager extends RelationManager
 
     protected static ?string $title = 'Photos & files';
 
-    public const KINDS = ['geo_photo' => 'Geolocation photo', 'speed_test' => 'Speed test photo', 'evidence' => 'Evidence'];
+    /** Every kind of photo a visit is completed with (App\Support\VisitPhotos), and plain evidence. */
+    public const KINDS = VisitPhotos::SHORT + ['evidence' => 'Evidence'];
 
     public function isReadOnly(): bool
     {

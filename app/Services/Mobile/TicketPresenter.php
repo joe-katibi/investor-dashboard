@@ -7,6 +7,7 @@ use App\Models\Outage;
 use App\Models\OutageAssignment;
 use App\Models\OutageAttachment;
 use App\Models\OutagePhoto;
+use App\Support\VisitPhotos;
 use App\Models\OutageUpdate;
 use App\Models\User;
 use DateTimeInterface;
@@ -232,10 +233,9 @@ final class TicketPresenter
             ->map(fn (OutageAttachment $file) => [
                 'id' => 'a'.$file->id,
                 'name' => $file->name(),
-                'label' => match ($file->kind) {
-                    'geo_photo' => 'Geolocation photo',
-                    'speed_test' => 'Speed test photo',
-                    'evidence' => 'Evidence',
+                'label' => match (true) {
+                    VisitPhotos::short($file->kind) !== null => VisitPhotos::short($file->kind),
+                    $file->kind === 'evidence' => 'Evidence',
                     default => $file->note ?: 'Attachment',
                 },
                 'is_image' => (bool) preg_match('/\.(jpe?g|png|webp)$/i', $file->path),

@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Models\VisitType;
 use App\Services\Outages\OutageWorkflow;
 use App\Support\Settings;
+use App\Support\VisitPhotos;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\FileUpload;
@@ -272,19 +273,27 @@ final class TicketActions
             ->color('success')
             ->visible(fn (Outage $record) => Auth::user()?->can('visitComplete', $record))
             ->modalHeading('Work completed')
-            ->modalDescription(fn (Outage $record) => self::needsEvidence($record)
-                ? 'The FAT number, a geolocation photo and a speed-test photo are required. The visit returns to the dispatcher for the final close.'
-                : 'The visit returns to the dispatcher for the final close.')
+            ->modalDescription(fn (Outage $record) => match (true) {
+                ! self::needsEvidence($record) => 'The visit returns to the dispatcher for the final close.',
+                // Installation / relocation: the nine photos are taken in the mobile app — nothing is uploaded for them here.
+                VisitPhotos::appOnly($record) => 'The FAT number and all '.count(VisitPhotos::of($record)).' installation photos are required. The photos are taken in the mobile app ('
+                    .VisitPhotos::progress($record).' on the visit'.(($missing = VisitPhotos::missing($record)) !== []
+                        ? '; still to take: '.collect(array_keys($missing))->map(fn (string $kind) => VisitPhotos::short($kind))->implode('; ')
+                        : '').'). The visit returns to the dispatcher for the final close.',
+                default => 'The FAT number, a geolocation photo and a speed-test photo are required. The visit returns to the dispatcher for the final close.',
+            })
             ->modalWidth('3xl')
             ->fillForm(fn (Outage $record) => ['completed_at' => now()->startOfMinute()->toDateTimeString(), 'fat_number' => $record->ticket?->fat_number])
             ->schema(fn (Outage $record) => [
                 Grid::make(['default' => 1, 'sm' => 2])->schema([
                     Select::make('final_reason_id')->label('Final reason')->required()->searchable()->options(fn (Outage $record) => self::finalReasons('visit', $record->current_queue)),
                     TextInput::make('fat_number')->label('FAT number')->maxLength(60)->required(self::needsEvidence($record)),
-                    self::photo('geo_photo', 'Geolocation photo', 'Photo with the location stamp at the customer premise.')
-                        ->required(self::needsEvidence($record) && ! $record->attachments()->where('kind', 'geo_photo')->exists()),
-                    self::photo('speed_photo', 'Speed test photo', 'Screenshot / photo of the speed test after the fix.')
-                        ->required(self::needsEvidence($record) && ! $record->attachments()->where('kind', 'speed_test')->exists()),
+                    ...(VisitPhotos::appOnly($record) ? [] : [
+                        self::photo('geo_photo', 'Geolocation photo', 'Photo with the location stamp at the customer premise.')
+                            ->required(self::needsEvidence($record) && ! $record->attachments()->where('kind', 'geo_photo')->exists()),
+                        self::photo('speed_photo', 'Speed test photo', 'Screenshot / photo of the speed test after the fix.')
+                            ->required(self::needsEvidence($record) && ! $record->attachments()->where('kind', 'speed_test')->exists()),
+                    ]),
                 ]),
                 Textarea::make('resolution_notes')->label('Work done')->required()->rows(3)->maxLength(5000),
                 Grid::make(['default' => 2, 'sm' => 3])->schema([
@@ -483,7 +492,10 @@ final class TicketActions
             ->schema([
                 MobilityActions::attachmentUpload('files', 'Files')->required()->storeFileNamesIn('file_names'),
                 Select::make('kind')->label('What is it?')->placeholder('Other document')
-                    ->options(['geo_photo' => 'Geolocation photo', 'speed_test' => 'Speed test photo', 'evidence' => 'Other evidence of the work']),
+                    // The photos of an installation / relocation come from the mobile app only: here a file is plain evidence.
+                    ->options(fn (Outage $record) => VisitPhotos::appOnly($record)
+                        ? ['evidence' => 'Other evidence of the work']
+                        : ['geo_photo' => 'Geolocation photo', 'speed_test' => 'Speed test photo', 'evidence' => 'Other evidence of the work']),
                 TextInput::make('note')->label('Note (optional)')->maxLength(255),
             ])
             ->action(fn (Outage $record, array $data) => OutageActions::run($record, fn () => app(OutageWorkflow::class)->addTicketAttachments(

@@ -39,6 +39,7 @@ use App\Services\Notifications\Sms\PhoneNumber;
 use App\Services\Tickets\OutageLocator;
 use App\Support\AuditContext;
 use App\Support\Settings;
+use App\Support\VisitPhotos;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -569,19 +570,19 @@ trait ManagesTickets
             $this->fifo->authorizeWork($outage, QueueType::VisitTechnician, $by);
 
             $evidence = app(Settings::class)->bool('ticketing.require_evidence') && (bool) $ticket->visitType()->value('requires_evidence');
-            $photos = $this->storeTicketPhotos($outage, $by, [
-                // With the position it was taken at (sent by the app, or read from the photo itself).
-                'geo_photo' => [$data['geo_photo'] ?? null, $data['geo_photo_name'] ?? null, 'Geolocation photo', $data['geo_photo_location'] ?? null],
-                'speed_test' => [$data['speed_photo'] ?? null, $data['speed_photo_name'] ?? null, 'Speed test photo'],
-            ]);
+            // Which photos depends on the kind of visit: two, or the nine of an installation / relocation.
+            $photos = $this->storeTicketPhotos($outage, $by, $this->visitPhotosFrom($outage, $data));
 
             if ($evidence) {
                 $this->requireText($data['fat_number'] ?? $ticket->fat_number, 'fat_number', 'The FAT number is required before closing.');
 
-                foreach (['geo_photo' => 'geolocation photo', 'speed_test' => 'speed test photo'] as $kind => $label) {
-                    if (! $outage->attachments()->where('kind', $kind)->exists()) {
-                        throw ValidationException::withMessages([$kind === 'geo_photo' ? 'geo_photo' : 'speed_photo' => "Add the {$label} before closing."]);
-                    }
+                // Every photo of the set, each named: the technician sees at once what is still to take.
+                $missing = collect(VisitPhotos::missing($outage))->mapWithKeys(fn (string $label, string $kind) => [VisitPhotos::field($kind) => VisitPhotos::appOnly($outage)
+                    ? "Still to take in the mobile app: {$label}."
+                    : 'Add the '.lcfirst($label).' before closing.'])->all();
+
+                if ($missing !== []) {
+                    throw ValidationException::withMessages($missing);
                 }
             }
 
@@ -976,6 +977,50 @@ trait ManagesTickets
         });
     }
 
+    /**
+     * The technician adds photos of the visit as the work goes: the nine of an installation are taken
+     * at the FAT, along the cable and in the house — not all at the end. $data as for completeVisit:
+     * "{field}" (the stored path, or paths), "{field}_name" and "{field}_location".
+     */
+    public function addVisitPhotos(Outage $outage, User $by, array $data): int
+    {
+        return DB::transaction(function () use ($outage, $by, $data): int {
+            $outage = $this->lock($outage);
+            Gate::forUser($by)->authorize('visitComplete', $outage);
+            $this->fifo->authorizeWork($outage, QueueType::VisitTechnician, $by);
+
+            $stored = $this->storeTicketPhotos($outage, $by, $this->visitPhotosFrom($outage, $data));
+
+            if ($stored === 0) {
+                throw ValidationException::withMessages(['photos' => 'Take at least one photo.']);
+            }
+
+            $missing = VisitPhotos::missing($outage);
+            $this->ticketUpdate($outage, "{$stored} photo".($stored === 1 ? '' : 's').' added — '.VisitPhotos::progress($outage).' on the visit'
+                .($missing ? '. Still to take: '.collect(array_keys($missing))->map(fn (string $kind) => VisitPhotos::short($kind))->implode('; ').'.' : ': all taken.'), $by, 'attachment', 'attachment_added');
+            event(new OutageUpdated($outage->id, $outage->ticket_number));
+
+            return $stored;
+        });
+    }
+
+    /**
+     * What was sent for each photo of this visit's set, as storeTicketPhotos takes it.
+     *
+     * @return array<string, array{0: mixed, 1: mixed, 2: string, 3: mixed, 4: bool}> kind => path(s), name(s), note, position, several?
+     */
+    private function visitPhotosFrom(Outage $outage, array $data): array
+    {
+        return collect(VisitPhotos::of($outage))->map(fn (array $photo) => [
+            $data[$photo['field']] ?? null,
+            $data[$photo['field'].'_name'] ?? null,
+            $photo['short'],
+            // A geotagged photo comes with the position it was taken at (sent by the app, or read from the photo itself).
+            $data[$photo['field'].'_location'] ?? null,
+            $photo['many'],
+        ])->all();
+    }
+
     /** A final reason is only accepted at a desk it is offered at (Configuration → Final Reasons). */
     private function reasonOfDesk(FinalReason $reason, ?QueueType $desk): void
     {
@@ -1002,7 +1047,7 @@ trait ManagesTickets
             ->map(fn (string $path) => OutageAttachment::query()->create([
                 'outage_id' => $outage->id, 'kind' => $kind, 'path' => $path, 'original_name' => $names[$path] ?? null, 'note' => $note, 'user_id' => $by->id,
                 // A geolocation photo added later carries its position in the photo itself.
-            ] + ($kind === 'geo_photo' ? app(PhotoLocation::class)->for($path) : [])));
+            ] + (VisitPhotos::geotagged($kind) ? app(PhotoLocation::class)->for($path) : [])));
     }
 
     /**
@@ -1672,20 +1717,30 @@ trait ManagesTickets
     private function storeTicketPhotos(Outage $outage, User $by, array $photos): int
     {
         $stored = 0;
+        $usable = fn (mixed $path): bool => is_string($path) && Str::startsWith($path, OutageAttachment::DIRECTORY.'/') && ! str_contains($path, '..') && Storage::disk('local')->exists($path);
 
         foreach ($photos as $kind => $photo) {
-            [$path, $name, $note, $location] = array_pad($photo, 4, null);
-            $path = is_array($path) ? (array_values($path)[0] ?? null) : $path;
+            [$paths, $name, $note, $location, $many] = array_pad($photo, 5, null);
+            $paths = array_values(array_filter(is_array($paths) ? $paths : [$paths], $usable));
+            $paths = $many ? $paths : array_slice($paths, 0, 1);
 
-            if (! is_string($path) || ! Str::startsWith($path, OutageAttachment::DIRECTORY.'/') || str_contains($path, '..') || ! Storage::disk('local')->exists($path)) {
+            if ($paths === []) {
                 continue;
             }
 
-            OutageAttachment::query()->create([
-                'outage_id' => $outage->id, 'kind' => $kind, 'path' => $path,
-                'original_name' => is_array($name) ? ($name[$path] ?? null) : $name, 'note' => $note, 'user_id' => $by->id,
-            ] + ($kind === 'geo_photo' ? app(PhotoLocation::class)->for($path, is_array($location) ? $location : null) : []));
-            $stored++;
+            // Taken again: the earlier one stays on the visit, but is no longer "the" photo of its kind.
+            if (! $many) {
+                OutageAttachment::query()->where('outage_id', $outage->id)->where('kind', $kind)->get()
+                    ->each(fn (OutageAttachment $earlier) => $earlier->update(['kind' => 'evidence', 'note' => Str::limit('Replaced — '.($earlier->note ?: $kind), 250)]));
+            }
+
+            foreach ($paths as $path) {
+                OutageAttachment::query()->create([
+                    'outage_id' => $outage->id, 'kind' => $kind, 'path' => $path,
+                    'original_name' => is_array($name) ? ($name[$path] ?? null) : $name, 'note' => $note, 'user_id' => $by->id,
+                ] + (VisitPhotos::geotagged($kind) ? app(PhotoLocation::class)->for($path, is_array($location) ? $location : null) : []));
+                $stored++;
+            }
         }
 
         return $stored;

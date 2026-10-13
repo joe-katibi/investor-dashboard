@@ -18,7 +18,11 @@ use App\Models\User;
 use App\Models\VisitType;
 use App\Services\Notifications\NotificationDispatcher;
 use App\Services\Outages\OutageWorkflow;
+use App\Filament\Resources\SiteVisits\Pages\ViewSiteVisit;
+use App\Services\Reports\ReportRegistry;
 use App\Support\Settings;
+use App\Support\VisitPhotos;
+use Livewire\Livewire;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Http\UploadedFile;
@@ -645,6 +649,108 @@ class MobileApiTest extends TestCase
         // Someone the ticket does not concern cannot open it.
         $other = $this->makeUser('Outage Technician', 'INFRA', attributes: ['email' => 'other@example.com']);
         $this->api($other, 'GET', "tickets/{$ticket->id}")->assertForbidden();
+    }
+
+    public function test_an_installation_is_completed_with_nine_photos_taken_in_the_app_two_of_them_geotagged(): void
+    {
+        $dispatcher = $this->makeUser('Site Visit Dispatcher', 'DISPATCH');
+        $technician = $this->makeUser('Site Visit Technician', 'DISPATCH');
+        $tier2 = $this->makeUser('CX Tier II', 'CX');
+
+        // Installation and Shifting visits take the nine; the others stay on two.
+        $this->assertSame(['INS' => 'installation', 'SHI' => 'installation', 'SUP' => 'standard', 'WiE' => 'standard'], VisitType::query()->orderBy('code_prefix')->pluck('photo_set', 'code_prefix')->all());
+
+        Auth::setUser($tier2);
+        $visit = $this->workflow->createSiteVisit([
+            'visit_type_id' => VisitType::query()->where('code_prefix', 'INS')->value('id'),
+            'subcategory_id' => TicketSubcategory::query()->where('name', 'New Installation')->value('id'),
+            'account_number' => 'SF2700001', 'customer_name' => 'Ivy Installer', 'address' => 'Kira, plot 9', 'calling_number' => '0772000030',
+        ], $tier2);
+        $this->act($dispatcher, $visit, 'visit_assign', ['technician_id' => $technician->id])->assertOk();
+        $this->act($technician, $visit, 'visit_en_route')->assertOk();
+        $this->act($technician, $visit, 'visit_arrive')->assertOk();
+
+        $kinds = ['fat_outside', 'fat_inside', 'fat_power', 'cable_entry', 'atb_onu', 'atb_power', 'onu_serial', 'speed_test', 'devices_ok'];
+        $fieldsOf = fn (string $key) => collect(collect($this->api($technician, 'GET', "tickets/{$visit->id}")->assertOk()->json('ticket.actions'))->firstWhere('key', $key)['fields'] ?? [])->keyBy('name');
+
+        // The app offers "Installation photos (0 of 9)": all nine, camera only, the two geotagged ones with the phone's position.
+        $detail = $this->fixture('ticket_visit_installation', $this->api($technician, 'GET', "tickets/{$visit->id}")->assertOk());
+        $photos = collect($detail->json('ticket.actions'))->firstWhere('key', 'visit_photos');
+        $this->assertSame(['Installation photos (0 of 9)', true], [$photos['label'], $photos['primary']]);
+        $this->assertStringContainsString('Still to take: FAT — outside (geotagged); FAT — inside, terminations;', $photos['description']);
+        $this->assertSame(['fat_outside', 'fat_inside', 'fat_power', 'cable_entry', 'atb_onu', 'atb_power', 'onu_serial', 'speed_photo', 'devices_ok'], array_column($photos['fields'], 'name'));
+        $this->assertSame([
+            'Geotagged photograph of the outside of the FAT serving this connection',
+            'Photograph inside the FAT after splicing, showing the terminations',
+            'Power levels at the FAT: output power of this port',
+            'Geotagged photograph of the cable entry towards the premises',
+            'Installation photograph showing the ATB and ONU mounted in the house',
+            'Power readings at the ATB',
+            'Photograph of the ONU showing the serial number',
+            'Speed tests: wired at the ONU, then Wi-Fi in the room of use',
+            'Confirmation that every smart TV and streaming device is working',
+        ], array_column($photos['fields'], 'label'));
+        $this->assertSame(array_fill(0, 9, 'camera'), array_column($photos['fields'], 'capture'), 'no gallery, no upload');
+        $this->assertSame(['fat_outside' => 'required', 'cable_entry' => 'required'], collect($photos['fields'])->pluck('location', 'name')->filter()->all());
+        $this->assertSame(['speed_photo' => 'photos'], collect($photos['fields'])->where('type', '!=', 'photo')->pluck('type', 'name')->all(), 'both speed tests in one field');
+
+        // Completing asks for every one of them, and is refused while any is missing — each named.
+        $complete = $fieldsOf('visit_complete');
+        $this->assertSame(array_fill(0, 9, true), $complete->only(array_column($photos['fields'], 'name'))->pluck('required')->all());
+        $reason = $complete['final_reason_id']['options'][0]['value'];
+        $done = ['final_reason_id' => $reason, 'resolution_notes' => 'Installed and tested', 'fat_number' => 'FAT-220'];
+        $this->act($technician, $visit, 'visit_complete', $done)->assertStatus(422)
+            ->assertJsonValidationErrors(['fat_outside', 'fat_inside', 'fat_power', 'cable_entry', 'atb_onu', 'atb_power', 'onu_serial', 'speed_photo', 'devices_ok']);
+
+        // At the FAT: three photos as the work goes. The geotagged one needs the phone's position.
+        $image = fn (string $name) => UploadedFile::fake()->image($name, 800, 600);
+        $this->act($technician, $visit, 'visit_photos', ['fat_outside' => $image('fat.jpg')])->assertStatus(422)->assertJsonValidationErrors(['fat_outside_lat', 'fat_outside_lng']);
+        $this->act($technician, $visit, 'visit_photos', [
+            'fat_outside' => $image('fat.jpg'), 'fat_outside_lat' => '0.338276', 'fat_outside_lng' => '32.581402', 'fat_outside_accuracy' => '6', 'fat_outside_place' => 'Kitante, Kampala',
+            'fat_inside' => $image('inside.jpg'), 'fat_power' => $image('power.jpg'),
+        ])->assertOk()->assertJsonPath('message', '3 photos added — 3 of 9 on the visit');
+        $this->assertSame('Installation photos (3 of 9)', collect($this->api($technician, 'GET', "tickets/{$visit->id}")->json('ticket.actions'))->firstWhere('key', 'visit_photos')['label']);
+        $this->assertSame(['cable_entry', 'atb_onu', 'atb_power', 'onu_serial', 'speed_photo', 'devices_ok'],
+            $fieldsOf('visit_complete')->keys()->intersect(array_column($photos['fields'], 'name'))->values()->all(), 'completing asks only for what is missing');
+
+        // Taken again: the new one is the photo of its kind, the earlier one stays as evidence.
+        $first = OutageAttachment::query()->where('outage_id', $visit->id)->where('kind', 'fat_power')->sole();
+        $this->act($technician, $visit, 'visit_photos', ['fat_power' => $image('power-2.jpg')])->assertOk()->assertJsonPath('message', '1 photo added — 3 of 9 on the visit');
+        $this->assertSame(['evidence', 'Replaced — FAT — port power'], [$first->refresh()->kind, $first->note]);
+        $this->assertSame('power-2.jpg', OutageAttachment::query()->where('outage_id', $visit->id)->where('kind', 'fat_power')->sole()->original_name);
+
+        // In the house: the rest with the completion — both speed tests in one go.
+        $this->act($technician, $visit, 'visit_complete', $done + [
+            'cable_entry' => $image('entry.jpg'), 'cable_entry_lat' => '0.338301', 'cable_entry_lng' => '32.581466',
+            'atb_onu' => $image('atb.jpg'), 'atb_power' => $image('atb-power.jpg'), 'onu_serial' => $image('serial.jpg'),
+            'speed_photo' => [$image('wired.jpg'), $image('wifi.jpg')], 'devices_ok' => $image('tv.jpg'),
+        ])->assertOk()->assertJsonPath('message', 'Completed — sent to the dispatcher');
+        $this->assertSame(QueueType::VisitDispatch, $visit->refresh()->current_queue);
+
+        $files = OutageAttachment::query()->where('outage_id', $visit->id)->whereIn('kind', $kinds)->orderBy('id')->get();
+        $this->assertEqualsCanonicalizing($kinds, $files->pluck('kind')->unique()->values()->all());
+        $this->assertSame(2, $files->where('kind', 'speed_test')->count());
+        // Only the two geotagged ones carry a position.
+        $this->assertSame(['fat_outside' => '0.338276, 32.581402 (± 6 m)', 'cable_entry' => '0.338301, 32.581466'], $files->filter->hasLocation()->mapWithKeys(fn (OutageAttachment $file) => [$file->kind => $file->coordinates()])->all());
+        $this->assertSame('Kitante, Kampala', $files->firstWhere('kind', 'fat_outside')->place);
+        $this->assertContains('FAT — outside (geotagged)', array_column($this->api($dispatcher, 'GET', "tickets/{$visit->id}")->json('ticket.attachments'), 'label'));
+
+        // The Geolocation Photos report lists both, with what each is.
+        $this->flushHeaders()->actingAs($dispatcher, 'web');
+        $rows = collect(app(ReportRegistry::class)->run('ticket_geolocation', ['from' => now()->subDay()->toDateString(), 'to' => now()->toDateString()])->rowsArray())->keyBy('type');
+        $this->assertSame(['Cable entry (geotagged)', 'FAT — outside (geotagged)'], $rows->keys()->sort()->values()->all());
+        $this->assertSame(['SF2700001', $visit->ticket_number, '0.338276', '32.581402'], array_values(array_intersect_key($rows['FAT — outside (geotagged)'], array_flip(['account', 'ticket', 'latitude', 'longitude']))));
+
+        // The website shows the nine on the visit, has no upload for them, and offers no "geolocation photo" to attach.
+        Livewire::test(ViewSiteVisit::class, ['record' => $visit->id])
+            ->assertSee('Installation photos')
+            ->assertSee('9 of 9 taken')
+            ->assertSee('Geotagged photograph of the outside of the FAT serving this connection')
+            ->assertSee('Confirmation that every smart TV and streaming device is working')
+            ->assertSee('0.338276, 32.581402 (± 6 m)')
+            ->assertSeeHtml('oms-photo');
+        $this->assertTrue(VisitPhotos::appOnly($visit));
+        $this->assertSame([], VisitPhotos::missing($visit));
     }
 
     public function test_the_app_asks_oms_for_the_place_and_a_map_of_a_position(): void

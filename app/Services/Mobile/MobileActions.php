@@ -23,6 +23,7 @@ use App\Models\Vertical;
 use App\Services\Fifo\FifoAssignmentEngine;
 use App\Services\Outages\OutageWorkflow;
 use App\Support\Settings;
+use App\Support\VisitPhotos;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
@@ -594,25 +595,42 @@ final class MobileActions
                     return 'Work resumed';
                 },
             ],
+            // Installation / relocation: nine photos, taken as the work goes — at the FAT, along the cable, in the house.
+            'visit_photos' => [
+                'visible' => $can('visitComplete') && $holding && VisitPhotos::appOnly($outage),
+                'label' => VisitPhotos::appOnly($outage) ? 'Installation photos ('.VisitPhotos::progress($outage).')' : 'Installation photos',
+                'style' => 'warning',
+                'primary' => VisitPhotos::appOnly($outage) && VisitPhotos::missing($outage) !== [],
+                'description' => ! VisitPhotos::appOnly($outage) ? null : (($missing = VisitPhotos::missing($outage)) !== []
+                    ? 'Take them as the work goes; the visit cannot be completed without all of them. Still to take: '
+                        .collect(array_keys($missing))->map(fn (string $kind) => VisitPhotos::short($kind))->implode('; ').'.'
+                    : 'All the photos are on the visit. Take one again only to replace it.'),
+                'fields' => fn () => $this->visitPhotoFields($outage, required: false, missingOnly: false),
+                'handle' => function (array $data) use ($outage, $user): string {
+                    $stored = $this->workflow->addVisitPhotos($outage, $user, $this->storedVisitPhotos($outage, $data));
+
+                    return "{$stored} photo".($stored === 1 ? '' : 's').' added — '.VisitPhotos::progress($outage).' on the visit';
+                },
+            ],
             'visit_complete' => [
                 'visible' => $can('visitComplete') && $holding,
                 'label' => 'Complete visit',
                 'style' => 'success',
                 'primary' => $ticket?->arrived_at !== null && $ticket?->paused_at === null,
-                'description' => $outage->isSiteVisit() && TicketActions::needsEvidence($outage)
-                    ? 'The FAT number, a geolocation photo and a speed-test photo are required. The visit returns to the dispatcher for the final close.'
-                    : 'The visit returns to the dispatcher for the final close.',
+                'description' => match (true) {
+                    ! $outage->isSiteVisit() || ! TicketActions::needsEvidence($outage) => 'The visit returns to the dispatcher for the final close.',
+                    VisitPhotos::appOnly($outage) => 'The FAT number and all '.count(VisitPhotos::of($outage)).' installation photos are required ('.VisitPhotos::progress($outage).' taken). The visit returns to the dispatcher for the final close.',
+                    default => 'The FAT number, a geolocation photo and a speed-test photo are required. The visit returns to the dispatcher for the final close.',
+                },
                 'fields' => function () use ($outage, $ticket): array {
                     $evidence = TicketActions::needsEvidence($outage);
 
                     return [
                         $this->select('final_reason_id', 'Final reason', $this->options(TicketActions::finalReasons('visit', $outage->current_queue)), required: true),
                         $this->text('fat_number', 'FAT number', required: $evidence, max: 60, default: $ticket?->fat_number),
-                        // Taken at the phone's position: the place, the coordinates and the time are stamped on it and saved with it.
-                        $this->photo('geo_photo', 'Geolocation photo', 'Taken at the customer premise: your position, the place and the time are stamped on the photo.',
-                            required: $evidence && ! $outage->attachments()->where('kind', 'geo_photo')->exists(), location: true),
-                        $this->photo('speed_photo', 'Speed test photo', 'Photo of the speed test result after the fix.',
-                            required: $evidence && ! $outage->attachments()->where('kind', 'speed_test')->exists()),
+                        // The photos of this kind of visit: two, or — installation / relocation — whichever of the nine are not on the visit yet.
+                        // A geotagged one is taken at the phone's position: place, coordinates and time are stamped on it and saved with it.
+                        ...$this->visitPhotoFields($outage, required: $evidence, missingOnly: VisitPhotos::appOnly($outage)),
                         $this->textarea('resolution_notes', 'Work done', required: true, max: 5000),
                         $this->text('onu_type', 'ONU type used', max: 60),
                         $this->number('drop_cable_m', 'Drop cable (m)', max: 100000),
@@ -624,15 +642,7 @@ final class MobileActions
                     ];
                 },
                 'handle' => function (array $data) use ($outage, $user): string {
-                    foreach (['geo_photo', 'speed_photo'] as $field) {
-                        if (($data[$field] ?? null) instanceof UploadedFile) {
-                            [$data[$field], $data[$field.'_name']] = $this->store($data[$field], OutageAttachment::DIRECTORY);
-                        } else {
-                            unset($data[$field]);
-                        }
-                    }
-
-                    $this->workflow->completeVisit($outage, $user, $data);
+                    $this->workflow->completeVisit($outage, $user, $this->storedVisitPhotos($outage, $data));
 
                     return 'Completed — sent to the dispatcher';
                 },
@@ -901,9 +911,58 @@ final class MobileActions
         return $photos;
     }
 
-    private function photos(string $name, string $label, bool $required = false): array
+    /**
+     * The photo fields of this visit's set (App\Support\VisitPhotos). Where the set is long — the nine
+     * of an installation — the form that completes the visit asks only for the ones not taken yet.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function visitPhotoFields(Outage $outage, bool $required, bool $missingOnly): array
     {
-        return ['name' => $name, 'type' => 'photos', 'label' => $label, 'required' => $required, 'max_files' => 8, 'max_kb' => (int) config('oms.mobile.max_upload_kb'), 'capture' => 'camera'];
+        $taken = VisitPhotos::taken($outage);
+        $fields = [];
+
+        foreach (VisitPhotos::of($outage) as $kind => $photo) {
+            $have = $taken[$kind] !== null;
+
+            if ($missingOnly && $have) {
+                continue;
+            }
+
+            $help = ($have ? 'On the visit — take it again only to replace it. ' : '').$photo['help'];
+            $fields[] = $photo['many']
+                ? $this->photos($photo['field'], $photo['label'], required: $required && ! $have, help: $help, max: 4)
+                : $this->photo($photo['field'], $photo['label'], $help, required: $required && ! $have, location: $photo['geotag']);
+        }
+
+        return $fields;
+    }
+
+    /**
+     * Stores the photos sent for this visit's set and hands the workflow their paths: "{field}" and
+     * "{field}_name" (one, or a list for a photo taken several times). A field that came empty is left out.
+     */
+    private function storedVisitPhotos(Outage $outage, array $data): array
+    {
+        foreach (VisitPhotos::of($outage) as $photo) {
+            $field = $photo['field'];
+            $sent = $data[$field] ?? null;
+
+            if ($photo['many'] && is_array($sent) && $sent !== []) {
+                [$data[$field], $data[$field.'_name']] = $this->storeMany($sent, OutageAttachment::DIRECTORY);
+            } elseif (! $photo['many'] && $sent instanceof UploadedFile) {
+                [$data[$field], $data[$field.'_name']] = $this->store($sent, OutageAttachment::DIRECTORY);
+            } else {
+                unset($data[$field]);
+            }
+        }
+
+        return $data;
+    }
+
+    private function photos(string $name, string $label, bool $required = false, ?string $help = null, int $max = 8): array
+    {
+        return ['name' => $name, 'type' => 'photos', 'label' => $label, 'required' => $required, 'help' => $help, 'max_files' => $max, 'max_kb' => (int) config('oms.mobile.max_upload_kb'), 'capture' => 'camera'];
     }
 
     /**

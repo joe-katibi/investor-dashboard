@@ -14,6 +14,7 @@ use App\Models\TicketFollowUp;
 use App\Services\Tickets\BusinessClock;
 use App\Services\Tickets\TicketMetrics;
 use App\Support\Settings;
+use App\Support\VisitPhotos;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
@@ -310,11 +311,12 @@ class TicketReports
     private function geolocation(array $filters): ReportResult
     {
         [$from, $to] = $this->period($filters);
-        $query = fn () => OutageAttachment::query()->where('kind', 'geo_photo')->whereBetween('created_at', [$from, $to]);
+        // The geolocation photo of a visit, and the two geotagged photos of an installation / relocation (FAT outside, cable entry).
+        $query = fn () => OutageAttachment::query()->whereIn('kind', VisitPhotos::geotaggedKinds())->whereBetween('created_at', [$from, $to]);
 
         return new ReportResult(self::REPORTS['ticket_geolocation'], [
             'account' => 'Account Number', 'ticket' => 'Ticket No', 'latitude' => 'Latitude', 'longitude' => 'Longitude', 'created' => 'Date created',
-            'place' => 'Place', 'accuracy' => 'Accuracy (m)', 'by' => 'Taken by', 'photo' => 'Photo (download)',
+            'type' => 'Photo', 'place' => 'Place', 'accuracy' => 'Accuracy (m)', 'by' => 'Taken by', 'photo' => 'Photo (download)',
         ], function (?int $limit) use ($query) {
             $q = $query()->with(['user:id,name', 'outage:id,ticket_number', 'outage.ticket:id,outage_id,account_number'])->orderByDesc('id');
 
@@ -326,6 +328,7 @@ class TicketReports
                     'longitude' => $photo->longitude !== null ? number_format($photo->longitude, 6, '.', '') : null,
                     // When the photo was taken, where the phone said so; otherwise when it was added.
                     'created' => ($photo->taken_at ?? $photo->created_at)?->format('Y-m-d H:i'),
+                    'type' => VisitPhotos::short($photo->kind),
                     'place' => $photo->place,
                     'accuracy' => $photo->accuracy_m,
                     'by' => $photo->user?->name,

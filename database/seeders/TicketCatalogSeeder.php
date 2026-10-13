@@ -10,6 +10,7 @@ use App\Models\Priority;
 use App\Models\TicketCategory;
 use App\Models\TicketSubcategory;
 use App\Models\VisitType;
+use App\Support\VisitPhotos;
 use Illuminate\Database\Seeder;
 
 /**
@@ -141,6 +142,8 @@ class TicketCatalogSeeder extends Seeder
         ] as $i => [$prefix, $name, $sla, $description]) {
             VisitType::query()->firstOrCreate(['code_prefix' => $prefix], [
                 'name' => $name, 'default_sla_minutes' => $sla, 'description' => $description, 'requires_evidence' => true, 'sort_order' => $i + 1, 'is_active' => true,
+                // An installation and a relocation are completed with the nine photos; the others with two (App\Support\VisitPhotos).
+                'photo_set' => in_array($prefix, ['INS', 'SHI'], true) ? VisitPhotos::INSTALLATION : VisitPhotos::STANDARD,
             ]);
         }
 

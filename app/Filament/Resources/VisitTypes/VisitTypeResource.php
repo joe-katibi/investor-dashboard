@@ -8,6 +8,7 @@ use App\Filament\Support\AuditFields;
 use App\Models\Priority;
 use App\Models\Vertical;
 use App\Models\VisitType;
+use App\Support\VisitPhotos;
 use BackedEnum;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\Select;
@@ -51,7 +52,9 @@ class VisitTypeResource extends Resource
             Select::make('priority_id')->label('Priority')->placeholder('None')
                 ->options(fn () => Priority::query()->active()->where('vertical_id', Vertical::query()->where('code', Vertical::FTTH)->value('id'))->orderBy('queue_rank')->pluck('name', 'id')),
             Toggle::make('requires_evidence')->label('Needs evidence to complete')->default(true)
-                ->helperText('FAT number, geolocation photo and speed-test photo before the technician can complete the visit.'),
+                ->helperText('The FAT number and the photos below before the technician can complete the visit.'),
+            Select::make('photo_set')->label('Photos to complete')->options(VisitPhotos::SETS)->default(VisitPhotos::STANDARD)->selectablePlaceholder(false)->required()
+                ->helperText('The installation set: FAT outside (geotagged), inside and its power; cable entry (geotagged); ATB and ONU mounted; power at the ATB; ONU serial number; speed tests; devices working. Taken with the camera in the mobile app only.'),
             TextInput::make('sort_order')->label('Order in lists')->numeric()->default(0)->minValue(0)->maxValue(999),
             AuditFields::description(),
             AuditFields::activeToggle(),
@@ -68,6 +71,8 @@ class VisitTypeResource extends Resource
                 TextColumn::make('default_sla_minutes')->label('SLA (min)')->placeholder('Default'),
                 TextColumn::make('priority.name')->label('Priority')->placeholder('—')->visibleFrom('md'),
                 IconColumn::make('requires_evidence')->label('Evidence')->boolean(),
+                TextColumn::make('photo_set')->label('Photos')->badge()->color(fn (?string $state) => $state === VisitPhotos::INSTALLATION ? 'warning' : 'gray')
+                    ->formatStateUsing(fn (?string $state) => $state === VisitPhotos::INSTALLATION ? '9 photos (app only)' : '2 photos'),
                 TextColumn::make('description')->wrap()->placeholder('—')->visibleFrom('lg'),
                 AuditFields::activeColumn(),
                 ...AuditFields::columns(),

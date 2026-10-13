@@ -151,14 +151,14 @@ class GeolocationPhotoTest extends TestCase
         $report = app(ReportRegistry::class)->run('ticket_geolocation', ['from' => '2026-10-01', 'to' => '2026-10-13']);
 
         // Account number, ticket number, latitude, longitude, date created and the link to the photo — in that order.
-        $this->assertSame(['Account Number', 'Ticket No', 'Latitude', 'Longitude', 'Date created', 'Place', 'Accuracy (m)', 'Taken by', 'Photo (download)'], array_values($report->columns));
+        $this->assertSame(['Account Number', 'Ticket No', 'Latitude', 'Longitude', 'Date created', 'Photo', 'Place', 'Accuracy (m)', 'Taken by', 'Photo (download)'], array_values($report->columns));
         $this->assertSame(['Geolocation photos' => 2, 'With a position' => 1, 'Without a position' => 1], $report->summary);
 
         $rows = collect($report->rowsArray())->keyBy('photo');
         $this->assertCount(2, $rows);
         $this->assertSame([
             'account' => 'SF123456', 'ticket' => $ticket->ticket_number, 'latitude' => '0.338276', 'longitude' => '32.581402', 'created' => '2026-10-13 09:21',
-            'place' => 'Kitante, Wandegeya, Kampala, Central Region, Uganda', 'accuracy' => 8, 'by' => $tier2->name, 'photo' => $located->url(),
+            'type' => 'Geolocation photo', 'place' => 'Kitante, Wandegeya, Kampala, Central Region, Uganda', 'accuracy' => 8, 'by' => $tier2->name, 'photo' => $located->url(),
         ], $rows[$located->url()]);
         $this->assertSame(['SF123456', null, null, '2026-10-13 10:00'], [$rows[$bare->url()]['account'], $rows[$bare->url()]['latitude'], $rows[$bare->url()]['longitude'], $rows[$bare->url()]['created']]);
 

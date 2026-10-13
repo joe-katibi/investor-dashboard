@@ -230,6 +230,24 @@ One component does it (`App\Filament\Support\PhotoViewer`, `resources/views/fila
 and maintenance photos on an outage. Files (photos, the CRF PDF, report exports) are excluded from the panel's
 single-page navigation (`spaUrlExceptions`), so a download is a download and not a page of raw data.
 
+### Photos a visit is completed with
+Which photos a site visit needs depends on its **visit type** (Customer Care → Visit Types → *Photos to complete*;
+`App\Support\VisitPhotos`):
+
+* **Standard** (Support, Wi-Fi Extender): the geolocation photo and the speed-test photo.
+* **Installation set** (Installation, Shifting): nine photos, all required — (1) the outside of the FAT serving the
+  connection, **geotagged**; (2) inside the FAT after splicing, showing the terminations; (3) the power at the FAT
+  port; (4) the cable entry towards the premises, **geotagged**; (5) the ATB and ONU mounted in the house; (6) the
+  power at the ATB; (7) the ONU's serial number; (8) the speed tests, wired at the ONU then Wi-Fi in the room of use
+  (one or more photos); (9) every smart TV / streaming device working.
+
+The installation set is taken **in the mobile app only, with the camera** — no gallery, and no upload for these
+photos on the website. The app offers *Installation photos (n of 9)* so they are taken as the work goes (at the FAT,
+along the cable, in the house); *Complete visit* then asks only for the ones still missing and is refused, each
+missing photo named, until all are there. A photo taken again replaces the earlier one (which stays on the visit as
+evidence). The two geotagged photos use the geolocation feature below and appear in the *Geolocation Photos* report.
+On the website the visit shows them under **Installation photos** (click to view) and under *Photos & files*.
+
 ### Geolocation photo
 The **geolocation photo** of a site visit (mobile app, *Complete visit*) is taken at the phone's position. The app
 stamps the picture like a GPS camera does — a small map with a pin, the place, the address, latitude and longitude

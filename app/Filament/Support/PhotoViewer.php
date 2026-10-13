@@ -85,6 +85,14 @@ final class PhotoViewer
         return $click ? ['x-data' => '{}', 'x-on:click' => e($click), 'style' => 'cursor: zoom-in', 'title' => 'Click to view'] : [];
     }
 
+    /** The same for a photo kept as a file on a ticket (the photos of a site visit). */
+    public static function attachmentImageAttributes(?OutageAttachment $file): array
+    {
+        $click = self::forAttachment($file);
+
+        return $click ? ['x-data' => '{}', 'x-on:click' => e($click), 'style' => 'cursor: zoom-in', 'title' => 'Click to view'] : [];
+    }
+
     /** What is known about the file, on one line — without repeating the heading of the pop-up. */
     private static function describe(OutageAttachment $file, string $title): string
     {
