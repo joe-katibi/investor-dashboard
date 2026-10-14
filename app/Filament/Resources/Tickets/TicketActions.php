@@ -15,7 +15,9 @@ use App\Models\TicketFollowUp;
 use App\Models\User;
 use App\Models\Vendor;
 use App\Models\VisitType;
+use App\Services\Fifo\EligibilityEvaluator;
 use App\Services\Outages\OutageWorkflow;
+use App\Support\Permissions;
 use App\Support\Settings;
 use App\Support\VisitPhotos;
 use Filament\Actions\Action;
@@ -229,7 +231,8 @@ final class TicketActions
             ->schema([
                 Select::make('technician_id')->label('Technician')->searchable()->live()
                     ->placeholder('Automatic — next available technician (FIFO)')
-                    ->options(fn () => self::deskUsers(QueueType::VisitTechnician)),
+                    ->options(fn (Outage $record) => self::visitTechnicians($record))
+                    ->helperText(fn (Outage $record) => (($needs = EligibilityEvaluator::visitTechnicianPermission($record)) ? 'Only technicians with “'.Permissions::label($needs).'” are listed and offered this visit.' : null)),
                 Select::make('team_id')->label('Only offer it to this team (optional)')->options(fn () => self::teams())
                     ->visible(fn (Get $get) => blank($get('technician_id')) && self::teams() !== []),
                 DateTimePicker::make('scheduled_at')->label('Visit date / time')->seconds(false)->minDate(fn () => now()->startOfMinute())
@@ -559,9 +562,16 @@ final class TicketActions
     }
 
     /** Active users who may work a desk, with their availability and current workload. */
-    public static function deskUsers(QueueType $desk): array
+    /** The technicians a visit can be given: all of them, or those allowed its kind (Shifting / Relocation). */
+    public static function visitTechnicians(Outage $visit): array
+    {
+        return self::deskUsers(QueueType::VisitTechnician, EligibilityEvaluator::visitTechnicianPermission($visit));
+    }
+
+    public static function deskUsers(QueueType $desk, ?string $alsoPermission = null): array
     {
         return User::permission($desk->defaultPermission())
+            ->when($alsoPermission, fn ($q, string $permission) => $q->whereIn('id', User::permission($permission)->select('id')))
             ->active()
             ->with('teams:id,name')
             ->withCount('activeAssignments')

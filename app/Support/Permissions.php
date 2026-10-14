@@ -66,6 +66,7 @@ final class Permissions
             'visit.create' => 'Raise and schedule site visits',
             'visit.dispatch' => 'Dispatch site visits: assign technicians, reschedule, escalate and verify',
             'visit.work' => 'Technician: travel, arrive, pause and complete site visits',
+            'visit.work_shifting' => 'Technician: Shifting / Relocation visits (only technicians with this are given them)',
             'ticket.intervene' => 'Team leader: intervene on / take over a ticket',
             'ticket.reopen' => 'Reopen closed tickets and site visits',
             'ticket.cancel' => 'Cancel tickets / mark duplicates',

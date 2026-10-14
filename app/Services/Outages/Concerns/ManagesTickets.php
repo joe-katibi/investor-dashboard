@@ -34,10 +34,12 @@ use App\Models\TicketSubcategory;
 use App\Models\User;
 use App\Models\Vertical;
 use App\Models\VisitType;
+use App\Services\Fifo\EligibilityEvaluator;
 use App\Services\Geo\PhotoLocation;
 use App\Services\Notifications\Sms\PhoneNumber;
 use App\Services\Tickets\OutageLocator;
 use App\Support\AuditContext;
+use App\Support\Permissions;
 use App\Support\Settings;
 use App\Support\VisitPhotos;
 use Illuminate\Support\Arr;
@@ -260,7 +262,7 @@ trait ManagesTickets
                 throw ValidationException::withMessages(['desk' => "{$ticket->desk->getLabel()} cannot send a ticket to {$to->getLabel()} (see Customer Care → Desk Routes)."]);
             }
 
-            $target = $userId ? $this->deskUser($userId, $to) : null;
+            $target = $userId ? $this->deskUser($userId, $to, $outage) : null;
 
             if ($to->isApprovalDesk()) {
                 $ticket->forceFill(['approval_state' => Ticket::APPROVAL_PENDING, 'approval_by' => null, 'approval_at' => null, 'approval_note' => null]);
@@ -1427,7 +1429,7 @@ trait ManagesTickets
     private function dispatchVisit(Outage $outage, Ticket $ticket, User $by, array $data): void
     {
         $note = filled($data['note'] ?? null) ? trim((string) $data['note']) : null;
-        $technician = filled($data['technician_id'] ?? null) ? $this->deskUser((int) $data['technician_id'], QueueType::VisitTechnician) : null;
+        $technician = filled($data['technician_id'] ?? null) ? $this->deskUser((int) $data['technician_id'], QueueType::VisitTechnician, $outage) : null;
         $teamId = filled($data['team_id'] ?? null) ? (int) $data['team_id'] : null;
 
         if (array_key_exists('scheduled_at', $data) && filled($data['scheduled_at'])) {
@@ -1718,12 +1720,17 @@ trait ManagesTickets
     }
 
     /** An active user who may work the given desk. */
-    private function deskUser(int $userId, QueueType $desk): User
+    private function deskUser(int $userId, QueueType $desk, ?Outage $outage = null): User
     {
         $user = User::query()->find($userId);
 
         if (! $user || ! $user->is_active || ! $user->can($desk->defaultPermission())) {
             throw ValidationException::withMessages(['user_id' => ($user?->name ?? 'That user')." cannot receive tickets at {$desk->getLabel()} (inactive, or without the desk permission)."]);
+        }
+
+        // A visit kept for some technicians (Shifting / Relocation) goes only to them.
+        if ($desk === QueueType::VisitTechnician && $outage && ($needs = EligibilityEvaluator::visitTechnicianPermission($outage)) && ! $user->can($needs)) {
+            throw ValidationException::withMessages(['technician_id' => "{$user->name} does not do this kind of visit: it needs “".Permissions::label($needs).'”.']);
         }
 
         return $user;

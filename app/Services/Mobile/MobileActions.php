@@ -498,7 +498,7 @@ final class MobileActions
                 'primary' => $outage->current_queue === QueueType::VisitDispatch && $ticket?->completed_at === null,
                 'description' => 'Pick a technician, or leave it on automatic: the visit goes to the technician queue (FIFO). The customer is texted the technician\'s name and number.',
                 'fields' => fn () => [
-                    $this->select('technician_id', 'Technician', $this->options(TicketActions::deskUsers(QueueType::VisitTechnician)), placeholder: 'Automatic — next available technician (FIFO)', search: true),
+                    $this->select('technician_id', 'Technician', $this->options(TicketActions::visitTechnicians($outage)), placeholder: 'Automatic — next available technician (FIFO)', search: true),
                     $this->select('team_id', 'Only offer it to this team (optional)', $this->options(TicketActions::teams()), default: $outage->team_id, search: true),
                     $this->datetime('scheduled_at', 'Visit date / time', help: 'Leave empty for “today, as soon as possible”.', default: $ticket?->scheduled_at, future: true),
                     $this->textarea('note', 'Instructions (optional)', max: 2000),

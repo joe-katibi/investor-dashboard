@@ -147,6 +147,8 @@ class TicketCatalogSeeder extends Seeder
                 'name' => $name, 'default_sla_minutes' => $sla, 'description' => $description, 'requires_evidence' => true, 'sort_order' => $i + 1, 'is_active' => true,
                 // An installation and a relocation are completed with the nine photos; the others with two (App\Support\VisitPhotos).
                 'photo_set' => in_array($prefix, ['INS', 'SHI'], true) ? VisitPhotos::INSTALLATION : VisitPhotos::STANDARD,
+                // Relocations go to the technicians allowed to do them.
+                'technician_permission' => $prefix === 'SHI' ? VisitType::SHIFTING_PERMISSION : null,
             ]);
         }
 

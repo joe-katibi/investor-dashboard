@@ -195,6 +195,11 @@ class EligibilityEvaluator
             $checks['coverage'] = $this->coverageCheck($user, $outage->olts->pluck('id')->all());
         }
 
+        // Site visits of a kind kept for some technicians (Shifting / Relocation): only they get them.
+        if ($outage && $entry->queue_type === QueueType::VisitTechnician && ($needs = self::visitTechnicianPermission($outage))) {
+            $checks['visit_type'] = $this->check('Visit type', $user->checkPermissionTo($needs), Permissions::label($needs));
+        }
+
         // Customer tickets / site visits: people locked to regions only get tickets of those regions.
         if ($outage && $entry->queue_type->isTicketing()) {
             $checks['region'] = $this->regionCheck($user, $outage);
@@ -213,6 +218,18 @@ class EligibilityEvaluator
         $checks['not_rejected'] = $this->check('Not previously rejected/timed out', ! $rejected, $rejected ? 'Already rejected or timed out on this ticket' : 'OK');
 
         return $checks;
+    }
+
+    /** The permission a technician needs for this site visit (its visit type), or null. */
+    public static function visitTechnicianPermission(Outage $outage): ?string
+    {
+        if (! $outage->isSiteVisit()) {
+            return null;
+        }
+
+        $outage->loadMissing('ticket.visitType');
+
+        return $outage->ticket?->visitType?->technicianPermission();
     }
 
     public function permissionFor(OutageQueueEntry $entry): string

@@ -167,7 +167,7 @@ class FifoAssignmentEngine
             ->where('queue_type', $type->value)
             ->where('auto_assign_blocked', false)
             ->where(fn ($q) => $q->whereNull('eligible_from')->orWhere('eligible_from', '<=', now()))
-            ->with(['queueDefinition', 'outage.priority', 'outage.olts:id', 'outage.services:id', 'outage.ticket'])
+            ->with(['queueDefinition', 'outage.priority', 'outage.olts:id', 'outage.services:id', 'outage.ticket.visitType'])
             ->fifoOrder($this->settings->bool('fifo.priority_aware'))
             ->limit(200)
             ->get();
@@ -496,6 +496,11 @@ class FifoAssignmentEngine
         // (A step of a custom workflow has no permission of its own: its team decides, and a manager may go outside it.)
         if (! $checks['active']['passed'] || ! ($checks['permission']['passed'] ?? true)) {
             throw ValidationException::withMessages(['user_id' => 'The selected user is inactive or lacks permission to work this queue.']);
+        }
+
+        // A visit kept for some technicians (Shifting / Relocation) is not overridden to anyone else.
+        if (! ($checks['visit_type']['passed'] ?? true)) {
+            throw ValidationException::withMessages(['user_id' => "{$target->name} is not allowed this kind of visit ({$checks['visit_type']['detail']})."]);
         }
 
         $failed = collect($checks)->reject(fn (array $check) => $check['passed'])->map(fn (array $check) => $check['label'].': '.$check['detail'])->values()->all();

@@ -795,6 +795,13 @@ dispatch. Statuses: Visit Open, Pending-Scheduled, Pending Without Team, Visit I
 Dispatcher Verification, Pending Customer Confirmation, Pending Customer (call-back / reschedule), Successfully
 Closed, Closed Escalated, Cancelled, Declined, Duplicate.
 
+**Shifting / Relocation technicians.** A visit type can be kept for some technicians (*Visit Types → Technicians*).
+Shifting is, by default: its visits are offered — by name on *Assign technician* (website and app), through the
+technician FIFO queue and on a manager's override — only to technicians with *Technician: Shifting / Relocation
+visits* (`visit.work_shifting`; role *Shifting / Relocation Technician*, or add the permission to a person or role).
+With none of them on duty a shifting visit waits in the queue. Installation, Wi-Fi Extender and Support visits go to
+every site visit technician.
+
 **Ongoing outages.** For LOS-type issues the customer's OLT / FDT / slot / port is checked against every open FTTH
 outage — **also those not yet confirmed by NOC**. The agent sees it on the form; the ticket is linked to the outage and
 gets the delay reason "Affected by an outage". *Link to outage* does the same by hand.
