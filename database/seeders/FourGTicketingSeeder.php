@@ -119,6 +119,8 @@ class FourGTicketingSeeder extends Seeder
         }
 
         $this->vendorTemplates();
+        // The 2-hour, daily, weekly and monthly 4G ticket e-mails (inactive until recipients are set).
+        app(EmailTemplateSeeder::class)->fourGTickets();
     }
 
     private function permissionsAndRoles(): void

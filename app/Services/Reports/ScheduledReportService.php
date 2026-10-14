@@ -6,6 +6,7 @@ use App\Jobs\SendScheduledReportJob;
 use App\Mail\ScheduledReportMail;
 use App\Models\EmailTemplate;
 use App\Models\NotificationLog;
+use App\Services\Tickets\FourGTicketReportData;
 use App\Services\Tickets\TicketReportData;
 use App\Support\AuditContext;
 use Carbon\CarbonImmutable;
@@ -96,6 +97,7 @@ class ScheduledReportService
         $now ??= now();
         // Ticket e-mails have their own figures (pending / SLA update, daily, weekly, monthly).
         $data = match (true) {
+            FourGTicketReportData::handles($template->report_type) => app(FourGTicketReportData::class)->build($template->report_type, $now, max(1, (int) $template->period_hours)),
             TicketReportData::handles($template->report_type) => app(TicketReportData::class)->build($template->report_type, $now, max(1, (int) $template->period_hours)),
             isset(ProductivityReport::EMAIL_TYPES[$template->report_type]) => app(ProductivityReport::class)->emailData($template->report_type, $now, max(1, (int) $template->period_hours)),
             default => $this->snapshot->build($this->periodStart($template, $now), $now),
@@ -124,6 +126,12 @@ class ScheduledReportService
         if ($template->attach_excel) {
             // Ticket e-mails carry the list of pending tickets; the others the outage summary of the period.
             $attachment = $this->exporter->writeXlsx(match (true) {
+                // 4G ticket e-mails: the register of the period (raised in it, and everything still open).
+                FourGTicketReportData::handles($template->report_type) => $this->reports->run('tkt4g_register', (function () use ($template, $now): array {
+                    [$from, $to] = app(FourGTicketReportData::class)->period($template->report_type, $now, max(1, (int) $template->period_hours));
+
+                    return ['from' => $from->toDateTimeString(), 'to' => $to->toDateTimeString()];
+                })()),
                 $template->report_type === 'ticket_final_reasons' => $this->reports->run('ticket_final_reasons', ['to' => $now->toDateString()]),
                 TicketReportData::handles($template->report_type) => $this->reports->run('ticket_pending'),
                 // Productivity e-mails: the full report of the period, per person and module.

@@ -57,6 +57,7 @@ class EmailTemplateSeeder extends Seeder
 
         $this->mobility();
         $this->ticketing();
+        $this->fourGTickets();
         $this->productivity();
         $this->summaries();
     }
@@ -462,6 +463,89 @@ Compared with {{tk_previous_label}}. SLA clock: {{tk_sla_clock}}.
 
 Regards,
 Customer Care / Outage Management System
+TXT;
+
+    /**
+     * 4G customer tickets: the update every 2 hours (07:00–19:00), the daily report at 07:00 and
+     * 19:00, the weekly summary on Monday 07:00 and the monthly summary on the 1st at 06:00.
+     * Created only when missing, inactive until recipients are set (Configuration → Email Templates).
+     */
+    public function fourGTickets(): void
+    {
+        $recipients = [config('mail.from.address') ?: 'noc@example.com'];
+        $common = ['to' => $recipients, 'body' => self::FOUR_G_TICKETS_BODY, 'attach_excel' => true, 'is_active' => false];
+
+        $this->seedTemplate('ticket_4g_update', $common + [
+            'name' => '4G Tickets – 2-Hour Update',
+            'report_type' => 'ticket_4g_update',
+            'schedule_type' => 'daily_times',
+            'daily_times' => ['07:00', '09:00', '11:00', '13:00', '15:00', '17:00', '19:00'],
+            'period_hours' => 2,
+            'subject' => '4G Tickets Update – {{report_time}} {{report_date}}',
+            'description' => 'Every 2 hours, 07:00–19:00: open 4G tickets by department and with whom, SLA breaches and by whom, vendors, what came in and what was closed in the last 2 hours. Register attached.',
+        ]);
+
+        $this->seedTemplate('ticket_4g_daily', $common + [
+            'name' => '4G Tickets – Daily Report',
+            'report_type' => 'ticket_4g_daily',
+            'schedule_type' => 'daily_times',
+            'daily_times' => ['07:00', '19:00'],
+            'period_hours' => 12,
+            'subject' => '4G Tickets Daily Report – {{report_time}} {{report_date}}',
+            'description' => '07:00 and 19:00: the last 12 hours and everything still open. Register attached.',
+        ]);
+
+        $this->seedTemplate('ticket_4g_weekly', $common + [
+            'name' => '4G Tickets – Weekly Summary',
+            'report_type' => 'ticket_4g_weekly',
+            'schedule_type' => 'cron',
+            'cron_expression' => '0 7 * * 1',
+            'period_hours' => 168,
+            'subject' => '4G Tickets Weekly Summary – {{t4_period_label}}',
+            'description' => 'Every Monday 07:00: the week just ended (Monday to Sunday) against the week before. Register attached.',
+        ]);
+
+        $this->seedTemplate('ticket_4g_monthly', $common + [
+            'name' => '4G Tickets – Monthly Summary',
+            'report_type' => 'ticket_4g_monthly',
+            'schedule_type' => 'cron',
+            'cron_expression' => '0 6 1 * *',
+            'period_hours' => 744,
+            'subject' => '4G Tickets Monthly Summary – {{t4_period_label}}',
+            'description' => 'Every 1st of the month 06:00: the month just ended against the month before. Register attached.',
+        ]);
+    }
+
+    public const FOUR_G_TICKETS_BODY = <<<'TXT'
+Hello Team,
+
+Please find the **{{t4_title}}** as at {{report_time}}, {{report_date}} ({{t4_period_label}}). Kindly review and resolve the tickets with your department.
+
+{{t4_headline_table}}
+
+**COMPARED WITH {{t4_previous_label}}**
+{{t4_compare_table}}
+
+**TICKETS PER DEPARTMENT** (raised in the period, and everything still open)
+{{t4_department_table}}
+
+**PENDING — WITH WHOM**
+{{t4_pending_table}}
+
+**SLA BREACHES — BY WHOM**
+{{t4_breach_people_table}}
+{{t4_breach_table}}
+
+**VENDORS**
+{{t4_vendor_table}}
+
+**ISSUES REPORTED**
+{{t4_issue_table}}
+
+The full list of tickets is attached.
+
+Regards,
+Outage Management System
 TXT;
 
     /** The hourly 4G update. Created only when missing (inactive until recipients are set). */
