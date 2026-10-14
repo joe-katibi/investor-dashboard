@@ -13,6 +13,7 @@ use App\Models\OutageAttachment;
 use App\Models\Team;
 use App\Models\TicketFollowUp;
 use App\Models\User;
+use App\Models\Vendor;
 use App\Models\VisitType;
 use App\Services\Outages\OutageWorkflow;
 use App\Support\Settings;
@@ -43,7 +44,7 @@ final class TicketActions
         return [
             self::assignVisit(), self::enRoute(), self::arrive(), self::resume(), self::completeVisit(), self::notCompleted(),
             self::verifyVisit(), self::rejectCompletion(), self::confirmVisit(),
-            self::approve(), self::decline(), self::raiseVisit(), self::route(), self::returnToDesk(), self::followUp(), self::close(), self::reopen(),
+            self::approve(), self::decline(), self::raiseVisit(), self::vendorEscalate(), self::vendorFeedback(), self::route(), self::returnToDesk(), self::followUp(), self::close(), self::reopen(),
         ];
     }
 
@@ -53,6 +54,45 @@ final class TicketActions
         return [
             self::pause(), self::reschedule(), self::intervene(), self::endIntervention(), self::linkOutage(), self::attach(), self::cancel(),
         ];
+    }
+
+    // ------------------------------------------------------------------ 4G: the team's vendor
+
+    /** The IP, RF or Core team calls in one of its vendors: the vendor gets the e-mail, reminders follow. */
+    public static function vendorEscalate(): Action
+    {
+        return Action::make('ticketVendorEscalate')
+            ->label(fn (Outage $record) => $record->vendor_id ? 'Change vendor' : 'Escalate to vendor')
+            ->icon(Heroicon::OutlinedBuildingOffice2)
+            ->color('warning')
+            ->visible(fn (Outage $record) => Auth::user()?->can('ticketVendorEscalate', $record))
+            ->modalDescription(fn (Outage $record) => "The vendor is e-mailed the ticket and reminded while it says nothing. The ticket stays with the {$record->current_queue?->getLabel()}: record the vendor's feedback here when it comes in.")
+            ->schema([
+                Select::make('vendor_id')->label('Vendor')->required()->searchable()
+                    ->options(fn (Outage $record) => Vendor::query()->active()->where('vendor_type', $record->current_queue?->vendorType())->orderBy('name')->pluck('name', 'id'))
+                    ->default(fn (Outage $record) => $record->vendor_id)
+                    ->helperText(fn (Outage $record) => 'Vendors of type “'.(Vendor::TYPES[$record->current_queue?->vendorType()] ?? '—').'” (4G NOC › Vendors).'),
+                Textarea::make('note')->label('What the vendor is asked to do')->required()->rows(3)->maxLength(2000),
+            ])
+            ->action(fn (Outage $record, array $data) => OutageActions::run($record, fn () => app(OutageWorkflow::class)->escalateTicketToVendor(
+                $record, Auth::user(), (int) $data['vendor_id'], $data['note'],
+            ), 'Escalated to the vendor'));
+    }
+
+    public static function vendorFeedback(): Action
+    {
+        return Action::make('ticketVendorFeedback')
+            ->label('Record vendor feedback')
+            ->icon(Heroicon::OutlinedChatBubbleBottomCenterText)
+            ->color('info')
+            ->visible(fn (Outage $record) => Auth::user()?->can('ticketVendorFeedback', $record))
+            ->modalDescription(fn (Outage $record) => 'What '.($record->vendor?->name ?? 'the vendor').' said. Everyone on the ticket is told. When the service is up, send the ticket to the 4G NOC with the reason (Escalate / hand over).')
+            ->schema([
+                Textarea::make('feedback')->label('Vendor feedback')->required()->rows(4)->maxLength(5000),
+            ])
+            ->action(fn (Outage $record, array $data) => OutageActions::run($record, fn () => app(OutageWorkflow::class)->recordTicketVendorFeedback(
+                $record, Auth::user(), $data['feedback'],
+            ), 'Vendor feedback recorded'));
     }
 
     // ------------------------------------------------------------------ desk to desk
@@ -70,7 +110,7 @@ final class TicketActions
                 Select::make('user_id')->label('A specific person there (optional)')->searchable()
                     ->placeholder('Automatic — next available person (FIFO)')
                     ->options(fn (Get $get) => OutageActions::queueUserOptions(QueueType::tryFrom((string) $get('desk')))),
-                Select::make('delay_reason_id')->label('Reason for delay (optional)')->options(fn () => self::delayReasons())
+                Select::make('delay_reason_id')->label('Reason for delay (optional)')->options(fn (Outage $record) => self::delayReasons($record->vertical_id))
                     ->visible(fn (Outage $record) => $record->isSiteVisit()),
                 Textarea::make('note')->label('Why / what is needed')->required()->rows(3)->maxLength(2000),
             ])
@@ -286,7 +326,7 @@ final class TicketActions
             ->fillForm(fn (Outage $record) => ['completed_at' => now()->startOfMinute()->toDateTimeString(), 'fat_number' => $record->ticket?->fat_number])
             ->schema(fn (Outage $record) => [
                 Grid::make(['default' => 1, 'sm' => 2])->schema([
-                    Select::make('final_reason_id')->label('Final reason')->required()->searchable()->options(fn (Outage $record) => self::finalReasons('visit', $record->current_queue)),
+                    Select::make('final_reason_id')->label('Final reason')->required()->searchable()->options(fn (Outage $record) => self::finalReasons('visit', $record->current_queue, $record->vertical_id)),
                     TextInput::make('fat_number')->label('FAT number')->maxLength(60)->required(self::needsEvidence($record)),
                     ...(VisitPhotos::appOnly($record) ? [] : [
                         self::photo('geo_photo', 'Geolocation photo', 'Photo with the location stamp at the customer premise.')
@@ -322,7 +362,7 @@ final class TicketActions
                     'dispatch' => 'Escalation — the dispatcher decides (Infrastructure Support, Design, NOC, Access…)',
                     'field_support' => 'The customer — unreachable, asked to reschedule or to be called back (CX Field Support)',
                 ]),
-                Select::make('delay_reason_id')->label('Reason for delay')->options(fn () => self::delayReasons()),
+                Select::make('delay_reason_id')->label('Reason for delay')->options(fn (Outage $record) => self::delayReasons($record->vertical_id)),
                 Textarea::make('reason')->label('What happened on site')->required()->rows(3)->maxLength(2000),
             ])
             ->action(fn (Outage $record, array $data) => OutageActions::run($record, fn () => app(OutageWorkflow::class)->visitNotCompleted(
@@ -344,7 +384,7 @@ final class TicketActions
                 ? 'CX Field Support then calls the customer to confirm before the visit is closed.'
                 : 'The visit is closed.')
             ->schema(fn (Outage $record) => [
-                Select::make('delay_reason_id')->label('Reason for delay')->options(fn () => self::delayReasons())
+                Select::make('delay_reason_id')->label('Reason for delay')->options(fn (Outage $record) => self::delayReasons($record->vertical_id))
                     ->visible(self::late($record))->required(self::late($record))
                     ->helperText('This visit is past its SLA: a reason for the delay is required.'),
                 Textarea::make('note')->label('Verification note (optional)')->rows(2)->maxLength(2000)->placeholder('e.g. Link online, power -19 dBm'),
@@ -399,8 +439,8 @@ final class TicketActions
                 : 'Closes the ticket with its final reason.')
             ->schema(fn (Outage $record) => [
                 Select::make('final_reason_id')->label('Final reason')->required()->searchable()
-                    ->options(fn () => self::finalReasons($record->isSiteVisit() ? 'visit' : 'ticket', $record->current_queue)),
-                Select::make('delay_reason_id')->label('Reason for delay')->options(fn () => self::delayReasons())
+                    ->options(fn () => self::finalReasons($record->isSiteVisit() ? 'visit' : 'ticket', $record->current_queue, $record->vertical_id)),
+                Select::make('delay_reason_id')->label('Reason for delay')->options(fn (Outage $record) => self::delayReasons($record->vertical_id))
                     ->required(self::late($record))
                     ->helperText(self::late($record) ? 'This ticket is past its SLA: a reason for the delay is required.' : null),
                 Textarea::make('resolution_notes')->label('Resolution / what the customer was told')->rows(3)->maxLength(5000),
@@ -508,7 +548,7 @@ final class TicketActions
     /** Desks this ticket may be sent to from where it is: the desk routes, plus the desk that approves this kind of request. */
     public static function routeOptions(Outage $record): array
     {
-        $options = DeskRoute::targets($record->current_queue);
+        $options = DeskRoute::targetsFor($record);
         $approval = $record->isCxTicket() ? $record->ticket?->subcategory?->approval_desk : null;
 
         if ($approval && $approval !== $record->current_queue) {
@@ -544,16 +584,18 @@ final class TicketActions
     }
 
     /** Final reasons for a ticket or a visit, narrowed to the ones offered at the desk it is at. */
-    public static function finalReasons(string $kind, ?QueueType $desk = null): array
+    /** Final reasons of this kind of ticket, offered at this desk — of the ticket's vertical (FTTH, 4G…) when it is given. */
+    public static function finalReasons(string $kind, ?QueueType $desk = null, ?int $verticalId = null): array
     {
-        return FinalReason::query()->active()->for($kind)->orderBy('sort_order')->orderBy('name')->get()
+        return FinalReason::query()->active()->for($kind)->ofVertical($verticalId)->orderBy('sort_order')->orderBy('name')->get()
             ->filter(fn (FinalReason $reason) => $reason->isOfferedAt($desk))
             ->pluck('name', 'id')->all();
     }
 
-    public static function delayReasons(): array
+    /** Reasons for delay — of the ticket's vertical (FTTH, 4G…) when it is given. */
+    public static function delayReasons(?int $verticalId = null): array
     {
-        return DelayReason::query()->active()->orderBy('sort_order')->pluck('name', 'id')->all();
+        return DelayReason::query()->active()->ofVertical($verticalId)->orderBy('sort_order')->pluck('name', 'id')->all();
     }
 
     /** Past its SLA deadline and no reason for the delay recorded yet. */

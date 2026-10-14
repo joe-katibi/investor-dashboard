@@ -85,10 +85,11 @@ trait ManagesTickets
 
         $this->requireText($data['calling_number'] ?? ($data['primary_number'] ?? null), 'calling_number', 'Enter the number the customer is calling from (or their primary number).');
         $reported = $this->pastMoment($data['reported_at'] ?? null, 'reported_at');
+        $verticalId = $this->ticketVertical($data, $subcategory);
 
-        $result = DB::transaction(function () use ($data, $by, $subcategory, $reported): Outage {
+        $result = DB::transaction(function () use ($data, $by, $subcategory, $reported, $verticalId): Outage {
             $type = $this->ticketType(OutageType::CODE_CX_TICKET);
-            $fields = $this->ticketCustomerFields($data, $by);
+            $fields = $this->ticketCustomerFields(['vertical_id' => $verticalId] + $data, $by);
             $who = trim(($fields['customer_name'] ?: 'Customer').' '.($fields['account_number'] ? "({$fields['account_number']})" : ''));
 
             $outage = $this->newTicketOutage($type, $by, [
@@ -98,6 +99,8 @@ trait ManagesTickets
                 'priority_id' => $subcategory->priority_id,
                 'start_time' => $reported,
                 'ticket_number' => $this->tickets->next($type->prefix, OutageType::TICKET_DIGITS),
+                // FTTH, 4G…: which desks, categories and reasons the ticket follows.
+                'vertical_id' => $verticalId,
             ], StatusCode::TicketOpen);
 
             $ticket = Ticket::query()->create($fields + [
@@ -249,6 +252,10 @@ trait ManagesTickets
             $this->fifo->authorizeWork($outage, $ticket->desk, $by);
 
             // The desk that approves this kind of request can always be asked, whatever the routes say.
+            if (! $to->serves($outage->verticalCode())) {
+                throw ValidationException::withMessages(['desk' => "{$to->getLabel()} does not work {$outage->verticalCode()} tickets."]);
+            }
+
             if (! DeskRoute::allows($ticket->desk, $to) && $to !== $ticket->subcategory?->approval_desk) {
                 throw ValidationException::withMessages(['desk' => "{$ticket->desk->getLabel()} cannot send a ticket to {$to->getLabel()} (see Customer Care → Desk Routes)."]);
             }
@@ -566,7 +573,7 @@ trait ManagesTickets
             $outage = $this->lock($outage);
             Gate::forUser($by)->authorize('visitComplete', $outage);
             $ticket = $this->ticketOf($outage);
-            $this->reasonOfDesk($reason, $outage->current_queue);
+            $this->reasonOfDesk($reason, $outage->current_queue, $outage->vertical_id);
             $this->fifo->authorizeWork($outage, QueueType::VisitTechnician, $by);
 
             $evidence = app(Settings::class)->bool('ticketing.require_evidence') && (bool) $ticket->visitType()->value('requires_evidence');
@@ -775,7 +782,7 @@ trait ManagesTickets
             $outage = $this->lock($outage);
             Gate::forUser($by)->authorize('ticketClose', $outage);
             $ticket = $this->ticketOf($outage);
-            $this->reasonOfDesk($reason, $outage->current_queue);
+            $this->reasonOfDesk($reason, $outage->current_queue, $outage->vertical_id);
 
             if ($ticket->desk) {
                 $this->fifo->authorizeWork($outage, $ticket->desk, $by);
@@ -798,6 +805,7 @@ trait ManagesTickets
             };
 
             $this->finishTicket($outage, $ticket, $by, $status, $reason->name.($ticket->resolution_notes ? ": {$ticket->resolution_notes}" : '.'));
+            $this->closeFourGVendor($outage);
 
             return $outage->refresh();
         });
@@ -1022,10 +1030,14 @@ trait ManagesTickets
     }
 
     /** A final reason is only accepted at a desk it is offered at (Configuration → Final Reasons). */
-    private function reasonOfDesk(FinalReason $reason, ?QueueType $desk): void
+    private function reasonOfDesk(FinalReason $reason, ?QueueType $desk, ?int $verticalId = null): void
     {
         if (! $reason->isOfferedAt($desk)) {
             throw ValidationException::withMessages(['final_reason_id' => "“{$reason->name}” is not a final reason of the {$desk?->getLabel()} desk. Choose one of the reasons offered here."]);
+        }
+
+        if ($verticalId && $reason->vertical_id && (int) $reason->vertical_id !== $verticalId) {
+            throw ValidationException::withMessages(['final_reason_id' => "“{$reason->name}” is a final reason of another vertical. Choose one of the reasons offered here."]);
         }
     }
 
@@ -1177,6 +1189,26 @@ trait ManagesTickets
             ?? throw ValidationException::withMessages(['ticket' => 'This is not a customer ticket or site visit.']);
     }
 
+    /**
+     * The vertical a customer ticket is raised under: the one chosen (an active vertical), and it must be
+     * the vertical of the issue's category. Without a choice: the category's vertical, or FTTH.
+     */
+    private function ticketVertical(array $data, TicketSubcategory $subcategory): ?int
+    {
+        $categoryVertical = $subcategory->category?->vertical_id;
+        $chosen = is_numeric($data['vertical_id'] ?? null) ? (int) $data['vertical_id'] : null;
+
+        if ($chosen !== null && ! Vertical::query()->active()->whereKey($chosen)->exists()) {
+            throw ValidationException::withMessages(['vertical_id' => 'Choose the vertical: FTTH, 4G…']);
+        }
+
+        if ($chosen !== null && $categoryVertical !== null && $chosen !== (int) $categoryVertical) {
+            throw ValidationException::withMessages(['subcategory_id' => "“{$subcategory->name}” is not an issue of the chosen vertical. Choose the category and issue again."]);
+        }
+
+        return $chosen ?? ($categoryVertical ? (int) $categoryVertical : Vertical::idFor(Vertical::FTTH));
+    }
+
     /** The Outage row every ticket is built on. */
     private function newTicketOutage(OutageType $type, User $by, array $attributes, StatusCode $initial): Outage
     {
@@ -1244,6 +1276,8 @@ trait ManagesTickets
         if (! $customer && $account !== '') {
             $customer = Customer::query()->create(array_filter($typed, fn ($value) => $value !== null) + [
                 'account_number' => $account, 'source' => Customer::SOURCE_MANUAL, 'is_active' => true,
+                // A customer of the vertical the ticket is raised under.
+                'vertical_id' => is_numeric($data['vertical_id'] ?? null) ? (int) $data['vertical_id'] : null,
                 'notes' => "Captured by {$by->name} while raising a ticket; not on the customer file yet.",
             ])->refresh();
         } elseif ($customer) {

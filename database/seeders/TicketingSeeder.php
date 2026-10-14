@@ -57,5 +57,7 @@ class TicketingSeeder extends Seeder
         app(EmailTemplateSeeder::class)->ticketing();
 
         $this->call(TicketCatalogSeeder::class);
+        // 4G customer tickets: their catalogue, desks, roles and vendor e-mails.
+        $this->call(FourGTicketingSeeder::class);
     }
 }

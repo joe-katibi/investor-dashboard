@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToVertical;
 use App\Models\Concerns\HasAuditColumns;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -18,11 +19,11 @@ use Illuminate\Support\Str;
  */
 #[Fillable([
     'account_number', 'name', 'primary_phone', 'alt_phone_1', 'alt_phone_2', 'email', 'address', 'landmark',
-    'region_id', 'olt_id', 'fdt_id', 'slot_id', 'port_id', 'bandwidth', 'source', 'verified_at', 'notes', 'is_active',
+    'region_id', 'olt_id', 'fdt_id', 'slot_id', 'port_id', 'bandwidth', 'source', 'verified_at', 'notes', 'vertical_id', 'is_active',
 ])]
 class Customer extends Model
 {
-    use Auditable, HasAuditColumns;
+    use Auditable, BelongsToVertical, HasAuditColumns;
 
     public const SOURCE_MANUAL = 'manual';
 

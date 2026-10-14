@@ -13,6 +13,7 @@ use App\Models\Slot;
 use App\Models\Ticket;
 use App\Models\TicketCategory;
 use App\Models\TicketSubcategory;
+use App\Models\Vertical;
 use App\Services\Tickets\OutageLocator;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
@@ -40,11 +41,21 @@ final class TicketForm
             Section::make('Issue reported')
                 ->icon('heroicon-o-chat-bubble-left-right')
                 ->schema([
-                    Select::make('category_id')->label('Category')->live()->dehydrated(false)
-                        ->options(fn () => TicketCategory::query()->active()->orderBy('sort_order')->pluck('name', 'id'))
+                    // FTTH, 4G…: only that vertical's categories and issues are offered.
+                    Select::make('vertical_id')->label('Vertical')->required()->live()->native(false)
+                        ->options(fn () => Vertical::query()->active()->orderBy('id')->pluck('name', 'id'))
+                        ->default(fn () => Vertical::idFor(Vertical::FTTH))
+                        ->afterStateUpdated(function (Set $set): void {
+                            $set('category_id', null);
+                            $set('subcategory_id', null);
+                        }),
+                    Select::make('category_id')->label('Category')->required()->live()->dehydrated(false)
+                        ->options(fn (Get $get) => TicketCategory::query()->active()->ofVertical(self::id($get('vertical_id')))->orderBy('sort_order')->pluck('name', 'id'))
                         ->afterStateUpdated(fn (Set $set) => $set('subcategory_id', null)),
                     Select::make('subcategory_id')->label('Subcategory')->required()->searchable()->live()
-                        ->options(fn (Get $get) => self::subcategoryOptions($get('category_id')))
+                        ->options(fn (Get $get) => self::subcategoryOptions($get('category_id'), verticalId: $get('vertical_id')))
+                        // Picked from the whole list: its category is filled in.
+                        ->afterStateUpdated(fn (Get $get, Set $set, mixed $state) => blank($get('category_id')) && ($sub = self::subcategory($state)) ? $set('category_id', $sub->ticket_category_id) : null)
                         ->helperText(fn (Get $get) => self::routing($get('subcategory_id'))),
                     Select::make('ticket_type')->label('Ticket type')->options(Ticket::TYPES)->default('reactive')->required(),
                     Select::make('source')->label('Source')->options(Ticket::SOURCES)->default('call')->required(),
@@ -82,7 +93,7 @@ final class TicketForm
                     Select::make('visit_type_id')->label('Visit type')->required()->options(fn () => TicketActions::visitTypes())
                         ->helperText('Numbers the visit: INS-1, WiE-1, SUP-1, SHI-1…'),
                     Select::make('subcategory_id')->label('Issue reported')->required()->searchable()->live()
-                        ->options(fn () => self::subcategoryOptions(null, visitsOnly: true))
+                        ->options(fn () => self::subcategoryOptions(null, visitsOnly: true, verticalId: Vertical::idFor(Vertical::FTTH)))
                         ->afterStateUpdated(function (Get $get, Set $set, mixed $state): void {
                             if (blank($get('visit_type_id')) && ($type = self::subcategory($state)?->visit_type_id)) {
                                 $set('visit_type_id', $type);
@@ -117,9 +128,16 @@ final class TicketForm
             ->icon('heroicon-o-user')
             ->schema([
                 TextInput::make('account_number')->label('Account number')->maxLength(60)->live(onBlur: true)->autofocus()
-                    ->afterStateUpdated(function (Set $set, ?string $state): void {
+                    ->afterStateUpdated(function (Get $get, Set $set, ?string $state): void {
                         if (! ($customer = Customer::findByAccount($state))) {
                             return;
+                        }
+
+                        // A 4G customer raises a 4G ticket: the vertical follows the customer.
+                        if ($customer->vertical_id && self::id($get('vertical_id')) !== (int) $customer->vertical_id) {
+                            $set('vertical_id', $customer->vertical_id);
+                            $set('category_id', null);
+                            $set('subcategory_id', null);
                         }
 
                         foreach ([
@@ -211,10 +229,11 @@ final class TicketForm
             .($match['confirmed'] ? 'confirmed by NOC' : 'not yet confirmed by NOC').'). Advise the customer; the ticket is linked to the outage.';
     }
 
-    public static function subcategoryOptions(mixed $categoryId, bool $visitsOnly = false): array
+    public static function subcategoryOptions(mixed $categoryId, bool $visitsOnly = false, mixed $verticalId = null): array
     {
         return TicketSubcategory::query()->active()->with('category:id,name')
             ->when(self::id($categoryId), fn ($q, $id) => $q->where('ticket_category_id', $id))
+            ->when(self::id($verticalId), fn ($q, $id) => $q->whereHas('category', fn ($c) => $c->ofVertical($id)))
             ->when($visitsOnly, fn ($q) => $q->where('allows_site_visit', true))
             ->orderBy('ticket_category_id')->orderBy('sort_order')->orderBy('name')
             ->get(['id', 'ticket_category_id', 'name'])

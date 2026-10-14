@@ -5,6 +5,7 @@ namespace App\Filament\Resources\DelayReasons;
 use App\Filament\Concerns\GuardsWithPermission;
 use App\Filament\Resources\DelayReasons\Pages\ManageDelayReasons;
 use App\Filament\Support\AuditFields;
+use App\Filament\Support\VerticalFields;
 use App\Models\DelayReason;
 use BackedEnum;
 use Filament\Actions\EditAction;
@@ -52,6 +53,7 @@ class DelayReasonResource extends Resource
             TextInput::make('code')->maxLength(10)->unique(ignoreRecord: true)->placeholder('D15')
                 ->helperText('D01, D02, D03, D06 and D07 are set by the system (rescheduled, unreachable, not picking, outage, escalated to infrastructure).'),
             TextInput::make('name')->required()->maxLength(190)->unique(ignoreRecord: true),
+            VerticalFields::select('Offered on tickets of this vertical only.'),
             Toggle::make('within_control')->label('Within our control')->helperText('On: we could have prevented it (goes on the coaching list).'),
             TextInput::make('sort_order')->label('Order in lists')->numeric()->default(0)->minValue(0)->maxValue(999),
             Textarea::make('description')->label('What fixes it')->rows(2)->maxLength(2000)->columnSpanFull(),
@@ -66,12 +68,14 @@ class DelayReasonResource extends Resource
             ->columns([
                 TextColumn::make('code')->badge()->color('gray')->placeholder('—'),
                 TextColumn::make('name')->searchable()->sortable()->weight('bold')->wrap(),
+                VerticalFields::column(),
                 IconColumn::make('within_control')->label('Within our control')->boolean(),
                 TextColumn::make('description')->label('What fixes it')->wrap()->placeholder('—')->visibleFrom('md'),
                 AuditFields::activeColumn(),
                 ...AuditFields::columns(),
             ])
-            ->filters([TernaryFilter::make('within_control')->label('Within our control'), AuditFields::activeFilter()])
+            ->modifyQueryUsing(fn ($query) => $query->with('vertical:id,name,code'))
+            ->filters([VerticalFields::filter(), TernaryFilter::make('within_control')->label('Within our control'), AuditFields::activeFilter()])
             ->recordActions([EditAction::make()]);
     }
 

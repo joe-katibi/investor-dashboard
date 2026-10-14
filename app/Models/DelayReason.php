@@ -3,16 +3,17 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToVertical;
 use App\Models\Concerns\HasAuditColumns;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
 /** Why a ticket is / was late: rescheduled by the customer, client unreachable, escalated to infrastructure… */
-#[Fillable(['code', 'name', 'within_control', 'description', 'sort_order', 'is_active'])]
+#[Fillable(['code', 'name', 'within_control', 'description', 'vertical_id', 'sort_order', 'is_active'])]
 class DelayReason extends Model
 {
-    use Auditable, HasAuditColumns;
+    use Auditable, BelongsToVertical, HasAuditColumns;
 
     // Reasons the workflow sets by itself.
     public const OUTAGE = 'D06';

@@ -130,6 +130,8 @@ class Settings
         'ticketing.confirm_closure' => true,           // site visits: CX Field Support confirms with the customer before closing
         'ticketing.require_evidence' => true,          // FAT number + geolocation and speed-test photos to complete a visit
         'ticketing.require_location' => true,          // the geolocation photo must carry the phone's position (mobile app)
+        'ticketing.mobility_update_minutes' => 20,     // 4G customer tickets: an update is due at every step this often (0 = off)
+        'ticketing.mobility_vendor_reminder_minutes' => 60, // remind a silent vendor of a 4G ticket by e-mail (0 = off)
         'geo.lookup' => true,                          // place name + small map on the geolocation photo (OpenStreetMap)
         'ticketing.max_daily_visits' => 0,             // per technician per day (0 = no limit)
         'ticketing.company_name' => 'Savanna Fibre',

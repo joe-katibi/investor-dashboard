@@ -111,7 +111,7 @@ class VendorNotifier
     /** Placeholder values for vendor templates. */
     public function data(Outage $outage, array $context = []): array
     {
-        $outage->loadMissing(['vendor', 'outageType', 'priority', 'status', 'services', 'enodebs', 'transmissionNodes', 'slaPolicy']);
+        $outage->loadMissing(['vendor', 'outageType', 'priority', 'status', 'services', 'enodebs', 'transmissionNodes', 'slaPolicy', 'ticket.subcategory']);
 
         $sites = $outage->enodebs;
         $more = $sites->count() > 1 ? ' (+'.($sites->count() - 1).' more)' : '';
@@ -152,6 +152,8 @@ class VendorNotifier
             'restoration_time' => $end?->format('d/m/Y H:i') ?? '—',
             'root_cause' => $outage->root_cause ?: '—',
             'resolution' => $outage->resolution ?: '—',
+            'issue' => $outage->ticket?->subcategory?->name ?? $outage->title,
+            'team' => $outage->current_queue?->getLabel() ?? '—',
             'reason' => '',
         ], array_intersect_key($context, array_flip(VendorTemplate::PLACEHOLDERS)));
     }
@@ -168,7 +170,7 @@ class VendorNotifier
             'vendor_name' => 'ATC', 'vendor_contact' => 'ATC NOC', 'sla' => '4 hours', 'sla_due' => now()->addHours(4)->format('d/m/Y H:i'),
             'status' => 'Vendor Assigned', 'noc_contact' => $this->settings->get('mobility.noc_contact') ?: (string) config('mail.from.address'),
             'ticket_url' => url('/admin'), 'outage_duration' => '20 minutes', 'restoration_time' => '—', 'root_cause' => '—', 'resolution' => '—',
-            'reason' => 'Sample reason',
+            'reason' => 'Sample reason', 'issue' => 'No service / no signal', 'team' => 'RF Team',
         ];
     }
 

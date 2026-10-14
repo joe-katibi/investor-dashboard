@@ -60,6 +60,19 @@ class DeskRoute extends Model
         return $targets;
     }
 
+    /**
+     * Where this ticket may be sent from its desk: the routes of the desk, narrowed to the desks that
+     * serve the ticket's vertical (a 4G ticket is never offered the FTTH NOC, an FTTH ticket never the 4G desks).
+     *
+     * @return array<string, string>
+     */
+    public static function targetsFor(Outage $ticket): array
+    {
+        $vertical = $ticket->verticalCode();
+
+        return array_filter(self::targets($ticket->current_queue), fn (string $label, string $desk) => QueueType::from($desk)->serves($vertical), ARRAY_FILTER_USE_BOTH);
+    }
+
     public static function allows(?QueueType $from, QueueType $to): bool
     {
         return array_key_exists($to->value, self::targets($from));

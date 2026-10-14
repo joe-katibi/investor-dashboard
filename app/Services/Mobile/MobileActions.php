@@ -517,7 +517,7 @@ final class MobileActions
                 'description' => 'Your final close of the completed work.',
                 'fields' => fn () => [
                     ...(TicketActions::late($outage) ? [
-                        $this->select('delay_reason_id', 'Reason for delay', $this->options(TicketActions::delayReasons()), required: true,
+                        $this->select('delay_reason_id', 'Reason for delay', $this->options(TicketActions::delayReasons($outage->vertical_id)), required: true,
                             help: 'This visit is past its SLA: a reason for the delay is required.'),
                     ] : []),
                     $this->textarea('note', 'Verification note (optional)', max: 2000),
@@ -626,7 +626,7 @@ final class MobileActions
                     $evidence = TicketActions::needsEvidence($outage);
 
                     return [
-                        $this->select('final_reason_id', 'Final reason', $this->options(TicketActions::finalReasons('visit', $outage->current_queue)), required: true),
+                        $this->select('final_reason_id', 'Final reason', $this->options(TicketActions::finalReasons('visit', $outage->current_queue, $outage->vertical_id)), required: true),
                         $this->text('fat_number', 'FAT number', required: $evidence, max: 60, default: $ticket?->fat_number),
                         // The photos of this kind of visit: two, or — installation / relocation — whichever of the nine are not on the visit yet.
                         // A geotagged one is taken at the phone's position: place, coordinates and time are stamped on it and saved with it.
@@ -666,7 +666,7 @@ final class MobileActions
                         ['value' => 'dispatch', 'label' => 'Escalation — the dispatcher decides (Infrastructure Support, Design, NOC, Access…)'],
                         ['value' => 'field_support', 'label' => 'The customer — unreachable, asked to reschedule or to be called back (CX Field Support)'],
                     ], required: true, default: 'dispatch'),
-                    $this->select('delay_reason_id', 'Reason for delay', $this->options(TicketActions::delayReasons())),
+                    $this->select('delay_reason_id', 'Reason for delay', $this->options(TicketActions::delayReasons($outage->vertical_id))),
                     $this->textarea('reason', 'What happened on site', required: true, max: 2000),
                 ],
                 'handle' => function (array $data) use ($outage, $user): string {
@@ -684,7 +684,7 @@ final class MobileActions
                 'description' => 'From '.($outage->current_queue?->getLabel() ?? '—').'. The next available person at the desk you choose gets it (FIFO).',
                 'fields' => fn () => [
                     $this->select('desk', 'Send to', $this->options(TicketActions::routeOptions($outage)), required: true),
-                    ...($outage->isSiteVisit() ? [$this->select('delay_reason_id', 'Reason for delay (optional)', $this->options(TicketActions::delayReasons()))] : []),
+                    ...($outage->isSiteVisit() ? [$this->select('delay_reason_id', 'Reason for delay (optional)', $this->options(TicketActions::delayReasons($outage->vertical_id)))] : []),
                     $this->textarea('note', 'Why / what is needed', required: true, max: 2000),
                 ],
                 'handle' => function (array $data) use ($outage, $user): string {
@@ -734,8 +734,8 @@ final class MobileActions
                     ? 'Closes the visit without field work (for example the customer confirmed uptime on the call).'
                     : 'Closes the ticket with its final reason.',
                 'fields' => fn () => [
-                    $this->select('final_reason_id', 'Final reason', $this->options(TicketActions::finalReasons($outage->isSiteVisit() ? 'visit' : 'ticket', $outage->current_queue)), required: true),
-                    $this->select('delay_reason_id', 'Reason for delay', $this->options(TicketActions::delayReasons()), required: TicketActions::late($outage),
+                    $this->select('final_reason_id', 'Final reason', $this->options(TicketActions::finalReasons($outage->isSiteVisit() ? 'visit' : 'ticket', $outage->current_queue, $outage->vertical_id)), required: true),
+                    $this->select('delay_reason_id', 'Reason for delay', $this->options(TicketActions::delayReasons($outage->vertical_id)), required: TicketActions::late($outage),
                         help: TicketActions::late($outage) ? 'This ticket is past its SLA: a reason for the delay is required.' : null),
                     $this->textarea('resolution_notes', 'Resolution / what the customer was told', max: 5000),
                     $this->toggle('customer_confirmed', 'The customer confirmed it is resolved'),

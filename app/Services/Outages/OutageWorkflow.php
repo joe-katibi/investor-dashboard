@@ -32,6 +32,7 @@ use App\Services\Fifo\FifoAssignmentEngine;
 use App\Services\Notifications\NotificationDispatcher;
 use App\Services\Outages\Concerns\ManagesCustomFlows;
 use App\Services\Outages\Concerns\ManagesFieldMaintenance;
+use App\Services\Outages\Concerns\ManagesFourGTickets;
 use App\Services\Outages\Concerns\ManagesMobilityOutages;
 use App\Services\Outages\Concerns\ManagesPlannedMaintenance;
 use App\Services\Outages\Concerns\ManagesTickets;
@@ -57,7 +58,7 @@ use Illuminate\Validation\ValidationException;
  */
 class OutageWorkflow
 {
-    use ManagesCustomFlows, ManagesFieldMaintenance, ManagesMobilityOutages, ManagesPlannedMaintenance, ManagesTickets;
+    use ManagesCustomFlows, ManagesFieldMaintenance, ManagesFourGTickets, ManagesMobilityOutages, ManagesPlannedMaintenance, ManagesTickets;
 
     public function __construct(
         private readonly TicketNumberGenerator $tickets,
@@ -365,6 +366,8 @@ class OutageWorkflow
 
             event(new OutageUpdated($outage->id, $outage->ticket_number));
             $this->notifier->dispatch(NotificationEvent::UpdatePosted, $outage, ['reason' => $body, 'by' => $by->name]);
+            // 4G customer tickets: everyone involved is kept posted.
+            $this->shareFourGProgress($outage, $body);
 
             return $update;
         });

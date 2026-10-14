@@ -51,6 +51,8 @@ class VendorTemplate extends Model
         'affected_services', 'affected_sites', 'affected_nodes', 'description', 'service_impact', 'vendor_name',
         'vendor_contact', 'sla', 'sla_due', 'status', 'noc_contact', 'ticket_url', 'reason', 'outage_duration',
         'restoration_time', 'root_cause', 'resolution',
+        // Customer tickets (4G): what the customer reported, and the team that called the vendor in.
+        'issue', 'team',
     ];
 
     protected function casts(): array

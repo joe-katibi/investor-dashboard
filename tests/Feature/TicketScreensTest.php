@@ -36,6 +36,7 @@ use App\Models\FinalReason;
 use App\Models\Outage;
 use App\Models\Region;
 use App\Models\Ticket;
+use App\Models\TicketCategory;
 use App\Models\TicketSubcategory;
 use App\Models\User;
 use App\Models\VisitType;
@@ -163,6 +164,8 @@ class TicketScreensTest extends TestCase
             ->call('create')
             // Source, billing system ticket number, customer availability and narration are required, with the number called from.
             ->assertHasFormErrors(['calling_number', 'source', 'external_reference', 'preferred_time', 'description'])
+            // Picking the subcategory from the whole list fills its category in.
+            ->assertFormSet(['category_id' => TicketCategory::query()->where('code', 'TECH')->value('id')])
             ->fillForm(['calling_number' => '0772123456', 'source' => 'call', 'external_reference' => 'TKT-148866', 'preferred_time' => 'Available after 2 pm', 'description' => 'Red light since morning'])
             ->call('create')
             ->assertHasNoFormErrors();
@@ -174,6 +177,12 @@ class TicketScreensTest extends TestCase
         $this->assertSame($network->id, $ticket->linked_outage_id);
         $this->assertSame(['call', 'TKT-148866', 'Available after 2 pm', 'Red light since morning'], [$ticket->source, $ticket->external_reference, $ticket->preferred_time, $outage->description]);
         $this->assertSame(QueueType::CxTier2, $outage->current_queue);
+
+        // Nothing chosen: the category is required as well as the subcategory.
+        Livewire::test(CreateTicket::class)
+            ->fillForm(['account_number' => 'SF7777778', 'customer_name' => 'No Category', 'calling_number' => '0772999887'])
+            ->call('create')
+            ->assertHasFormErrors(['category_id' => 'required', 'subcategory_id' => 'required']);
 
         // An account that is not on file: said so, captured by hand.
         Livewire::test(CreateTicket::class)

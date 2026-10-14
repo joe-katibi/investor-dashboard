@@ -311,7 +311,7 @@ class OutagePolicy
         return $this->openTicketAtDesk($outage)
             && ! $outage->current_queue->isFieldDesk()
             && $user->canAny($outage->isSiteVisit() ? ['visit.dispatch', 'ticket.work'] : ['ticket.work'])
-            && DeskRoute::targets($outage->current_queue) !== [];
+            && DeskRoute::targetsFor($outage) !== [];
     }
 
     /** Send it back to the desk it came from. */
@@ -339,11 +339,28 @@ class OutagePolicy
         return $outage->isTicket() && ! $outage->is_closed && $user->canAny(['ticket.work', 'visit.dispatch']);
     }
 
+    /** A 4G ticket at the IP, RF or Core team: the team calls in one of its vendors. */
+    public function ticketVendorEscalate(User $user, Outage $outage): bool
+    {
+        return $this->openTicketAtDesk($outage)
+            && $outage->isFourGTicket()
+            && $outage->current_queue->isEngineeringTeam()
+            && $user->can('ticket.work');
+    }
+
+    /** What the vendor of a 4G ticket said, written down by the team holding it. */
+    public function ticketVendorFeedback(User $user, Outage $outage): bool
+    {
+        return $this->ticketVendorEscalate($user, $outage) && $outage->vendor_id !== null;
+    }
+
     /** Book a site visit for a customer ticket (the ticket then waits for the visit). */
     public function ticketRaiseVisit(User $user, Outage $outage): bool
     {
+        // Site visits are FTTH work: a 4G ticket goes to the 4G NOC and its teams instead.
         return $this->openTicketAtDesk($outage)
             && $outage->isCxTicket()
+            && ! $outage->isFourGTicket()
             && $user->can('visit.create')
             && $user->can('ticket.work');
     }

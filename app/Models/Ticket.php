@@ -49,6 +49,11 @@ class Ticket extends Model
             'escalated_to' => QueueType::class,
             'scheduled_at' => 'datetime',
             'desk_since' => 'datetime',
+            // 4G tickets: their vendor, and the reminders that keep them moving.
+            'vendor_notified_at' => 'datetime',
+            'vendor_feedback_at' => 'datetime',
+            'vendor_reminded_at' => 'datetime',
+            'progress_reminded_at' => 'datetime',
             'first_assigned_at' => 'datetime',
             'assigned_at' => 'datetime',
             'accepted_at' => 'datetime',

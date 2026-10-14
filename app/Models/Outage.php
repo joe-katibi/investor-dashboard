@@ -464,6 +464,22 @@ class Outage extends Model
         return $this->workflow === OutageType::WORKFLOW_CX_TICKET;
     }
 
+    /** A customer ticket of the 4G vertical: it goes to the 4G NOC and its IP / RF / Core teams, not to the FTTH desks. */
+    public function isFourGTicket(): bool
+    {
+        return $this->isCxTicket() && $this->verticalCode() === Vertical::MOBILITY_4G;
+    }
+
+    /** "FTTH", "4G"… of this ticket. */
+    public function verticalCode(): ?string
+    {
+        if (! $this->vertical_id) {
+            return null;
+        }
+
+        return $this->relationLoaded('vertical') ? $this->vertical?->code : Vertical::query()->whereKey($this->vertical_id)->value('code');
+    }
+
     public function isSiteVisit(): bool
     {
         return $this->workflow === OutageType::WORKFLOW_SITE_VISIT;

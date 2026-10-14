@@ -44,6 +44,7 @@ class WorkflowConfig
         'maintenance.sign_link_days', 'mobility.vendor_silent_minutes', 'mobility.vendor_escalation_minutes', 'mobility.vendor_reminder_mail',
         'ticketing.followup_enabled', 'ticketing.followup_minutes', 'ticketing.sla_minutes', 'ticketing.confirm_closure',
         'ticketing.require_evidence', 'ticketing.max_daily_visits', 'ticketing.dispatch_target_minutes',
+        'ticketing.mobility_update_minutes', 'ticketing.mobility_vendor_reminder_minutes',
     ];
 
     public function __construct(
@@ -394,6 +395,22 @@ class WorkflowConfig
                     ['ticketing.sla_minutes', 'Ticket SLA when the issue has none of its own (minutes)'],
                     ['ticketing.followup_enabled', 'Queue tickets pending too long for a customer call'],
                     ['ticketing.followup_minutes', 'Pending this long → follow-up call and ready for credit (minutes)'],
+                ],
+            ],
+            'cx_ticket_4g' => [
+                'label' => '4G customer ticket',
+                'description' => 'A customer ticket raised under the 4G vertical: CX Tier II, then the 4G NOC, then the IP, RF or Core team — who may call in their vendor — back to the NOC to validate, and to CX Tier II to confirm with the customer. An update is due every few minutes at every step.',
+                'steps' => [
+                    $step(null, 'Raised', 'A CX agent raises the ticket under the 4G vertical.', [E::OutageCreated], 'ticket.create'),
+                    $step(Q::CxTier2, 'CX Tier II', 'Troubleshoots; resolves and closes after confirming with the customer, or escalates to the 4G NOC.', [E::TicketRouted]),
+                    $step(Q::Ticket4gNoc, '4G NOC', 'Resolves, or escalates to the IP, RF or Core team; validates their fix — back to the team, or to CX Tier II.', [E::TicketRouted, E::TicketReturned]),
+                    $step(Q::TicketIp, 'IP Team', 'Resolves (to the NOC to validate) or escalates to an IP vendor.', [E::TicketRouted, E::TicketVendorEscalated]),
+                    $step(Q::TicketRf, 'RF Team', 'Resolves (to the NOC to validate) or escalates to an RF vendor.', [E::TicketRouted, E::TicketVendorEscalated]),
+                    $step(Q::TicketCore, 'Core Team', 'Resolves (to the NOC to validate) or escalates to a core vendor.', [E::TicketRouted, E::TicketVendorEscalated]),
+                ],
+                'switches' => [
+                    ['ticketing.mobility_update_minutes', 'An update is due on a 4G ticket every (minutes)', 'Whoever holds it is reminded when nothing has been posted for this long. 0 = off.'],
+                    ['ticketing.mobility_vendor_reminder_minutes', 'Remind a vendor by e-mail when they have said nothing for (minutes)', '0 = off.'],
                 ],
             ],
             'site_visit' => [

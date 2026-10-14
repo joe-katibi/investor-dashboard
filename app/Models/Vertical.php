@@ -23,6 +23,14 @@ class Vertical extends Model
         return ['is_active' => 'boolean'];
     }
 
+    /** The id of a vertical by its code (Vertical::FTTH, Vertical::MOBILITY_4G); null when it does not exist. */
+    public static function idFor(string $code): ?int
+    {
+        $id = static::query()->where('code', $code)->value('id');
+
+        return $id ? (int) $id : null;
+    }
+
     public function services(): HasMany
     {
         return $this->hasMany(Service::class);

@@ -6,6 +6,7 @@ use App\Filament\Concerns\GuardsWithPermission;
 use App\Filament\Resources\Customers\Pages\ManageCustomers;
 use App\Filament\Support\AuditFields;
 use App\Filament\Support\OutageLink;
+use App\Filament\Support\VerticalFields;
 use App\Models\Customer;
 use App\Models\Fdt;
 use App\Models\Olt;
@@ -68,6 +69,7 @@ class CustomerResource extends Resource
         return $schema->components([
             TextInput::make('account_number')->label('Account number (ONU name)')->required()->maxLength(60)->unique(ignoreRecord: true),
             TextInput::make('name')->label('Customer name (alias name)')->maxLength(190),
+            VerticalFields::select('FTTH or 4G customer.'),
             TextInput::make('primary_phone')->label('Primary number')->tel()->maxLength(40),
             TextInput::make('alt_phone_1')->label('Alternative number 1')->tel()->maxLength(40),
             TextInput::make('alt_phone_2')->label('Alternative number 2')->tel()->maxLength(40),
@@ -102,11 +104,12 @@ class CustomerResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['olt:id,name', 'fdt:id,name', 'slot:id,name', 'port:id,name', 'region:id,name'])->withCount('tickets'))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['olt:id,name', 'fdt:id,name', 'slot:id,name', 'port:id,name', 'region:id,name', 'vertical:id,name,code'])->withCount('tickets'))
             ->defaultSort('account_number')
             ->columns([
                 TextColumn::make('account_number')->label('Account')->searchable()->sortable()->weight('bold')->copyable(),
                 TextColumn::make('name')->label('Customer')->searchable()->sortable()->wrap()->placeholder('—'),
+                VerticalFields::column(),
                 TextColumn::make('primary_phone')->label('Phone')->searchable()->placeholder('—')->visibleFrom('md'),
                 TextColumn::make('position')->label('OLT › FDT › Slot › Port')->placeholder('Not on file')->wrap()->visibleFrom('md')
                     ->state(fn (Customer $record) => $record->topologyPath() ?: null),
@@ -123,6 +126,7 @@ class CustomerResource extends Resource
                 ...AuditFields::columns(),
             ])
             ->filters([
+                VerticalFields::filter(),
                 SelectFilter::make('olt_id')->label('OLT')->relationship('olt', 'name')->searchable()->preload(),
                 SelectFilter::make('region_id')->label('Region')->relationship('region', 'name'),
                 SelectFilter::make('source')->label('Record')->options(['manual' => 'Captured by hand / manual', 'import' => 'From the customer file']),

@@ -9,6 +9,7 @@ use App\Models\FinalReason;
 use App\Models\Priority;
 use App\Models\TicketCategory;
 use App\Models\TicketSubcategory;
+use App\Models\Vertical;
 use App\Models\VisitType;
 use App\Support\VisitPhotos;
 use Illuminate\Database\Seeder;
@@ -132,6 +133,8 @@ class TicketCatalogSeeder extends Seeder
     public function run(): void
     {
         $priority = Priority::query()->pluck('id', 'code');
+        // This catalogue is the FTTH one (the 4G one: FourGTicketingSeeder).
+        $ftth = Vertical::query()->where('code', Vertical::FTTH)->value('id');
 
         // [prefix, name, default SLA minutes (null = the ticket setting), description]
         foreach ([
@@ -149,7 +152,7 @@ class TicketCatalogSeeder extends Seeder
 
         foreach (self::DELAY_REASONS as $i => [$code, $name, $ours, $fix]) {
             DelayReason::query()->firstOrCreate(['code' => $code], [
-                'name' => $name, 'within_control' => $ours, 'description' => $fix, 'sort_order' => $i + 1, 'is_active' => true,
+                'name' => $name, 'within_control' => $ours, 'description' => $fix, 'vertical_id' => $ftth, 'sort_order' => $i + 1, 'is_active' => true,
             ]);
         }
 
@@ -157,21 +160,21 @@ class TicketCatalogSeeder extends Seeder
         $sort = 0;
 
         foreach (self::SHARED_REASONS as [$name, $code]) {
-            FinalReason::query()->firstOrCreate(['name' => $name], ['applies_to' => null, 'delay_reason_id' => $code ? ($delay[$code] ?? null) : null, 'sort_order' => ++$sort, 'is_active' => true]);
+            FinalReason::query()->firstOrCreate(['name' => $name], ['applies_to' => null, 'delay_reason_id' => $code ? ($delay[$code] ?? null) : null, 'vertical_id' => $ftth, 'sort_order' => ++$sort, 'is_active' => true]);
         }
 
         foreach (self::TICKET_REASONS as $name) {
-            FinalReason::query()->firstOrCreate(['name' => $name], ['applies_to' => 'ticket', 'sort_order' => ++$sort, 'is_active' => true]);
+            FinalReason::query()->firstOrCreate(['name' => $name], ['applies_to' => 'ticket', 'vertical_id' => $ftth, 'sort_order' => ++$sort, 'is_active' => true]);
         }
 
         foreach (self::VISIT_REASONS as $name) {
-            FinalReason::query()->firstOrCreate(['name' => $name], ['applies_to' => 'visit', 'sort_order' => ++$sort, 'is_active' => true]);
+            FinalReason::query()->firstOrCreate(['name' => $name], ['applies_to' => 'visit', 'vertical_id' => $ftth, 'sort_order' => ++$sort, 'is_active' => true]);
         }
 
         $visitTypes = VisitType::query()->pluck('id', 'code_prefix');
 
         foreach (self::CATEGORIES as $c => [$code, $name, [$first, $approval, $fulfilment], $visitPrefix, $subcategories]) {
-            $category = TicketCategory::query()->firstOrCreate(['code' => $code], ['name' => $name, 'sort_order' => $c + 1, 'is_active' => true]);
+            $category = TicketCategory::query()->firstOrCreate(['code' => $code], ['name' => $name, 'vertical_id' => $ftth, 'sort_order' => $c + 1, 'is_active' => true]);
 
             foreach ($subcategories as $s => $subcategory) {
                 [$subName, $checkOutage, $priorityCode] = is_array($subcategory) ? $subcategory : [$subcategory, false, 'medium'];

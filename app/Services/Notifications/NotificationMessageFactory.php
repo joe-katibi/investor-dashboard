@@ -86,6 +86,9 @@ class NotificationMessageFactory
             NotificationEvent::VisitRescheduled => "Site visit rescheduled: {$ticket}",
             NotificationEvent::VisitCompleted => "Site visit completed — dispatcher to verify: {$ticket}",
             NotificationEvent::TicketCustomerSms => "Customer SMS: {$ticket}",
+            NotificationEvent::TicketVendorEscalated => 'Escalated to vendor '.($context['vendor'] ?? '').": {$ticket}",
+            NotificationEvent::TicketVendorFeedback => 'Vendor feedback from '.($context['vendor'] ?? 'the vendor').": {$ticket}",
+            NotificationEvent::TicketProgressDue => 'Update due — no update for '.($context['minutes'] ?? 20)." minutes: {$ticket}",
         };
 
         if ($outage->isTicket()) {

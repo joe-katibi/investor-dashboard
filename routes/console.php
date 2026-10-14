@@ -20,6 +20,8 @@ Schedule::command('oms:send-scheduled-reports')->everyMinute()->onOneServer()->w
 Schedule::command('oms:maintenance-tick')->everyMinute()->onOneServer()->withoutOverlapping(5);
 Schedule::command('oms:mobility-tick')->everyMinute()->onOneServer()->withoutOverlapping(5);
 Schedule::command('oms:ticket-tick')->everyFiveMinutes()->onOneServer()->withoutOverlapping(10);
+// 4G customer tickets: an update is due at every step; silent vendors are reminded.
+Schedule::command('oms:ticket-progress')->everyMinute()->onOneServer()->withoutOverlapping(5);
 
 // Report exports are kept six hours: the file and its row then go; a run whose worker died is closed.
 Schedule::command('oms:prune-report-exports')->everyTenMinutes()->onOneServer()->withoutOverlapping(10);

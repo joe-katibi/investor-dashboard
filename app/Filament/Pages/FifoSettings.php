@@ -56,6 +56,7 @@ class FifoSettings extends Page
             QueueType::CxCallback, QueueType::CxTier2, QueueType::Billing, QueueType::BillingManager, QueueType::Commercial, QueueType::CxManager,
             QueueType::TicketNoc, QueueType::TicketFollowUp,
         ],
+        '4G customer tickets' => [QueueType::Ticket4gNoc, QueueType::TicketIp, QueueType::TicketRf, QueueType::TicketCore],
         'Site visits' => [
             QueueType::VisitDispatch, QueueType::VisitTechnician, QueueType::InfraSupportDispatch, QueueType::InfraSupportTechnician, QueueType::Design,
             QueueType::Access, QueueType::CxFieldSupport,

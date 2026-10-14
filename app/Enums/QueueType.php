@@ -2,6 +2,7 @@
 
 namespace App\Enums;
 
+use App\Models\Vertical;
 use Filament\Support\Contracts\HasColor;
 use Filament\Support\Contracts\HasLabel;
 
@@ -32,6 +33,12 @@ enum QueueType: string implements HasColor, HasLabel
     case CxManager = 'cx_manager';
     case CxCallback = 'cx_callback';
     case TicketNoc = 'ticket_noc';
+
+    // 4G customer tickets: the 4G NOC, then the IP, RF and Core teams (who may call in a vendor).
+    case Ticket4gNoc = 'ticket_4g_noc';
+    case TicketIp = 'ticket_ip';
+    case TicketRf = 'ticket_rf';
+    case TicketCore = 'ticket_core';
 
     // Site visits: dispatch, the field, the desks a visit is escalated to, and the customer call-back.
     case VisitDispatch = 'visit_dispatch';
@@ -69,6 +76,10 @@ enum QueueType: string implements HasColor, HasLabel
             self::CxManager => 'CX Manager',
             self::CxCallback => 'CX Frontline Follow-up',
             self::TicketNoc => 'NOC (customer tickets)',
+            self::Ticket4gNoc => '4G NOC (customer tickets)',
+            self::TicketIp => 'IP Team',
+            self::TicketRf => 'RF Team',
+            self::TicketCore => 'Core Team',
             self::VisitDispatch => 'Site Visit Dispatch',
             self::VisitTechnician => 'Site Visit Technician',
             self::InfraSupportDispatch => 'Infrastructure Support Dispatch',
@@ -97,6 +108,8 @@ enum QueueType: string implements HasColor, HasLabel
             self::CxTier2, self::CxCallback, self::CxFieldSupport => 'info',
             self::Billing, self::BillingManager, self::Commercial, self::CxManager => 'warning',
             self::TicketNoc, self::Design, self::Access => 'gray',
+            self::Ticket4gNoc => 'success',
+            self::TicketIp, self::TicketRf, self::TicketCore => 'primary',
             self::VisitDispatch, self::InfraSupportDispatch => 'warning',
             self::VisitTechnician, self::InfraSupportTechnician => 'primary',
             self::TicketFollowUp => 'danger',
@@ -166,6 +179,44 @@ enum QueueType: string implements HasColor, HasLabel
         return in_array($this, self::ticketing(), true);
     }
 
+    /**
+     * The vertical a ticket desk serves (Vertical::FTTH / Vertical::MOBILITY_4G); null = tickets of any
+     * vertical (CX Tier II, billing, approvals, call-backs). A 4G ticket never goes to the FTTH NOC or a
+     * site visit desk, an FTTH ticket never to the 4G NOC or its IP / RF / Core teams.
+     */
+    public function verticalCode(): ?string
+    {
+        return match ($this) {
+            self::Ticket4gNoc, self::TicketIp, self::TicketRf, self::TicketCore => Vertical::MOBILITY_4G,
+            self::TicketNoc, self::VisitDispatch, self::VisitTechnician, self::InfraSupportDispatch, self::InfraSupportTechnician,
+            self::Design, self::Access, self::CxFieldSupport => Vertical::FTTH,
+            default => null,
+        };
+    }
+
+    /** Whether a ticket of this vertical (its code) may be at this desk. */
+    public function serves(?string $verticalCode): bool
+    {
+        return $this->verticalCode() === null || $verticalCode === null || $this->verticalCode() === $verticalCode;
+    }
+
+    /** The 4G engineering teams: they work a 4G ticket themselves or escalate it to one of their vendors. */
+    public function isEngineeringTeam(): bool
+    {
+        return in_array($this, [self::TicketIp, self::TicketRf, self::TicketCore], true);
+    }
+
+    /** The vendor type that serves an engineering team (Vendor::TYPES). */
+    public function vendorType(): ?string
+    {
+        return match ($this) {
+            self::TicketIp => 'ip',
+            self::TicketRf => 'rf',
+            self::TicketCore => 'core',
+            default => null,
+        };
+    }
+
     /** Desks where a request is approved or declined (refund, credit, billing escalation). */
     public function isApprovalDesk(): bool
     {
@@ -183,6 +234,7 @@ enum QueueType: string implements HasColor, HasLabel
     {
         return [
             self::CxTier2, self::Billing, self::BillingManager, self::Commercial, self::CxManager, self::CxCallback, self::TicketNoc,
+            self::Ticket4gNoc, self::TicketIp, self::TicketRf, self::TicketCore,
             self::VisitDispatch, self::VisitTechnician, self::InfraSupportDispatch, self::InfraSupportTechnician, self::Design, self::Access,
             self::CxFieldSupport, self::TicketFollowUp,
         ];

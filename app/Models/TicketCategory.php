@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToVertical;
 use App\Models\Concerns\HasAuditColumns;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -10,10 +11,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /** What the customer contacted us about, at the top level: Technical, Billing, Refund, Credit… */
-#[Fillable(['name', 'code', 'description', 'sort_order', 'is_active'])]
+#[Fillable(['name', 'code', 'description', 'vertical_id', 'sort_order', 'is_active'])]
 class TicketCategory extends Model
 {
-    use Auditable, HasAuditColumns;
+    use Auditable, BelongsToVertical, HasAuditColumns;
 
     protected function casts(): array
     {

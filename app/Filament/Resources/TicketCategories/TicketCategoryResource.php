@@ -5,6 +5,7 @@ namespace App\Filament\Resources\TicketCategories;
 use App\Filament\Concerns\GuardsWithPermission;
 use App\Filament\Resources\TicketCategories\Pages\ManageTicketCategories;
 use App\Filament\Support\AuditFields;
+use App\Filament\Support\VerticalFields;
 use App\Models\TicketCategory;
 use BackedEnum;
 use Filament\Actions\EditAction;
@@ -41,6 +42,7 @@ class TicketCategoryResource extends Resource
     {
         return $schema->components([
             TextInput::make('name')->required()->maxLength(150)->unique(ignoreRecord: true),
+            VerticalFields::select('Raising a ticket of this vertical offers this category and its subcategories.'),
             TextInput::make('code')->required()->maxLength(40)->unique(ignoreRecord: true)->alphaDash(),
             TextInput::make('sort_order')->label('Order in lists')->numeric()->default(0)->minValue(0)->maxValue(999),
             AuditFields::activeToggle(),
@@ -55,12 +57,14 @@ class TicketCategoryResource extends Resource
             ->columns([
                 TextColumn::make('name')->searchable()->sortable()->weight('bold'),
                 TextColumn::make('code')->badge()->color('gray'),
+                VerticalFields::column(),
                 TextColumn::make('subcategories.name')->label('Subcategories')->badge()->color('info')->limitList(8)->wrap()->placeholder('None yet'),
                 TextColumn::make('sort_order')->label('Order')->sortable()->visibleFrom('md'),
                 AuditFields::activeColumn(),
                 ...AuditFields::columns(),
             ])
-            ->filters([AuditFields::activeFilter()])
+            ->modifyQueryUsing(fn ($query) => $query->with('vertical:id,name,code'))
+            ->filters([VerticalFields::filter(), AuditFields::activeFilter()])
             ->recordActions([EditAction::make()]);
     }
 

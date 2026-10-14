@@ -200,6 +200,9 @@ class Reports extends Page
 
     private function filters(): array
     {
-        return collect($this->data ?? [])->except('report')->filter(fn ($v) => $v !== null && $v !== '' && $v !== [])->all();
+        // "Group by" is filled for every report but only the staff productivity and availability reports use it.
+        $grouped = in_array($this->data['report'] ?? null, [ProductivityReport::KEY, AvailabilityTimeReport::KEY], true);
+
+        return collect($this->data ?? [])->except($grouped ? ['report'] : ['report', 'group'])->filter(fn ($v) => $v !== null && $v !== '' && $v !== [])->all();
     }
 }

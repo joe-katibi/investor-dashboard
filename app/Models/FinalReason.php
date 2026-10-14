@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\QueueType;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToVertical;
 use App\Models\Concerns\HasAuditColumns;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -11,10 +12,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /** What fixed / ended a ticket ("Splicing done at the FAT", "Faulty ONU replaced"…), picked on closing. */
-#[Fillable(['name', 'description', 'applies_to', 'desks', 'delay_reason_id', 'sort_order', 'is_active'])]
+#[Fillable(['name', 'description', 'applies_to', 'desks', 'delay_reason_id', 'vertical_id', 'sort_order', 'is_active'])]
 class FinalReason extends Model
 {
-    use Auditable, HasAuditColumns;
+    use Auditable, BelongsToVertical, HasAuditColumns;
 
     public const APPLIES_TO = ['ticket' => 'Customer tickets', 'visit' => 'Site visits'];
 

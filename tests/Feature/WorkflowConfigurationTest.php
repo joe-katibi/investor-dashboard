@@ -66,7 +66,7 @@ class WorkflowConfigurationTest extends TestCase
         $config = app(WorkflowConfig::class);
 
         $this->assertSame(
-            ['outage', 'system', 'planned', 'field_maintenance', 'mobility', 'mobility_vendor', 'cx_ticket', 'site_visit'],
+            ['outage', 'system', 'planned', 'field_maintenance', 'mobility', 'mobility_vendor', 'cx_ticket', 'cx_ticket_4g', 'site_visit'],
             array_keys($config->flows()),
         );
 

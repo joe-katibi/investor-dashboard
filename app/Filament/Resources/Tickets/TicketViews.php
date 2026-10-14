@@ -15,6 +15,7 @@ use App\Models\OutageStatus;
 use App\Models\Region;
 use App\Models\Ticket;
 use App\Models\TicketFollowUp;
+use App\Models\Vertical;
 use App\Models\VisitType;
 use App\Services\Maintenance\MaintenanceNotifier;
 use App\Services\Tickets\BusinessClock;
@@ -40,6 +41,7 @@ final class TicketViews
     public const RELATIONS = [
         'ticket.subcategory', 'ticket.category', 'ticket.visitType', 'ticket.olt', 'ticket.region', 'ticket.delayReason',
         'priority:id,name,color', 'status:id,name,color', 'currentAssignee:id,name', 'technician:id,name', 'activeAssignments',
+        'vertical:id,name,code',
     ];
 
     /**
@@ -94,9 +96,10 @@ final class TicketViews
         ]);
     }
 
-    public static function table(Table $table, bool $visits): Table
+    /** @param  class-string|null  $resource  the resource whose page a row opens (4G Tickets has its own) */
+    public static function table(Table $table, bool $visits, ?string $resource = null): Table
     {
-        $resource = $visits ? SiteVisitResource::class : TicketResource::class;
+        $resource ??= $visits ? SiteVisitResource::class : TicketResource::class;
 
         return $table
             ->modifyQueryUsing(fn (Builder $query) => $query->with(self::RELATIONS))
@@ -118,6 +121,8 @@ final class TicketViews
                 TextColumn::make('issue')->label('Issue')->wrap()->visibleFrom('sm')
                     ->state(fn (Outage $record) => $record->ticket?->subcategory?->name ?? $record->ticket?->visitType?->name)
                     ->description(fn (Outage $record) => $visits ? $record->ticket?->visitType?->name : $record->ticket?->category?->name),
+                TextColumn::make('vertical.name')->label('Vertical')->badge()->visible(! $visits)->visibleFrom('md')->placeholder('—')
+                    ->color(fn (Outage $record) => $record->isFourGTicket() ? 'info' : 'gray'),
                 TextColumn::make('where')->label('Region / OLT')->visibleFrom('lg')->wrap()->placeholder('—')
                     ->state(fn (Outage $record) => collect([$record->ticket?->region?->name, $record->ticket?->olt?->name])->filter()->implode(' · ') ?: null),
                 TextColumn::make('status.name')->label('Status')->badge()->wrap()->color(fn (Outage $record) => $record->status?->color ?? 'gray'),
@@ -136,6 +141,7 @@ final class TicketViews
             ->filters([
                 SelectFilter::make('status_id')->label('Status')->multiple()
                     ->options(fn () => OutageStatus::query()->ticketing()->orderBy('sort_order')->pluck('name', 'id')),
+                SelectFilter::make('vertical_id')->label('Vertical')->visible(! $visits)->options(fn () => Vertical::query()->orderBy('id')->pluck('name', 'id')),
                 SelectFilter::make('current_queue')->label('Desk')->options(QueueType::deskOptions()),
                 SelectFilter::make('region')->label('Region')->options(fn () => Region::query()->orderBy('name')->pluck('name', 'id'))
                     ->query(fn (Builder $query, array $data) => $query->when($data['value'] ?? null, fn (Builder $q, $v) => $q->whereHas('ticket', fn (Builder $t) => $t->where('region_id', $v)))),
@@ -182,6 +188,7 @@ final class TicketViews
                         TextEntry::make('ticket_number')->label('Ticket')->weight('bold')->copyable(),
                         TextEntry::make('status.name')->label('Status')->badge()->color(fn (Outage $record) => $record->status?->color ?? 'gray'),
                         TextEntry::make('ticket.visitType.name')->label('Visit type')->badge()->color('info')->visible($visits),
+                        TextEntry::make('vertical.name')->label('Vertical')->badge()->placeholder('—')->visible(! $visits),
                         TextEntry::make('ticket.category.name')->label('Category')->placeholder('—')->visible(! $visits),
                         TextEntry::make('ticket.subcategory.name')->label($visits ? 'Issue reported' : 'Subcategory')->placeholder('—'),
                         TextEntry::make('ticket.ticket_type')->label('Type')->formatStateUsing(fn (?string $state) => Ticket::TYPES[$state] ?? $state),

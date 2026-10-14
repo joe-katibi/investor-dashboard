@@ -24,6 +24,10 @@ class Vendor extends Model
         'tower' => 'Tower company',
         'transmission' => 'Transmission / backhaul',
         'equipment' => 'Equipment',
+        // The engineering teams of 4G customer tickets call in their own vendors.
+        'ip' => 'IP (4G customer tickets)',
+        'rf' => 'RF (4G customer tickets)',
+        'core' => 'Core (4G customer tickets)',
         'other' => 'Other',
     ];
 

@@ -6,6 +6,7 @@ use App\Enums\QueueType;
 use App\Filament\Concerns\GuardsWithPermission;
 use App\Filament\Resources\FinalReasons\Pages\ManageFinalReasons;
 use App\Filament\Support\AuditFields;
+use App\Filament\Support\VerticalFields;
 use App\Models\FinalReason;
 use BackedEnum;
 use Filament\Actions\EditAction;
@@ -43,6 +44,7 @@ class FinalReasonResource extends Resource
     {
         return $schema->components([
             TextInput::make('name')->required()->maxLength(190)->unique(ignoreRecord: true)->columnSpanFull(),
+            VerticalFields::select('Offered when closing tickets of this vertical only.'),
             Select::make('applies_to')->label('Offered on')->options(FinalReason::APPLIES_TO)->placeholder('Customer tickets and site visits'),
             CheckboxList::make('desks')->label('Offered at these desks')->options(QueueType::deskOptions())->columns(['default' => 2, 'md' => 3])->columnSpanFull()
                 ->helperText('Tick the desks whose people should see this reason when they close a ticket — Billing reasons for Billing, NOC reasons for the NOC, site-visit reasons for the technician. Leave all unticked to offer it at every desk.'),
@@ -57,10 +59,11 @@ class FinalReasonResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn ($query) => $query->with('delayReason:id,name'))
+            ->modifyQueryUsing(fn ($query) => $query->with(['delayReason:id,name', 'vertical:id,name,code']))
             ->defaultSort('name')
             ->columns([
                 TextColumn::make('name')->searchable()->sortable()->weight('bold')->wrap(),
+                VerticalFields::column(),
                 TextColumn::make('description')->wrap()->placeholder('—')->visibleFrom('md'),
                 TextColumn::make('applies_to')->label('Offered on')->badge()->color('gray')->placeholder('Tickets and visits')
                     ->formatStateUsing(fn (?string $state) => FinalReason::APPLIES_TO[$state] ?? $state),
@@ -71,6 +74,7 @@ class FinalReasonResource extends Resource
                 ...AuditFields::columns(),
             ])
             ->filters([
+                VerticalFields::filter(),
                 SelectFilter::make('applies_to')->label('Offered on')->options(FinalReason::APPLIES_TO),
                 SelectFilter::make('desk')->label('Desk')->options(QueueType::deskOptions())
                     ->query(fn ($query, array $data) => filled($data['value'] ?? null) ? $query->whereJsonContains('desks', $data['value']) : $query),

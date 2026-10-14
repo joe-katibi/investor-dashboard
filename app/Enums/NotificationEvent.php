@@ -80,13 +80,19 @@ enum NotificationEvent: string implements HasLabel
     case VisitCompleted = 'visit_completed';
     case TicketCustomerSms = 'ticket_customer_sms';
 
+    // 4G customer tickets: vendors, and an update due at every step.
+    case TicketVendorEscalated = 'ticket_vendor_escalated';
+    case TicketVendorFeedback = 'ticket_vendor_feedback';
+    case TicketProgressDue = 'ticket_progress_due';
+
     /** Events of the customer ticketing module, in lifecycle order (for its alert settings). */
     public static function ticketing(): array
     {
         return [
             self::OutageCreated, self::Assigned, self::TicketRouted, self::TicketReturned, self::TicketApproval, self::VisitScheduled,
             self::VisitRescheduled, self::VisitCompleted, self::UpdatePosted, self::StatusChanged, self::TicketFollowUpDue,
-            self::TicketCreditReady, self::TicketIntervention, self::Resolved, self::TicketReopened, self::AssignmentRejected,
+            self::TicketCreditReady, self::TicketIntervention, self::TicketVendorEscalated, self::TicketVendorFeedback, self::TicketProgressDue,
+            self::Resolved, self::TicketReopened, self::AssignmentRejected,
             self::AssignmentTimeout, self::QueueEscalation, self::SlaPreBreach, self::SlaBreach, self::SlaEscalation,
             self::DeskSlaPreBreach, self::DeskSlaBreach,
         ];
@@ -106,6 +112,9 @@ enum NotificationEvent: string implements HasLabel
             self::VisitRescheduled => 'Site Visit: Rescheduled',
             self::VisitCompleted => 'Site Visit: Completed by the Technician',
             self::TicketCustomerSms => 'Customer SMS (ticket)',
+            self::TicketVendorEscalated => 'Ticket: Escalated to a Vendor',
+            self::TicketVendorFeedback => 'Ticket: Vendor Feedback Recorded',
+            self::TicketProgressDue => 'Ticket: Update Due (no update for a while)',
             self::MobilityVendorNotified => '4G: Vendor Notification Sent',
             self::MobilityVendorMailFailed => '4G: Vendor Notification Failed',
             self::MobilityVendorUpdate => '4G: Vendor Update Recorded',

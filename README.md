@@ -828,6 +828,34 @@ Billing Manager, Commercial / Sales Admin, Site Visit Dispatcher, Site Visit Tec
 Infra Support Technician, Design Engineer, Access Officer. Existing CX, NOC, Dispatch and technician roles get their
 desks. To receive tickets a person needs the desk permission, *Available* status and an active shift (FIFO rules).
 
+### Verticals: FTTH and 4G tickets
+
+Every customer ticket is of one **vertical** — *FTTH*, *4G*, or one added later under *Configuration → Verticals*.
+*Raise customer ticket* asks for it first (FTTH by default; a customer on file brings their own) and then offers only
+that vertical's **categories and subcategories**. **Customers, Ticket Categories, Final Reasons and Reasons for Delay**
+each carry a vertical (a column, a filter and a field on their screens): a ticket is offered, and the workflow accepts,
+only the reasons of its vertical. Everything that existed before verticals is FTTH; a starter 4G set is seeded
+(categories 4G Connectivity, Router / Device, Service & Account, Billing, General — all editable). Site visits are FTTH.
+
+**The 4G flow** (desks *4G NOC (customer tickets)*, *IP Team*, *RF Team*, *Core Team*; roles *4G IP Team*, *4G RF Team*,
+*4G Core Team*; the 4G NOC roles get the 4G NOC desk):
+
+| Step | Who | Then |
+|---|---|---|
+| Raised | CX agent | → **CX Tier II** |
+| Troubleshoot | CX Tier II | resolved: calls the customer, confirms uptime, closes · otherwise → **4G NOC** |
+| Diagnose | 4G NOC | → **IP Team**, **RF Team** or **Core Team** (or back to Tier II) |
+| Fix | the team | fixes it, or *Escalate to vendor* (a vendor of its type: IP / RF / Core, under *4G NOC → Vendors*). The vendor is e-mailed from the vendor templates, reminded when silent (60 min), told when the ticket closes. *Record vendor feedback* writes down what the vendor said. When up, the team sends the ticket to the 4G NOC with the reason |
+| Validate | 4G NOC | not resolved: *Return* to the team · resolved: → **CX Tier II** |
+| Confirm | CX Tier II | calls the customer and closes with the final reason |
+
+An FTTH ticket never reaches a 4G desk and a 4G ticket never reaches the FTTH NOC or a site visit (desk routes are
+filtered by the ticket's vertical). **Updates every 20 minutes:** an update on a 4G ticket reaches everyone involved
+(who raised it, everyone who has held it); when nothing has been posted for 20 minutes the holder — or the desk while
+nobody holds it — is reminded, again after every further 20 minutes (`oms:ticket-progress`, every minute; both times
+under *Workflow configuration*). **4G NOC → 4G Tickets** lists them: Open, Assigned to me, Raised by me, CX Tier II,
+NOC, IP Team, RF Team, Core Team, Customer call-back, SLA at risk / breached, Closed, All.
+
 **Adding the module to a production system that already holds data:**
 
 ```bash
@@ -1637,6 +1665,7 @@ tests/Feature/             FIFO, workflow, SLA, reports, panel & security tests
 | `oms:maintenance-tick` | every minute | Planned-maintenance reminders, before-start e-mails and "started" alerts |
 | `oms:mobility-tick` | every minute | 4G NOC: remind the NOC / escalate to management when a vendor has not updated a ticket |
 | `oms:ticket-tick` | every 5 minutes | Customer tickets: queue tickets pending past the follow-up time for a customer call; send the ready-for-credit list |
+| `oms:ticket-progress` | every minute | 4G customer tickets: remind the holder when no update has been posted for 20 minutes; remind silent vendors by e-mail |
 | `oms:import-4g-topology {file} [--dry-run]` | manual | Import the 4G workbook: eNodeB sites and transmission nodes (RSG → ASG → CSG → SSG) |
 | `oms:prune-report-exports` | every 10 minutes | Remove report exports older than 6 hours (file and row); close exports whose worker died |
 | `oms:prune-expired-cache` (scheduled closure) | hourly | Clean expired rows when the database cache driver is used |
