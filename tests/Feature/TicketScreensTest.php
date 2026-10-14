@@ -159,10 +159,11 @@ class TicketScreensTest extends TestCase
             ->assertSee('Found: Jane On File')
             ->assertSee($network->ticket_number)
             ->assertSee('not yet confirmed by NOC')
-            ->fillForm(['subcategory_id' => $this->sub('LOS Flashing Red'), 'description' => 'Red light since morning'])
+            ->fillForm(['subcategory_id' => $this->sub('LOS Flashing Red'), 'source' => null])
             ->call('create')
-            ->assertHasFormErrors(['calling_number'])
-            ->fillForm(['calling_number' => '0772123456'])
+            // Source, billing system ticket number, customer availability and narration are required, with the number called from.
+            ->assertHasFormErrors(['calling_number', 'source', 'external_reference', 'preferred_time', 'description'])
+            ->fillForm(['calling_number' => '0772123456', 'source' => 'call', 'external_reference' => 'TKT-148866', 'preferred_time' => 'Available after 2 pm', 'description' => 'Red light since morning'])
             ->call('create')
             ->assertHasNoFormErrors();
 
@@ -171,13 +172,15 @@ class TicketScreensTest extends TestCase
         $this->assertSame('SF2577916', $ticket->account_number);
         $this->assertSame($olt->id, $ticket->olt_id);
         $this->assertSame($network->id, $ticket->linked_outage_id);
+        $this->assertSame(['call', 'TKT-148866', 'Available after 2 pm', 'Red light since morning'], [$ticket->source, $ticket->external_reference, $ticket->preferred_time, $outage->description]);
         $this->assertSame(QueueType::CxTier2, $outage->current_queue);
 
         // An account that is not on file: said so, captured by hand.
         Livewire::test(CreateTicket::class)
             ->set('data.account_number', 'SF7777777')
             ->assertSee('Not in the customer database')
-            ->fillForm(['subcategory_id' => $this->sub('Wrong bill / double charge'), 'customer_name' => 'Walk In', 'calling_number' => '0772999888'])
+            ->fillForm(['subcategory_id' => $this->sub('Wrong bill / double charge'), 'customer_name' => 'Walk In', 'calling_number' => '0772999888',
+                'external_reference' => 'TKT-148867', 'preferred_time' => 'Any time', 'description' => 'Charged twice this month'])
             ->call('create')
             ->assertHasNoFormErrors();
         $this->assertTrue(Customer::query()->where('account_number', 'SF7777777')->firstOrFail()->isProvisional());

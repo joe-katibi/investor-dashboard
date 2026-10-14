@@ -43,7 +43,7 @@ class ReportRegistry
         'planned_maintenance' => 'Planned Maintenance Report',
         'assignment_history' => 'FIFO Assignment History Report',
         'audit_trail' => 'Audit Trail Report',
-    ] + [ProductivityReport::KEY => 'Staff Productivity (all modules)'] + DeskSlaReports::REPORTS + InsightReports::REPORTS + MobilityReports::REPORTS + TicketReports::REPORTS;
+    ] + [ProductivityReport::KEY => 'Staff Productivity (all modules)', AvailabilityTimeReport::KEY => AvailabilityTimeReport::TITLE] + DeskSlaReports::REPORTS + InsightReports::REPORTS + MobilityReports::REPORTS + TicketReports::REPORTS;
 
     /** Reports that cover every ticket, whatever its vertical. */
     public const SHARED = ['assignment_history', 'audit_trail'];
@@ -59,6 +59,8 @@ class ReportRegistry
         return array_filter(self::REPORTS, fn (string $key) => match (true) {
             $user === null => false,
             in_array($key, self::SHARED, true) => true,
+            // Whoever reads reports sees everyone's availability time (each person sees their own under Operations → Availability Time).
+            $key === AvailabilityTimeReport::KEY => true,
             // Across modules: each person sees the modules they may view.
             $key === ProductivityReport::KEY, isset(DeskSlaReports::REPORTS[$key]) => $user->canAny(['outage.view', 'mobility.view', 'ticket.view']),
             isset(InsightReports::REPORTS[$key]) => InsightReports::allows($key, $user),
@@ -78,6 +80,10 @@ class ReportRegistry
 
         if (isset(TicketReports::REPORTS[$key])) {
             return app(TicketReports::class)->run($key, $filters);
+        }
+
+        if ($key === AvailabilityTimeReport::KEY) {
+            return app(AvailabilityTimeReport::class)->run($filters);
         }
 
         if ($key === ProductivityReport::KEY) {

@@ -17,6 +17,7 @@ use App\Models\Team;
 use App\Models\User;
 use App\Models\Vertical;
 use App\Models\VisitType;
+use App\Services\Reports\AvailabilityTimeReport;
 use App\Services\Reports\DeskSlaReports;
 use App\Services\Reports\ProductivityReport;
 use App\Services\Reports\ReportRegistry;
@@ -60,9 +61,14 @@ class Reports extends Page
 
     public function mount(): void
     {
+        $available = ReportRegistry::availableTo(Auth::user());
+        $asked = (string) request()->query('report', '');
+
         $this->form->fill([
-            // The first report this user may run (a 4G-only user starts on the 4G outage report).
-            'report' => array_key_first(ReportRegistry::availableTo(Auth::user())),
+            // The report a link asked for (?report=…), when this user may run it; otherwise the first one they may
+            // (a 4G-only user starts on the 4G outage report).
+            'report' => isset($available[$asked]) ? $asked : array_key_first($available),
+            'group' => 'day',
             'from' => now()->subDays(6)->toDateString(),
             'to' => now()->toDateString(),
         ]);
@@ -76,19 +82,22 @@ class Reports extends Page
             ->statePath('data')
             ->components([
                 Section::make()->schema([
-                    Select::make('report')->label('Report')->options(fn () => ReportRegistry::availableTo(Auth::user()))->required()->live()->columnSpan(2),
+                    // The list keeps growing: type part of a name to find a report.
+                    Select::make('report')->label('Report')->options(fn () => ReportRegistry::availableTo(Auth::user()))->required()->live()->columnSpan(2)
+                        ->searchable()->native(false)->optionsLimit(200)->searchPrompt('Type part of the report name')->noSearchResultsMessage('No report has that in its name.'),
                     DatePicker::make('from')->label('From')->live(),
                     DatePicker::make('to')->label('To')->live(),
                     // Staff productivity: how to group it, which modules and people.
-                    Select::make('group')->label('Group by')->options(ProductivityReport::GROUPS)->default('day')->selectablePlaceholder(false)->live()
-                        ->visible(fn (Get $get) => $get('report') === ProductivityReport::KEY),
+                    Select::make('group')->label('Group by')->default('day')->selectablePlaceholder(false)->live()
+                        ->options(fn (Get $get) => $get('report') === AvailabilityTimeReport::KEY ? AvailabilityTimeReport::GROUPS : ProductivityReport::GROUPS)
+                        ->visible(fn (Get $get) => in_array($get('report'), [ProductivityReport::KEY, AvailabilityTimeReport::KEY], true)),
                     Select::make('modules')->label('Modules')->multiple()->live()->placeholder('All modules you can see')
                         ->options(fn () => array_intersect_key(ProductivityReport::MODULES, array_flip(app(ProductivityReport::class)->modules())))
                         ->visible(fn (Get $get) => $get('report') === ProductivityReport::KEY || isset(DeskSlaReports::REPORTS[$get('report')])
                             || in_array($get('report'), ['ticket_lifecycle', 'olt_performance'], true)),
                     Select::make('user_ids')->label('People')->multiple()->searchable()->live()->placeholder('Everyone')
                         ->options(fn () => User::query()->orderBy('name')->pluck('name', 'id'))
-                        ->visible(fn (Get $get) => $get('report') === ProductivityReport::KEY)->columnSpan(2),
+                        ->visible(fn (Get $get) => in_array($get('report'), [ProductivityReport::KEY, AvailabilityTimeReport::KEY], true))->columnSpan(2),
                 ])->columns(4),
                 Section::make('Filters')->collapsible()->collapsed()->schema([
                     Select::make('state')->label('State')->options(['active' => 'Active only', 'closed' => 'Closed only'])->placeholder('All')->live(),

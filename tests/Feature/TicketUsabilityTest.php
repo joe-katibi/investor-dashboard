@@ -145,7 +145,7 @@ class TicketUsabilityTest extends TestCase
             ->fillForm([
                 'subcategory_id' => TicketSubcategory::query()->where('name', 'Wrong bill / double charge')->value('id'),
                 'account_number' => 'SF300', 'customer_name' => 'Receipt Holder', 'calling_number' => '0772333444',
-                'description' => 'Paid twice, receipts attached',
+                'description' => 'Paid twice, receipts attached', 'external_reference' => 'TKT-200', 'preferred_time' => 'Mornings',
                 'attachments' => [UploadedFile::fake()->image('receipt.jpg', 640, 480), UploadedFile::fake()->create('statement.pdf', 120, 'application/pdf')],
             ])
             ->call('create')

@@ -47,12 +47,13 @@ final class TicketForm
                         ->options(fn (Get $get) => self::subcategoryOptions($get('category_id')))
                         ->helperText(fn (Get $get) => self::routing($get('subcategory_id'))),
                     Select::make('ticket_type')->label('Ticket type')->options(Ticket::TYPES)->default('reactive')->required(),
-                    Select::make('source')->label('Source')->options(Ticket::SOURCES)->default('call'),
+                    Select::make('source')->label('Source')->options(Ticket::SOURCES)->default('call')->required(),
                     TextInput::make('amount')->label('Amount (refund / credit)')->numeric()->minValue(0)->maxValue(999999999)
                         ->visible(fn (Get $get) => self::subcategory($get('subcategory_id'))?->approval_desk !== null),
-                    TextInput::make('external_reference')->label('Billing system ticket no.')->maxLength(60)->placeholder('TKT-148866'),
-                    TextInput::make('preferred_time')->label('Customer availability')->maxLength(120)->placeholder('e.g. available today'),
-                    Textarea::make('description')->label('Narration')->rows(3)->maxLength(5000)->columnSpanFull()
+                    TextInput::make('external_reference')->label('Billing system ticket no.')->required()->maxLength(60)->placeholder('TKT-148866'),
+                    TextInput::make('preferred_time')->label('Customer availability')->required()->maxLength(120)->placeholder('e.g. available today'),
+                    // Room for the whole story: it grows with what is typed.
+                    Textarea::make('description')->label('Narration')->required()->rows(8)->autosize()->maxLength(5000)->columnSpanFull()
                         ->placeholder('What the customer said, what was checked…'),
                 ])->columns(2),
             self::attachmentsSection(),

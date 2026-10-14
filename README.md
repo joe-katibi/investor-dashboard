@@ -210,7 +210,13 @@ tickets in the tab's title, `(2) My Work`. It does not depend on Reverb.
 
 ### Reports
 17 reports with filters, on-screen view and **CSV / Excel (.xlsx) / PDF** export — see
-[Reports and exports](#reports-and-exports).
+[Reports and exports](#reports-and-exports). The *Report* picker can be searched: type part of a report's name.
+
+**Availability Time** (Operations, under My Work; also on Reports as *People: Availability Time*): how long each
+person was Available, Busy, On break and Offline — day by day, week by week or month by month — in hours:minutes,
+with the share of time available. Counted from every change of availability (website, app or a manager), up to now;
+time before a person's first recorded change is shown as *Not recorded*. Each person sees their own time; whoever may
+read reports sees everyone's and can export it.
 
 An export never keeps the page waiting: pressing *Export* only queues it, a queue worker writes the file
 (`GenerateReportExportJob`), and it is collected from **Reporting → Report Downloads** — a list with the date
