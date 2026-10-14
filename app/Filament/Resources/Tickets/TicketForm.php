@@ -81,20 +81,21 @@ final class TicketForm
                 ->schema([
                     Select::make('visit_type_id')->label('Visit type')->required()->options(fn () => TicketActions::visitTypes())
                         ->helperText('Numbers the visit: INS-1, WiE-1, SUP-1, SHI-1…'),
-                    Select::make('subcategory_id')->label('Issue reported')->searchable()->live()
+                    Select::make('subcategory_id')->label('Issue reported')->required()->searchable()->live()
                         ->options(fn () => self::subcategoryOptions(null, visitsOnly: true))
                         ->afterStateUpdated(function (Get $get, Set $set, mixed $state): void {
                             if (blank($get('visit_type_id')) && ($type = self::subcategory($state)?->visit_type_id)) {
                                 $set('visit_type_id', $type);
                             }
                         }),
-                    DateTimePicker::make('scheduled_at')->label('Date / time agreed with the customer')->seconds(false)
-                        ->minDate(fn () => now()->startOfMinute())->helperText('Leave empty for “as soon as possible”.'),
-                    TextInput::make('preferred_time')->label('Customer availability')->maxLength(120)->placeholder('e.g. available tomorrow morning'),
+                    DateTimePicker::make('scheduled_at')->label('Date / time agreed with the customer')->required()->seconds(false)
+                        ->minDate(fn () => now()->startOfMinute()),
+                    TextInput::make('preferred_time')->label('Customer availability')->required()->maxLength(120)->placeholder('e.g. available tomorrow morning'),
                     Select::make('ticket_type')->label('Ticket type')->options(Ticket::TYPES)->default('reactive')->required(),
-                    Select::make('source')->label('Source')->options(Ticket::SOURCES)->default('call'),
-                    TextInput::make('external_reference')->label('Billing system ticket no.')->maxLength(60),
-                    Textarea::make('description')->label('Narration / what the technician must do')->rows(3)->maxLength(5000)->columnSpanFull(),
+                    Select::make('source')->label('Source')->options(Ticket::SOURCES)->default('call')->required(),
+                    TextInput::make('external_reference')->label('Billing system ticket no.')->required()->maxLength(60)->placeholder('TKT-148866'),
+                    // Room for the whole story: it grows with what is typed.
+                    Textarea::make('description')->label('Narration / what the technician must do')->required()->rows(8)->autosize()->maxLength(5000)->columnSpanFull(),
                 ])->columns(2),
             self::attachmentsSection(),
             Section::make('Dispatch now (optional)')

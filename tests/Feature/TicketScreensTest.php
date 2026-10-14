@@ -266,10 +266,18 @@ class TicketScreensTest extends TestCase
     {
         $this->actingAs($this->dispatcher);
 
+        // Issue reported, the date and time agreed with the customer, customer availability, source, billing system ticket
+        // number and narration are required.
         Livewire::test(CreateSiteVisit::class)
             ->fillForm([
                 'visit_type_id' => $this->supportType(), 'account_number' => 'SF300', 'customer_name' => 'Direct Booking', 'calling_number' => '0772333444',
-                'address' => 'Kireka', 'technician_id' => $this->technician->id,
+                'address' => 'Kireka', 'technician_id' => $this->technician->id, 'source' => null,
+            ])
+            ->call('create')
+            ->assertHasFormErrors(['subcategory_id', 'scheduled_at', 'preferred_time', 'source', 'external_reference', 'description'])
+            ->fillForm([
+                'subcategory_id' => $this->sub('LOS Flashing Red'), 'scheduled_at' => now()->addHours(2)->startOfMinute()->toDateTimeString(),
+                'preferred_time' => 'After 2 pm', 'source' => 'call', 'external_reference' => 'TKT-300', 'description' => 'Check the red light at the ONU',
             ])
             ->call('create')
             ->assertHasNoFormErrors();
@@ -277,6 +285,9 @@ class TicketScreensTest extends TestCase
         $visit = Outage::query()->siteVisits()->latest('id')->firstOrFail();
         $this->assertSame('SUP-1', $visit->ticket_number);
         $this->assertSame($this->technician->id, $visit->current_assignee_id, 'a dispatcher can book straight to a technician');
+        $ticket = Ticket::query()->where('outage_id', $visit->id)->firstOrFail();
+        $this->assertSame(['call', 'TKT-300', 'After 2 pm', 'Check the red light at the ONU'], [$ticket->source, $ticket->external_reference, $ticket->preferred_time, $visit->description]);
+        $this->assertNotNull($ticket->scheduled_at);
         $this->assertTrue($visit->status->isCode(StatusCode::VisitPendingScheduled));
     }
 
