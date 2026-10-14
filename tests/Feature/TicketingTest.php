@@ -501,6 +501,7 @@ class TicketingTest extends TestCase
 
         // The dispatcher sends a technician again, who completes it; with confirmation off the dispatcher closes.
         $visit = $this->workflow->assignVisit($visit, $dispatcher, ['technician_id' => $technician->id]);
+        $visit = $this->workflow->visitArrive($visit, $technician);
         $visit = $this->workflow->completeVisit($visit, $technician, [
             'final_reason_id' => $this->reason('FAT powered'), 'resolution_notes' => 'Link restored', 'fat_number' => 'FAT-9',
             'geo_photo' => $this->photo('g.jpg'), 'speed_photo' => $this->photo('s.jpg'),
@@ -550,6 +551,7 @@ class TicketingTest extends TestCase
 
         $visit = $this->visit();
         $visit = $this->workflow->assignVisit($visit, $dispatcher, ['technician_id' => $technician->id]);
+        $visit = $this->workflow->visitArrive($visit, $technician);
         $visit = $this->workflow->completeVisit($visit, $technician, [
             'final_reason_id' => $this->reason('Faulty ONT replaced'), 'resolution_notes' => 'ONU swapped', 'fat_number' => 'FAT-3',
             'geo_photo' => $this->photo('g.jpg'), 'speed_photo' => $this->photo('s.jpg'),

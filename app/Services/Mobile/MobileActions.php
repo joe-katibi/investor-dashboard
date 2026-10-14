@@ -576,7 +576,7 @@ final class MobileActions
                 'style' => 'primary',
                 'primary' => $ticket?->en_route_at !== null,
                 'confirm' => true,
-                'description' => 'Starts the on-premise timer.',
+                'description' => 'Starts the on-premise timer. The photos and "Complete visit" are available from here: press it when you reach the customer.',
                 'handle' => function () use ($outage, $user): string {
                     $this->workflow->visitArrive($outage, $user);
 

@@ -495,15 +495,21 @@ class OutagePolicy
             && $user->can('visit.dispatch');
     }
 
-    /** Technician: work done (final reason, FAT number, photos). Back to the dispatcher. */
+    /**
+     * Technician: photos as the work goes, then work done (final reason, FAT number, photos) — back to
+     * the dispatcher. Only once "Start at customer premise" has been pressed: the photos are taken there.
+     */
     public function visitComplete(User $user, Outage $outage): bool
     {
-        return $this->visitInField($user, $outage) && $outage->current_queue === QueueType::VisitTechnician;
+        return $this->visitInField($user, $outage)
+            && $outage->current_queue === QueueType::VisitTechnician
+            && $outage->ticket?->arrived_at !== null;
     }
 
+    /** Could not complete (customer unreachable, escalation…): also before reaching the premise. */
     public function visitNotCompleted(User $user, Outage $outage): bool
     {
-        return $this->visitComplete($user, $outage);
+        return $this->visitInField($user, $outage) && $outage->current_queue === QueueType::VisitTechnician;
     }
 
     /** Dispatcher's final close (or rejection) of the completed work. */

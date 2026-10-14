@@ -287,7 +287,7 @@ final class TicketActions
             ->color('primary')
             ->visible(fn (Outage $record) => Auth::user()?->can('visitArrive', $record))
             ->requiresConfirmation()
-            ->modalDescription('Starts the on-premise timer.')
+            ->modalDescription('Starts the on-premise timer. The photos and “Complete visit” are available from here.')
             ->action(fn (Outage $record) => OutageActions::run($record, fn () => app(OutageWorkflow::class)->visitArrive($record, Auth::user()), 'Arrived — timer started'));
     }
 

@@ -668,7 +668,19 @@ class MobileApiTest extends TestCase
         ], $tier2);
         $this->act($dispatcher, $visit, 'visit_assign', ['technician_id' => $technician->id])->assertOk();
         $this->act($technician, $visit, 'visit_en_route')->assertOk();
+
+        // Not at the customer premise yet: no photos, no completing — "Start at customer premise" comes first.
+        $offered = fn () => collect($this->api($technician, 'GET', "tickets/{$visit->id}")->assertOk()->json('ticket.actions'))->pluck('key');
+        $this->assertNotContains('visit_photos', $offered());
+        $this->assertNotContains('visit_complete', $offered());
+        $this->assertContains('visit_arrive', $offered());
+        $this->assertContains('visit_not_completed', $offered(), 'customer unreachable: still possible before arriving');
+        $this->act($technician, $visit, 'visit_photos', ['fat_inside' => UploadedFile::fake()->image('early.jpg')])->assertStatus(422)
+            ->assertJsonPath('message', 'This action is no longer available on this ticket. Refresh and try again.');
+        $this->assertSame(0, OutageAttachment::query()->where('outage_id', $visit->id)->count());
+
         $this->act($technician, $visit, 'visit_arrive')->assertOk();
+        $this->assertContains('visit_photos', $offered());
 
         $kinds = ['fat_outside', 'fat_inside', 'fat_power', 'cable_entry', 'atb_onu', 'atb_power', 'onu_serial', 'speed_test', 'devices_ok'];
         $fieldsOf = fn (string $key) => collect(collect($this->api($technician, 'GET', "tickets/{$visit->id}")->assertOk()->json('ticket.actions'))->firstWhere('key', $key)['fields'] ?? [])->keyBy('name');
