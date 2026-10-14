@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /** Kind of site visit; its prefix numbers the visits: INS-1, WiE-1, SUP-1, SHI-1. */
-#[Fillable(['name', 'code_prefix', 'description', 'default_sla_minutes', 'priority_id', 'requires_evidence', 'photo_set', 'technician_permission', 'sort_order', 'is_active'])]
+#[Fillable(['name', 'code_prefix', 'description', 'default_sla_minutes', 'priority_id', 'requires_evidence', 'photo_set', 'technician_permission', 'is_relocation', 'sort_order', 'is_active'])]
 class VisitType extends Model
 {
     use Auditable, HasAuditColumns;
@@ -31,6 +31,7 @@ class VisitType extends Model
         return [
             'default_sla_minutes' => 'integer',
             'requires_evidence' => 'boolean',
+            'is_relocation' => 'boolean',
             'is_active' => 'boolean',
         ];
     }

@@ -14,6 +14,7 @@ use App\Models\OutageType;
 use App\Models\SupportRequest;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Support\VisitPhotos;
 
 /**
  * Permission + state checks for every workflow transition (spec §9: transitions are
@@ -458,6 +459,38 @@ class OutagePolicy
     public function visitResume(User $user, Outage $outage): bool
     {
         return $this->visitInField($user, $outage) && $outage->ticket?->paused_at !== null;
+    }
+
+    /** Shifting / relocation, technician on site: the FTTH NOC provisions the service before the speed tests. */
+    public function visitProvisionRequest(User $user, Outage $outage): bool
+    {
+        return $this->visitInField($user, $outage)
+            && $outage->current_queue === QueueType::VisitTechnician
+            && VisitPhotos::isRelocation($outage)
+            && $outage->ticket?->arrived_at !== null
+            && $outage->ticket?->provisioned_at === null;
+    }
+
+    /** The NOC has provisioned it: back to the technician. */
+    public function visitProvisioned(User $user, Outage $outage): bool
+    {
+        return $outage->isSiteVisit()
+            && ! $outage->is_closed
+            && $outage->current_queue === QueueType::TicketNoc
+            && $outage->ticket?->provision_requested_at !== null
+            && $outage->ticket?->provisioned_at === null
+            && $user->can('ticket.work');
+    }
+
+    /** Shifting / relocation: the customer moves to another OLT / region; a dispatcher of the new area takes it. */
+    public function visitRelocate(User $user, Outage $outage): bool
+    {
+        return $outage->isSiteVisit()
+            && ! $outage->is_closed
+            && VisitPhotos::isRelocation($outage)
+            && $outage->ticket?->completed_at === null
+            && in_array($outage->current_queue, [QueueType::VisitDispatch, QueueType::VisitTechnician], true)
+            && $user->can('visit.dispatch');
     }
 
     /** Technician: work done (final reason, FAT number, photos). Back to the dispatcher. */

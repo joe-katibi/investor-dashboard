@@ -54,6 +54,10 @@ class Ticket extends Model
             'vendor_feedback_at' => 'datetime',
             'vendor_reminded_at' => 'datetime',
             'progress_reminded_at' => 'datetime',
+            // Shifting / relocation: NOC provisioning, and the move to another OLT / region.
+            'provision_requested_at' => 'datetime',
+            'provisioned_at' => 'datetime',
+            'relocated_at' => 'datetime',
             'first_assigned_at' => 'datetime',
             'assigned_at' => 'datetime',
             'accepted_at' => 'datetime',
@@ -157,6 +161,16 @@ class Ticket extends Model
     public function approvalBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'approval_by');
+    }
+
+    public function provisionRequestedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'provision_requested_by');
+    }
+
+    public function provisionedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'provisioned_by');
     }
 
     public function completedBy(): BelongsTo

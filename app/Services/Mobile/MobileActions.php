@@ -595,6 +595,32 @@ final class MobileActions
                     return 'Work resumed';
                 },
             ],
+            // Shifting / relocation: the FTTH NOC provisions the service before the speed tests and the smart-device photos.
+            'visit_provision_request' => [
+                'visible' => $can('visitProvisionRequest') && $holding,
+                'label' => 'Send to NOC for provisioning',
+                'style' => 'warning',
+                'primary' => VisitPhotos::locked($outage) !== [] && array_diff(array_keys(VisitPhotos::missing($outage)), VisitPhotos::locked($outage)) === [],
+                'description' => 'The FTTH NOC provisions the service at the new location and sends the visit back to you. Then take the speed tests and the smart-device photos and complete the visit.',
+                'fields' => fn () => [$this->textarea('note', 'What to provision (ONU serial number, port…)', required: true, max: 2000)],
+                'handle' => function (array $data) use ($outage, $user): string {
+                    $this->workflow->requestProvisioning($outage, $user, $data['note']);
+
+                    return 'Sent to the NOC for provisioning';
+                },
+            ],
+            'visit_provisioned' => [
+                'visible' => $can('visitProvisioned') && $holding,
+                'label' => 'Provisioning done — back to the technician',
+                'style' => 'success',
+                'primary' => true,
+                'fields' => fn () => [$this->textarea('note', 'Note for the technician (optional)', max: 2000)],
+                'handle' => function (array $data) use ($outage, $user): string {
+                    $this->workflow->confirmProvisioning($outage, $user, $data['note'] ?? null);
+
+                    return 'Provisioned — back to the technician';
+                },
+            ],
             // Installation / relocation: nine photos, taken as the work goes — at the FAT, along the cable, in the house.
             'visit_photos' => [
                 'visible' => $can('visitComplete') && $holding && VisitPhotos::appOnly($outage),
@@ -921,8 +947,10 @@ final class MobileActions
     {
         $taken = VisitPhotos::taken($outage);
         $fields = [];
+        // A relocation not provisioned yet: the speed tests and the smart-device photo come after the NOC.
+        $locked = VisitPhotos::locked($outage);
 
-        foreach (VisitPhotos::of($outage) as $kind => $photo) {
+        foreach (array_diff_key(VisitPhotos::of($outage), array_flip($locked)) as $kind => $photo) {
             $have = $taken[$kind] !== null;
 
             if ($missingOnly && $have) {

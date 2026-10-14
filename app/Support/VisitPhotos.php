@@ -71,6 +71,30 @@ final class VisitPhotos
         'atb_onu' => 'ATB and ONU mounted', 'atb_power' => 'ATB — power', 'onu_serial' => 'ONU serial number', 'devices_ok' => 'Devices working',
     ];
 
+    /** Relocations: these are taken once the NOC has provisioned the service at the new location. */
+    public const AFTER_PROVISIONING = ['speed_test', 'devices_ok'];
+
+    /** A Shifting / relocation visit (Visit Types → "Relocation"). */
+    public static function isRelocation(?Outage $visit): bool
+    {
+        return (bool) ($visit?->isSiteVisit() && $visit->ticket?->visitType?->is_relocation);
+    }
+
+    /**
+     * The photos that cannot be taken yet: on a relocation not provisioned by the NOC, the speed tests
+     * and the smart-device photo.
+     *
+     * @return list<string> kinds
+     */
+    public static function locked(?Outage $visit): array
+    {
+        if (! self::isRelocation($visit) || $visit->ticket?->provisioned_at !== null) {
+            return [];
+        }
+
+        return array_values(array_intersect(self::AFTER_PROVISIONING, array_keys(self::of($visit))));
+    }
+
     /** Which set this visit is completed with. */
     public static function setOf(?Outage $visit): string
     {

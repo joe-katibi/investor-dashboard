@@ -7,9 +7,12 @@ use App\Filament\Resources\MobilityOutages\MobilityActions;
 use App\Filament\Resources\Outages\OutageActions;
 use App\Models\DelayReason;
 use App\Models\DeskRoute;
+use App\Models\Fdt;
 use App\Models\FinalReason;
+use App\Models\Olt;
 use App\Models\Outage;
 use App\Models\OutageAttachment;
+use App\Models\Region;
 use App\Models\Team;
 use App\Models\TicketFollowUp;
 use App\Models\User;
@@ -30,6 +33,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Auth;
 
@@ -44,7 +48,7 @@ final class TicketActions
     public static function primary(): array
     {
         return [
-            self::assignVisit(), self::enRoute(), self::arrive(), self::resume(), self::completeVisit(), self::notCompleted(),
+            self::assignVisit(), self::enRoute(), self::arrive(), self::resume(), self::completeVisit(), self::notCompleted(), self::provisionRequest(), self::provisioned(),
             self::verifyVisit(), self::rejectCompletion(), self::confirmVisit(),
             self::approve(), self::decline(), self::raiseVisit(), self::vendorEscalate(), self::vendorFeedback(), self::route(), self::returnToDesk(), self::followUp(), self::close(), self::reopen(),
         ];
@@ -54,7 +58,7 @@ final class TicketActions
     public static function secondary(): array
     {
         return [
-            self::pause(), self::reschedule(), self::intervene(), self::endIntervention(), self::linkOutage(), self::attach(), self::cancel(),
+            self::relocate(), self::pause(), self::reschedule(), self::intervene(), self::endIntervention(), self::linkOutage(), self::attach(), self::cancel(),
         ];
     }
 
@@ -371,6 +375,75 @@ final class TicketActions
             ->action(fn (Outage $record, array $data) => OutageActions::run($record, fn () => app(OutageWorkflow::class)->visitNotCompleted(
                 $record, Auth::user(), $data['reason'], filled($data['delay_reason_id'] ?? null) ? (int) $data['delay_reason_id'] : null, ($data['to'] ?? 'dispatch') === 'field_support',
             ), 'Visit handed back'));
+    }
+
+    // ------------------------------------------------------------------ relocation (Shifting)
+
+    /** Technician on site: the FTTH NOC provisions the service before the speed tests and the smart-device photos. */
+    public static function provisionRequest(): Action
+    {
+        return Action::make('visitProvisionRequest')
+            ->label('Send to NOC for provisioning')
+            ->icon(Heroicon::OutlinedServerStack)
+            ->color('warning')
+            ->visible(fn (Outage $record) => Auth::user()?->can('visitProvisionRequest', $record))
+            ->modalDescription('The FTTH NOC provisions the service at the new location and sends the visit back to you. Then take the speed tests and the smart-device photos and complete the visit.')
+            ->schema([
+                Textarea::make('note')->label('What to provision')->required()->rows(3)->maxLength(2000)->placeholder('ONU serial number, OLT port, package…'),
+            ])
+            ->action(fn (Outage $record, array $data) => OutageActions::run($record, fn () => app(OutageWorkflow::class)->requestProvisioning($record, Auth::user(), $data['note']),
+                'Sent to the NOC for provisioning'));
+    }
+
+    /** NOC: provisioning done — the visit goes back to the technician who asked. */
+    public static function provisioned(): Action
+    {
+        return Action::make('visitProvisioned')
+            ->label('Provisioning done — back to the technician')
+            ->icon(Heroicon::OutlinedCheckCircle)
+            ->color('success')
+            ->visible(fn (Outage $record) => Auth::user()?->can('visitProvisioned', $record))
+            ->modalDescription(fn (Outage $record) => 'The visit goes back to '.($record->ticket?->provisionRequestedBy?->name ?? 'the technician').', who takes the speed tests and the smart-device photos. Could not provision? Use “Return to previous desk” instead: it goes to the dispatcher.')
+            ->schema([
+                Textarea::make('note')->label('Note for the technician (optional)')->rows(2)->maxLength(2000),
+            ])
+            ->action(fn (Outage $record, array $data) => OutageActions::run($record, fn () => app(OutageWorkflow::class)->confirmProvisioning($record, Auth::user(), $data['note'] ?? null),
+                'Provisioned — back to the technician'));
+    }
+
+    /** Dispatcher: the customer moves to another OLT / region — new location, and a dispatcher of the new area. */
+    public static function relocate(): Action
+    {
+        $id = fn (mixed $value) => is_int($value) || (is_string($value) && ctype_digit($value)) ? (int) $value : null;
+
+        return Action::make('visitRelocate')
+            ->label('Relocate to another OLT / region')
+            ->icon(Heroicon::OutlinedArrowsRightLeft)
+            ->color('gray')
+            ->visible(fn (Outage $record) => Auth::user()?->can('visitRelocate', $record))
+            ->modalDescription('The customer is moving to a location served by another OLT or region. The visit takes the new location and goes to a dispatcher there, who assigns a team.')
+            ->fillForm(fn (Outage $record) => ['landmark' => $record->ticket?->landmark])
+            ->schema([
+                Select::make('olt_id')->label('New OLT')->required()->searchable()->live()
+                    ->options(fn () => Olt::query()->active()->orderBy('name')->pluck('name', 'id'))
+                    ->afterStateUpdated(function (Set $set, mixed $state) use ($id): void {
+                        $set('fdt_id', null);
+                        $set('region_id', $id($state) ? Olt::query()->whereKey($id($state))->value('region_id') : null);
+                    }),
+                Select::make('fdt_id')->label('New FDT (optional)')->searchable()
+                    ->options(fn (Get $get) => $id($get('olt_id')) ? Fdt::query()->where('olt_id', $id($get('olt_id')))->orderBy('name')->pluck('name', 'id') : []),
+                Select::make('region_id')->label('Region')->options(fn () => Region::query()->active()->orderBy('name')->pluck('name', 'id'))
+                    ->helperText('Taken from the OLT; change it if the new area is another region.'),
+                TextInput::make('address')->label('New address')->required()->maxLength(250),
+                TextInput::make('road')->label('New road / street')->maxLength(250),
+                TextInput::make('landmark')->label('Landmark')->maxLength(250),
+                Select::make('dispatcher_id')->label('Dispatcher of the new area (optional)')->searchable()
+                    ->placeholder('Automatic — the next available dispatcher of the region (FIFO)')
+                    ->options(fn () => self::deskUsers(QueueType::VisitDispatch)),
+                Textarea::make('note')->label('Note (optional)')->rows(2)->maxLength(2000),
+            ])
+            ->action(fn (Outage $record, array $data) => OutageActions::run($record, fn () => app(OutageWorkflow::class)->relocateVisit($record, Auth::user(), $data),
+                'Relocated — sent to the dispatcher of the new area'));
     }
 
     // ------------------------------------------------------------------ verification / confirmation

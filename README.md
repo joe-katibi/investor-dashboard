@@ -802,6 +802,19 @@ visits* (`visit.work_shifting`; role *Shifting / Relocation Technician*, or add 
 With none of them on duty a shifting visit waits in the queue. Installation, Wi-Fi Extender and Support visits go to
 every site visit technician.
 
+**Relocation (Shifting) visits.** Visit types marked *Relocation* (Shifting, by default):
+
+* **NOC provisioning before the speed tests.** On site, the technician takes the photos up to the ONU serial number,
+  then *Send to NOC for provisioning* (website or app) — the visit goes to the FTTH NOC. The speed tests and the
+  smart-device photo cannot be taken, and the visit cannot be completed, until the NOC presses *Provisioning done —
+  back to the technician*: the visit returns to the same technician (the customer is not texted again), who takes
+  them and completes the visit. From there the usual flow: the dispatcher verifies and closes, CX Field Support
+  confirms with the customer. A NOC that cannot provision uses *Return to previous desk*: the visit goes to the
+  dispatcher. The NOC step is not an escalation (the visit can still close as *Successfully Closed*).
+* **Another OLT / region.** *Relocate to another OLT / region* (dispatcher, before the work is completed): the new OLT,
+  FDT, region, address, road and landmark. The visit keeps the new location and goes to a dispatcher of the new area
+  — named, or the next available one of that region (FIFO) — who assigns a team there.
+
 **Ongoing outages.** For LOS-type issues the customer's OLT / FDT / slot / port is checked against every open FTTH
 outage — **also those not yet confirmed by NOC**. The agent sees it on the form; the ticket is linked to the outage and
 gets the delay reason "Affected by an outage". *Link to outage* does the same by hand.
@@ -862,6 +875,23 @@ filtered by the ticket's vertical). **Updates every 20 minutes:** an update on a
 nobody holds it — is reminded, again after every further 20 minutes (`oms:ticket-progress`, every minute; both times
 under *Workflow configuration*). **4G NOC → 4G Tickets** lists them: Open, Assigned to me, Raised by me, CX Tier II,
 NOC, IP Team, RF Team, Core Team, Customer call-back, SLA at risk / breached, Closed, All.
+
+**4G ticket reports and e-mails.** On *Reports* (for the 4G NOC, its teams and CX Tier II), each exportable as
+CSV / Excel / PDF:
+
+| Report | What it shows |
+|---|---|
+| 4G Tickets: Summary by Department & Issue | per department (in the order of the flow), issue and category: Total, Open (waiting), In progress, With vendor, Customer call-back, Closed, SLA breached |
+| 4G Tickets: Register (Open & Closed) | every ticket: customer, issue, state, department now / closed at, with whom, vendor, SLA hours and status, final reason |
+| 4G Tickets: Pending — With Whom | every open ticket by department and person (or vendor, or nobody yet), hours at the desk, SLA |
+| 4G Tickets: SLA Breaches — By Whom | each breach with the department and person holding the ticket — the ticket's SLA and each desk's own target |
+| 4G Tickets: Vendors | per vendor: tickets called in, waiting for the vendor now, feedback received, hours to feedback |
+
+A period covers the tickets raised in it plus every ticket still open. E-mails (*Email Templates*, created inactive —
+set the recipients and switch them on): **4G Tickets – 2-Hour Update** (07:00–19:00 every 2 hours), **Daily Report**
+(07:00 and 19:00, last 12 hours), **Weekly Summary** (Monday 07:00, last week against the week before) and
+**Monthly Summary** (the 1st at 06:00, last month against the month before) — headline figures, comparison, per
+department, pending with whom, breaches by whom, vendors and issues, with the register attached.
 
 **Adding the module to a production system that already holds data:**
 

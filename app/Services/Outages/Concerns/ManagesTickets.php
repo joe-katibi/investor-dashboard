@@ -586,9 +586,12 @@ trait ManagesTickets
                 $this->requireText($data['fat_number'] ?? $ticket->fat_number, 'fat_number', 'The FAT number is required before closing.');
 
                 // Every photo of the set, each named: the technician sees at once what is still to take.
-                $missing = collect(VisitPhotos::missing($outage))->mapWithKeys(fn (string $label, string $kind) => [VisitPhotos::field($kind) => VisitPhotos::appOnly($outage)
-                    ? "Still to take in the mobile app: {$label}."
-                    : 'Add the '.lcfirst($label).' before closing.'])->all();
+                $locked = VisitPhotos::locked($outage);
+                $missing = collect(VisitPhotos::missing($outage))->mapWithKeys(fn (string $label, string $kind) => [VisitPhotos::field($kind) => match (true) {
+                    in_array($kind, $locked, true) => "After the NOC has provisioned the service (Send to NOC for provisioning): {$label}.",
+                    VisitPhotos::appOnly($outage) => "Still to take in the mobile app: {$label}.",
+                    default => 'Add the '.lcfirst($label).' before closing.',
+                }])->all();
 
                 if ($missing !== []) {
                     throw ValidationException::withMessages($missing);
@@ -1021,7 +1024,16 @@ trait ManagesTickets
      */
     private function visitPhotosFrom(Outage $outage, array $data): array
     {
-        return collect(VisitPhotos::of($outage))->map(fn (array $photo) => [
+        // A relocation not provisioned yet: the speed tests and the smart-device photo wait for the NOC.
+        $locked = VisitPhotos::locked($outage);
+        $early = collect($locked)->filter(fn (string $kind) => filled($data[VisitPhotos::field($kind)] ?? null))
+            ->mapWithKeys(fn (string $kind) => [VisitPhotos::field($kind) => 'Send the visit to the NOC for provisioning first; then take: '.VisitPhotos::short($kind).'.'])->all();
+
+        if ($early !== []) {
+            throw ValidationException::withMessages($early);
+        }
+
+        return collect(VisitPhotos::of($outage))->except($locked)->map(fn (array $photo) => [
             $data[$photo['field']] ?? null,
             $data[$photo['field'].'_name'] ?? null,
             $photo['short'],
@@ -1152,7 +1164,7 @@ trait ManagesTickets
                     $this->ticketEvent($outage, 'assigned', null, $desk, $how, ['assignment_id' => $assignment->id], $assignment->user_id);
                     $this->ticketUpdate($outage, "Assigned to {$assignment->user?->name} at {$desk->getLabel()} {$how}.", null, 'system', 'assigned');
 
-                    if ($desk === QueueType::VisitTechnician && $assignment->user) {
+                    if ($desk === QueueType::VisitTechnician && $assignment->user && $ticket->arrived_at === null) {
                         $this->visitTechnicianAssigned($outage, $ticket, $assignment->user);
                     }
                 }

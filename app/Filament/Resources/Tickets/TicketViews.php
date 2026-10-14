@@ -222,6 +222,10 @@ final class TicketViews
                             ->state(fn (Outage $record) => collect([$record->ticket?->alt_number_1, $record->ticket?->alt_number_2])->filter()->implode(' · ') ?: null),
                         TextEntry::make('ticket.address')->label('Address')->placeholder('—'),
                         TextEntry::make('ticket.landmark')->label('Landmark')->placeholder('—'),
+                        TextEntry::make('ticket.road')->label('Road / street')->placeholder('—')->visible(fn (Outage $record) => filled($record->ticket?->road)),
+                        TextEntry::make('ticket.relocated_at')->label('Relocated')->dateTime('d M Y H:i')->color('warning')
+                            ->helperText('Moved to another OLT / region: the position and address above are the new ones.')
+                            ->visible(fn (Outage $record) => $record->ticket?->relocated_at !== null),
                         TextEntry::make('ticket.region.name')->label('Region')->placeholder('—'),
                         TextEntry::make('position')->label('OLT › FDT › Slot › Port')->columnSpanFull()->placeholder('Not on file')
                             ->state(fn (Outage $record) => $record->ticket?->topologyPath() ?: null),
@@ -304,6 +308,10 @@ final class TicketViews
                 TextEntry::make('ticket.finalReason.name')->label('Final reason')->placeholder('—')->weight('bold'),
                 TextEntry::make('ticket.resolution_notes')->label('Work done / resolution')->placeholder('—')->prose()->columnSpan(2),
                 TextEntry::make('ticket.fat_number')->label('FAT number')->placeholder('—')->visible($visits),
+                TextEntry::make('ticket.provisioned_at')->label('Provisioned by the NOC')->dateTime('d M Y H:i')
+                    ->placeholder(fn (Outage $record) => $record->ticket?->provision_requested_at ? 'Requested '.$record->ticket->provision_requested_at->format('d M H:i').' — waiting for the NOC' : 'Not yet — the technician sends it to the NOC before the speed tests')
+                    ->helperText(fn (Outage $record) => $record->ticket?->provisionedBy?->name)
+                    ->visible(fn (Outage $record) => $visits && VisitPhotos::isRelocation($record)),
                 TextEntry::make('materials')->label('Materials')->placeholder('—')->visible($visits)->columnSpan(2)
                     ->state(fn (Outage $record) => collect([
                         'ONU' => $record->ticket?->onu_type, 'Drop cable' => $record->ticket?->drop_cable_m ? $record->ticket->drop_cable_m.' m' : null,
