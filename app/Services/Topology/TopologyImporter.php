@@ -155,7 +155,8 @@ class TopologyImporter
         $key = fn (string ...$parts) => Str::lower(implode('|', $parts));
 
         // Everything that already exists, matched case-insensitively.
-        $olts = Olt::query()->get(['id', 'name', 'is_active'])->keyBy(fn (Olt $o) => $key($o->name));
+        // An OLT is found by its name or any alias, compared loosely: "Seguku-OLT" in the file is SEGUKU.
+        $olts = Olt::byMatchKey(Olt::query()->get(['id', 'name', 'aliases', 'is_active']));
         $fdts = Fdt::query()->get(['id', 'olt_id', 'name', 'is_active'])->keyBy(fn (Fdt $f) => $key((string) $f->olt_id, $f->name));
         $slots = Slot::query()->get(['id', 'fdt_id', 'name', 'is_active'])->keyBy(fn (Slot $s) => $key((string) $s->fdt_id, $s->name));
         $ports = Port::query()->get(['id', 'slot_id', 'name', 'is_active'])->keyBy(fn (Port $p) => $key((string) $p->slot_id, $p->name));
@@ -172,7 +173,7 @@ class TopologyImporter
         };
 
         foreach ($rows as $row) {
-            $olt = $olts[$key($row['olt'])] ??= tap(Olt::query()->create(['name' => $row['olt'], 'vertical_id' => $ftth, 'is_active' => true]), function () use (&$created) {
+            $olt = $olts[Olt::matchKey($row['olt'])] ??= tap(Olt::query()->create(['name' => $row['olt'], 'vertical_id' => $ftth, 'is_active' => true]), function () use (&$created) {
                 $created['olts']++;
             });
             $activate($olt);

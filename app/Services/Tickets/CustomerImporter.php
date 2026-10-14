@@ -218,7 +218,8 @@ class CustomerImporter
         $newRegions = 0;
 
         // Existing topology and regions, matched without case.
-        $olts = Olt::query()->get(['id', 'name', 'region_id'])->keyBy(fn (Olt $o) => $key($o->name));
+        // An OLT is found by its name or any alias, compared loosely: "Seguku-OLT" in the file is SEGUKU.
+        $olts = Olt::byMatchKey(Olt::query()->get(['id', 'name', 'aliases', 'region_id']));
         $fdts = Fdt::query()->get(['id', 'olt_id', 'name'])->keyBy(fn (Fdt $f) => $key((string) $f->olt_id, $f->name));
         $slots = Slot::query()->get(['id', 'fdt_id', 'name'])->keyBy(fn (Slot $s) => $key((string) $s->fdt_id, $s->name));
         $ports = Port::query()->toBase()->get(['id', 'slot_id', 'name'])->mapWithKeys(fn ($p) => [$key((string) $p->slot_id, (string) $p->name) => (int) $p->id])->all();
@@ -254,7 +255,7 @@ class CustomerImporter
             }
 
             if (($row['olt'] ?? '') !== '') {
-                $olt = $olts[$key($row['olt'])] ??= tap(Olt::query()->create(['name' => $row['olt'], 'vertical_id' => $ftth, 'region_id' => $regionId, 'is_active' => true]), function () use (&$created) {
+                $olt = $olts[Olt::matchKey($row['olt'])] ??= tap(Olt::query()->create(['name' => $row['olt'], 'vertical_id' => $ftth, 'region_id' => $regionId, 'is_active' => true]), function () use (&$created) {
                     $created['olts']++;
                 });
                 $oltId = $olt->id;

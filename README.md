@@ -1607,6 +1607,24 @@ OLT list shows each OLT's FDT and slot counts.
 * **Updating the bundled mapping** — replace `database/seeders/data/topology.csv` (same four columns) and re-seed,
   or drop a newer file in `storage/app/private/topology/` (git-ignored) on the server.
 * The bundled mapping describes the live network: keep the repository **private**.
+* **OLT names are compared loosely** by both imports (customers and topology): no case, spaces, punctuation or the
+  word "OLT" — `Seguku-OLT` is `SEGUKU`, `Nsambya-OLT_2` is `NSAMBYA 2-OLT`. An OLT also answers to its *aliases*.
+
+### Duplicate OLTs (`oms:merge-olts`)
+
+When a file spelt the OLTs its own way and they were created a second time, fold them back into the originals:
+
+```bash
+# the plan — nothing changes
+php artisan oms:merge-olts --pair="Salama-OLT=Salaama" --pair="Kira-OLT=KIIRA"
+# take a database backup, then
+php artisan oms:merge-olts --pair="Salama-OLT=Salaama" --pair="Kira-OLT=KIIRA" --apply
+```
+
+OLTs whose names match loosely are found on their own (the oldest is kept); `--pair="Duplicate=Kept"` (name or id)
+adds those spelt differently. FDTs, slots and ports are merged by name, and one that only the duplicate had is moved
+across. Customers, tickets, outages and team coverage are re-pointed, the duplicates are deleted, and their names
+become aliases of the OLT kept — so the next import matches them. Everything runs in one transaction.
 
 ## Seeded reference data
 
