@@ -147,7 +147,7 @@ class ShiftingRelocationTest extends TestCase
         $this->assertSame(StatusCode::VisitClosed->value, $visit->status->code);
     }
 
-    public function test_other_visits_have_no_provisioning_step(): void
+    public function test_other_visits_have_no_provisioning_step_unless_the_onu_is_replaced(): void
     {
         $support = $this->workflow->createSiteVisit([
             'visit_type_id' => VisitType::query()->where('code_prefix', 'SUP')->value('id'),
@@ -158,7 +158,9 @@ class ShiftingRelocationTest extends TestCase
         $support = $this->workflow->visitArrive($support, $this->technician);
 
         $this->assertSame([], VisitPhotos::locked($support));
-        $this->assertFalse($this->technician->can('visitProvisionRequest', $support));
+        $this->assertFalse(VisitPhotos::needsProvisioning($support));
+        // Offered as "ONU replaced — send to NOC for provisioning" (OnuProvisioningTest).
+        $this->assertTrue($this->technician->can('visitProvisionRequest', $support));
         $this->assertFalse($this->dispatcher->can('visitRelocate', $support));
     }
 

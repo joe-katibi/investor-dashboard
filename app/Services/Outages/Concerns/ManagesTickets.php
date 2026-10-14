@@ -578,6 +578,15 @@ trait ManagesTickets
             $this->reasonOfDesk($reason, $outage->current_queue, $outage->vertical_id);
             $this->fifo->authorizeWork($outage, QueueType::VisitTechnician, $by);
 
+            // The customer's ONU stayed, or a new one went in — which the NOC provisions first (requestProvisioning).
+            if (! VisitPhotos::isRelocation($outage) && in_array($data['onu_status'] ?? null, array_keys(VisitPhotos::ONU_STATUSES), true)) {
+                if ($data['onu_status'] === VisitPhotos::ONU_REPLACED && $ticket->provisioned_at === null) {
+                    throw ValidationException::withMessages(['onu_status' => 'ONU replaced: first send the visit to the NOC for provisioning (with the photo of the ONU MAC address).']);
+                }
+
+                $ticket->forceFill(['onu_status' => $ticket->onu_status === VisitPhotos::ONU_REPLACED ? VisitPhotos::ONU_REPLACED : $data['onu_status']]);
+            }
+
             $evidence = app(Settings::class)->bool('ticketing.require_evidence') && (bool) $ticket->visitType()->value('requires_evidence');
             // Which photos depends on the kind of visit: two, or the nine of an installation / relocation.
             $photos = $this->storeTicketPhotos($outage, $by, $this->visitPhotosFrom($outage, $data));

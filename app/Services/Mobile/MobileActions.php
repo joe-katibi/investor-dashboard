@@ -598,13 +598,23 @@ final class MobileActions
             // Shifting / relocation: the FTTH NOC provisions the service before the speed tests and the smart-device photos.
             'visit_provision_request' => [
                 'visible' => $can('visitProvisionRequest') && $holding,
-                'label' => 'Send to NOC for provisioning',
-                'style' => 'warning',
-                'primary' => VisitPhotos::locked($outage) !== [] && array_diff(array_keys(VisitPhotos::missing($outage)), VisitPhotos::locked($outage)) === [],
-                'description' => 'The FTTH NOC provisions the service at the new location and sends the visit back to you. Then take the speed tests and the smart-device photos and complete the visit.',
-                'fields' => fn () => [$this->textarea('note', 'What to provision (ONU serial number, port…)', required: true, max: 2000)],
+                'label' => VisitPhotos::needsProvisioning($outage) ? 'Send to NOC for provisioning' : 'ONU replaced — send to NOC for provisioning',
+                'style' => VisitPhotos::needsProvisioning($outage) ? 'warning' : null,
+                'primary' => VisitPhotos::locked($outage) !== [] && array_diff(array_keys(VisitPhotos::missing($outage)), [...VisitPhotos::locked($outage), 'onu_mac']) === [],
+                'description' => (VisitPhotos::isRelocation($outage) ? 'The FTTH NOC provisions the service at the new location' : 'A new ONU: the FTTH NOC provisions it from the photo of its MAC address')
+                    .' and sends the visit back to you. Then take the speed tests and the smart-device photos and complete the visit.',
+                'fields' => fn () => [
+                    ...(VisitPhotos::isRelocation($outage) ? [] : [$this->photo('onu_mac', VisitPhotos::PHOTOS['onu_mac']['label'], VisitPhotos::PHOTOS['onu_mac']['help'], required: true)]),
+                    $this->textarea('note', 'What to provision (ONU serial number, port…)', required: true, max: 2000),
+                ],
                 'handle' => function (array $data) use ($outage, $user): string {
-                    $this->workflow->requestProvisioning($outage, $user, $data['note']);
+                    if (($data['onu_mac'] ?? null) instanceof UploadedFile) {
+                        [$data['onu_mac'], $data['onu_mac_name']] = $this->store($data['onu_mac'], OutageAttachment::DIRECTORY);
+                    } else {
+                        unset($data['onu_mac']);
+                    }
+
+                    $this->workflow->requestProvisioning($outage, $user, $data['note'], $data);
 
                     return 'Sent to the NOC for provisioning';
                 },
@@ -654,6 +664,13 @@ final class MobileActions
                     return [
                         $this->select('final_reason_id', 'Final reason', $this->options(TicketActions::finalReasons('visit', $outage->current_queue, $outage->vertical_id)), required: true),
                         $this->text('fat_number', 'FAT number', required: $evidence, max: 60, default: $ticket?->fat_number),
+                        // Support and other visits: did the customer keep their ONU? A new one is provisioned by the NOC first.
+                        ...(VisitPhotos::isRelocation($outage) ? [] : [$this->select('onu_status', 'ONU', VisitPhotos::onuChange($outage)
+                            ? [['value' => VisitPhotos::ONU_REPLACED, 'label' => VisitPhotos::ONU_STATUSES[VisitPhotos::ONU_REPLACED]]]
+                            : array_map(fn (string $value, string $label) => ['value' => $value, 'label' => $label], array_keys(VisitPhotos::ONU_STATUSES), VisitPhotos::ONU_STATUSES),
+                            // Pre-filled, not required: an app that leaves it out sends "existing ONU" (the usual support visit).
+                            default: VisitPhotos::onuChange($outage) ? VisitPhotos::ONU_REPLACED : VisitPhotos::ONU_EXISTING,
+                            help: VisitPhotos::onuChange($outage) ? null : 'ONU replaced? Use “ONU replaced — send to NOC for provisioning” first.')]),
                         // The photos of this kind of visit: two, or — installation / relocation — whichever of the nine are not on the visit yet.
                         // A geotagged one is taken at the phone's position: place, coordinates and time are stamped on it and saved with it.
                         ...$this->visitPhotoFields($outage, required: $evidence, missingOnly: VisitPhotos::appOnly($outage)),

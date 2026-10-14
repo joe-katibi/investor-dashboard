@@ -192,6 +192,8 @@ class TicketCatalogSeeder extends Seeder
                     'allows_site_visit' => $visitPrefix !== null,
                     'visit_type_id' => $visitPrefix ? ($visitTypes[$visitPrefix] ?? null) : null,
                     'check_outage' => $checkOutage,
+                    // A new ONU: NOC provisioning (with the MAC address photo) before the speed tests.
+                    'needs_onu_provisioning' => in_array(strtolower($subName), ['faulty onu', 'onu upgrade', 'onu delivery', 'onu swap'], true),
                     'priority_id' => $priority[$priorityCode] ?? null,
                     'sort_order' => $s + 1,
                     'is_active' => true,

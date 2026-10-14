@@ -26,6 +26,13 @@ final class VisitPhotos
 
     public const INSTALLATION = 'installation';
 
+    /** The technician's answer on a visit: the customer's ONU stayed, or a new one went in. */
+    public const ONU_EXISTING = 'existing';
+
+    public const ONU_REPLACED = 'replaced';
+
+    public const ONU_STATUSES = [self::ONU_EXISTING => 'Existing ONU', self::ONU_REPLACED => 'ONU replaced'];
+
     public const SETS = [
         self::STANDARD => 'Geolocation photo and speed-test photo',
         self::INSTALLATION => 'Installation set: nine photos, two geotagged — mobile app only',
@@ -51,6 +58,8 @@ final class VisitPhotos
             'help' => 'The label with the serial number, readable.'],
         'speed_test' => ['label' => 'Speed test photo', 'short' => 'Speed test', 'geotag' => false, 'many' => false,
             'help' => 'Photo of the speed test result after the fix.'],
+        'onu_mac' => ['label' => 'Photo of the MAC address at the back of the ONU', 'short' => 'ONU MAC address', 'geotag' => false, 'many' => false,
+            'help' => 'The label at the back of the new ONU, with the MAC address readable: the NOC provisions it from this.'],
         'devices_ok' => ['label' => 'Confirmation that every smart TV and streaming device is working', 'short' => 'Devices working', 'geotag' => false, 'many' => false,
             'help' => 'The customer’s smart TV / streaming devices playing.'],
     ];
@@ -68,7 +77,7 @@ final class VisitPhotos
     public const SHORT = [
         'geo_photo' => 'Geolocation photo', 'speed_test' => 'Speed test photo', 'fat_outside' => 'FAT — outside (geotagged)',
         'fat_inside' => 'FAT — inside, terminations', 'fat_power' => 'FAT — port power', 'cable_entry' => 'Cable entry (geotagged)',
-        'atb_onu' => 'ATB and ONU mounted', 'atb_power' => 'ATB — power', 'onu_serial' => 'ONU serial number', 'devices_ok' => 'Devices working',
+        'atb_onu' => 'ATB and ONU mounted', 'atb_power' => 'ATB — power', 'onu_serial' => 'ONU serial number', 'onu_mac' => 'ONU MAC address', 'devices_ok' => 'Devices working',
     ];
 
     /** Relocations: these are taken once the NOC has provisioned the service at the new location. */
@@ -81,6 +90,22 @@ final class VisitPhotos
     }
 
     /**
+     * A new ONU goes in on this visit: an ONU issue (Faulty ONU, ONU Upgrade, ONU Delivery, ONU Swap —
+     * Subcategories → "Needs ONU provisioning"), or the technician replaced the ONU on any other visit.
+     */
+    public static function onuChange(?Outage $visit): bool
+    {
+        return (bool) ($visit?->isSiteVisit() && ! self::isRelocation($visit)
+            && ($visit->ticket?->onu_status === self::ONU_REPLACED || $visit->ticket?->subcategory?->needs_onu_provisioning));
+    }
+
+    /** The FTTH NOC provisions the service before the speed tests: relocations and new ONUs. */
+    public static function needsProvisioning(?Outage $visit): bool
+    {
+        return self::isRelocation($visit) || self::onuChange($visit);
+    }
+
+    /**
      * The photos that cannot be taken yet: on a relocation not provisioned by the NOC, the speed tests
      * and the smart-device photo.
      *
@@ -88,7 +113,7 @@ final class VisitPhotos
      */
     public static function locked(?Outage $visit): array
     {
-        if (! self::isRelocation($visit) || $visit->ticket?->provisioned_at !== null) {
+        if (! self::needsProvisioning($visit) || $visit->ticket?->provisioned_at !== null) {
             return [];
         }
 
@@ -119,7 +144,12 @@ final class VisitPhotos
         $set = self::setOf($visit);
         $photos = [];
 
-        foreach (self::KINDS[$set] as $kind) {
+        // A new ONU: its MAC address (for the NOC) and the smart devices working, around the speed test.
+        $kinds = self::onuChange($visit)
+            ? array_values(array_unique([...array_diff(self::KINDS[$set], ['speed_test', 'devices_ok']), 'onu_mac', 'speed_test', 'devices_ok']))
+            : self::KINDS[$set];
+
+        foreach ($kinds as $kind) {
             $photos[$kind] = ($set === self::INSTALLATION && $kind === 'speed_test' ? self::INSTALLATION_SPEED : self::PHOTOS[$kind]) + ['field' => self::field($kind)];
         }
 

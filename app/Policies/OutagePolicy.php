@@ -461,12 +461,14 @@ class OutagePolicy
         return $this->visitInField($user, $outage) && $outage->ticket?->paused_at !== null;
     }
 
-    /** Shifting / relocation, technician on site: the FTTH NOC provisions the service before the speed tests. */
+    /**
+     * Technician on site: the FTTH NOC provisions the service before the speed tests — on a relocation,
+     * an ONU issue, or any visit where the technician puts in a new ONU ("ONU replaced").
+     */
     public function visitProvisionRequest(User $user, Outage $outage): bool
     {
         return $this->visitInField($user, $outage)
             && $outage->current_queue === QueueType::VisitTechnician
-            && VisitPhotos::isRelocation($outage)
             && $outage->ticket?->arrived_at !== null
             && $outage->ticket?->provisioned_at === null;
     }

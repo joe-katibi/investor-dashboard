@@ -10,6 +10,7 @@ use App\Models\Olt;
 use App\Models\Outage;
 use App\Models\Region;
 use App\Models\User;
+use App\Support\VisitPhotos;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
@@ -27,16 +28,31 @@ use Illuminate\Validation\ValidationException;
  */
 trait ManagesRelocations
 {
-    /** The technician on site asks the FTTH NOC to provision the service at the new location. */
-    public function requestProvisioning(Outage $outage, User $by, string $note): Outage
+    /**
+     * The technician on site asks the FTTH NOC to provision the service: at the new location of a
+     * relocation, or the new ONU (an ONU issue, or "ONU replaced" on any visit) — then with a photo of
+     * the ONU's MAC address. $data: "onu_mac" (the stored path) and "onu_mac_name".
+     */
+    public function requestProvisioning(Outage $outage, User $by, string $note, array $data = []): Outage
     {
         $this->requireText($note, 'note', 'Say what the NOC should provision (ONU serial number, port…).');
 
-        $result = DB::transaction(function () use ($outage, $by, $note): Outage {
+        $result = DB::transaction(function () use ($outage, $by, $note, $data): Outage {
             $outage = $this->lock($outage);
             Gate::forUser($by)->authorize('visitProvisionRequest', $outage);
             $ticket = $this->ticketOf($outage);
             $this->fifo->authorizeWork($outage, QueueType::VisitTechnician, $by);
+
+            // Anything but a relocation: a new ONU went in, and the NOC needs its MAC address.
+            if (! VisitPhotos::isRelocation($outage)) {
+                $ticket->forceFill(['onu_status' => VisitPhotos::ONU_REPLACED])->save();
+                $outage->setRelation('ticket', $ticket);
+                $this->storeTicketPhotos($outage, $by, ['onu_mac' => [$data['onu_mac'] ?? null, $data['onu_mac_name'] ?? null, VisitPhotos::short('onu_mac'), null, false]]);
+
+                if (VisitPhotos::taken($outage)['onu_mac'] === null) {
+                    throw ValidationException::withMessages(['onu_mac' => 'Take the photo of the MAC address at the back of the new ONU.']);
+                }
+            }
 
             $this->resumeTicketTimer($ticket);
             $ticket->forceFill(['provision_requested_at' => now(), 'provision_requested_by' => $by->id, 'provisioned_at' => null, 'provisioned_by' => null])->save();

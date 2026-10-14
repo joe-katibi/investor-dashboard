@@ -815,6 +815,14 @@ every site visit technician.
   FDT, region, address, road and landmark. The visit keeps the new location and goes to a dispatcher of the new area
   — named, or the next available one of that region (FIFO) — who assigns a team there.
 
+**A new ONU on site.** Issues marked *Needs ONU provisioning* (Subcategories: Faulty ONU, ONU Upgrade, ONU Delivery,
+ONU Swap) — and any other visit where the technician puts in a new ONU (*ONU replaced — send to NOC for
+provisioning*) — take the same NOC step as a relocation, with a **photo of the MAC address at the back of the ONU**
+(required to send it). The NOC provisions it and the visit returns to the same technician, who then takes the speed
+test and the **smart-device photo** (both locked until then) and completes the visit; the dispatcher verifies and CX
+Field Support confirms. Completing a visit asks **ONU: Existing ONU / ONU replaced** — *Existing ONU* is the usual
+support flow; *ONU replaced* is only accepted once the NOC has provisioned it.
+
 **Ongoing outages.** For LOS-type issues the customer's OLT / FDT / slot / port is checked against every open FTTH
 outage — **also those not yet confirmed by NOC**. The agent sees it on the form; the ticket is linked to the outage and
 gets the delay reason "Affected by an outage". *Link to outage* does the same by hand.

@@ -330,18 +330,24 @@ final class TicketActions
                 default => 'The FAT number, a geolocation photo and a speed-test photo are required. The visit returns to the dispatcher for the final close.',
             })
             ->modalWidth('3xl')
-            ->fillForm(fn (Outage $record) => ['completed_at' => now()->startOfMinute()->toDateTimeString(), 'fat_number' => $record->ticket?->fat_number])
+            ->fillForm(fn (Outage $record) => ['completed_at' => now()->startOfMinute()->toDateTimeString(), 'fat_number' => $record->ticket?->fat_number,
+                'onu_status' => VisitPhotos::onuChange($record) ? VisitPhotos::ONU_REPLACED : VisitPhotos::ONU_EXISTING])
             ->schema(fn (Outage $record) => [
                 Grid::make(['default' => 1, 'sm' => 2])->schema([
                     Select::make('final_reason_id')->label('Final reason')->required()->searchable()->options(fn (Outage $record) => self::finalReasons('visit', $record->current_queue, $record->vertical_id)),
                     TextInput::make('fat_number')->label('FAT number')->maxLength(60)->required(self::needsEvidence($record)),
-                    ...(VisitPhotos::appOnly($record) ? [] : [
-                        self::photo('geo_photo', 'Geolocation photo', 'Photo with the location stamp at the customer premise.')
-                            ->required(self::needsEvidence($record) && ! $record->attachments()->where('kind', 'geo_photo')->exists()),
-                        self::photo('speed_photo', 'Speed test photo', 'Screenshot / photo of the speed test after the fix.')
-                            ->required(self::needsEvidence($record) && ! $record->attachments()->where('kind', 'speed_test')->exists()),
-                    ]),
+                    // The photos of the visit (a new ONU adds its MAC address and the smart devices working); already taken ones are optional.
+                    ...(VisitPhotos::appOnly($record) ? [] : collect(VisitPhotos::of($record))->except(VisitPhotos::locked($record))
+                        ->map(fn (array $photo, string $kind) => self::photo($photo['field'], $photo['label'], $photo['help'])
+                            ->required(self::needsEvidence($record) && ! $record->attachments()->where('kind', $kind)->exists()))
+                        ->values()->all()),
                 ]),
+                // Support and other visits: did the customer keep their ONU? A new one is provisioned by the NOC first.
+                Radio::make('onu_status')->label('ONU')->inline()->required()->options(VisitPhotos::ONU_STATUSES)
+                    ->default(fn () => VisitPhotos::onuChange($record) ? VisitPhotos::ONU_REPLACED : VisitPhotos::ONU_EXISTING)
+                    ->disableOptionWhen(fn (string $value) => VisitPhotos::onuChange($record) && $value === VisitPhotos::ONU_EXISTING)
+                    ->helperText(VisitPhotos::onuChange($record) ? 'A new ONU: provisioned by the NOC.' : 'ONU replaced? Use “ONU replaced — send to NOC for provisioning” first.')
+                    ->visible(! VisitPhotos::isRelocation($record)),
                 Textarea::make('resolution_notes')->label('Work done')->required()->rows(3)->maxLength(5000),
                 Grid::make(['default' => 2, 'sm' => 3])->schema([
                     TextInput::make('onu_type')->label('ONU type used')->maxLength(60),
@@ -383,15 +389,19 @@ final class TicketActions
     public static function provisionRequest(): Action
     {
         return Action::make('visitProvisionRequest')
-            ->label('Send to NOC for provisioning')
+            ->label(fn (Outage $record) => VisitPhotos::needsProvisioning($record) ? 'Send to NOC for provisioning' : 'ONU replaced — send to NOC for provisioning')
             ->icon(Heroicon::OutlinedServerStack)
-            ->color('warning')
+            ->color(fn (Outage $record) => VisitPhotos::needsProvisioning($record) ? 'warning' : 'gray')
             ->visible(fn (Outage $record) => Auth::user()?->can('visitProvisionRequest', $record))
-            ->modalDescription('The FTTH NOC provisions the service at the new location and sends the visit back to you. Then take the speed tests and the smart-device photos and complete the visit.')
-            ->schema([
+            ->modalDescription(fn (Outage $record) => (VisitPhotos::isRelocation($record) ? 'The FTTH NOC provisions the service at the new location' : 'A new ONU: the FTTH NOC provisions it from the photo of its MAC address')
+                .' and sends the visit back to you. Then take the speed tests and the smart-device photos and complete the visit.')
+            ->schema(fn (Outage $record) => [
+                ...(VisitPhotos::isRelocation($record) ? [] : [
+                    self::photo('onu_mac', VisitPhotos::PHOTOS['onu_mac']['label'], VisitPhotos::PHOTOS['onu_mac']['help'])->required(),
+                ]),
                 Textarea::make('note')->label('What to provision')->required()->rows(3)->maxLength(2000)->placeholder('ONU serial number, OLT port, package…'),
             ])
-            ->action(fn (Outage $record, array $data) => OutageActions::run($record, fn () => app(OutageWorkflow::class)->requestProvisioning($record, Auth::user(), $data['note']),
+            ->action(fn (Outage $record, array $data) => OutageActions::run($record, fn () => app(OutageWorkflow::class)->requestProvisioning($record, Auth::user(), $data['note'], $data),
                 'Sent to the NOC for provisioning'));
     }
 

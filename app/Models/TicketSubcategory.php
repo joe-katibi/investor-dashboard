@@ -18,7 +18,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 #[Fillable([
     'ticket_category_id', 'name', 'code', 'description', 'first_desk', 'approval_desk', 'fulfilment_desk', 'allows_site_visit',
-    'visit_type_id', 'check_outage', 'priority_id', 'sla_minutes', 'sort_order', 'is_active',
+    'visit_type_id', 'check_outage', 'needs_onu_provisioning', 'priority_id', 'sla_minutes', 'sort_order', 'is_active',
 ])]
 class TicketSubcategory extends Model
 {
@@ -32,6 +32,7 @@ class TicketSubcategory extends Model
             'fulfilment_desk' => QueueType::class,
             'allows_site_visit' => 'boolean',
             'check_outage' => 'boolean',
+            'needs_onu_provisioning' => 'boolean',
             'sla_minutes' => 'integer',
             'is_active' => 'boolean',
         ];

@@ -308,10 +308,13 @@ final class TicketViews
                 TextEntry::make('ticket.finalReason.name')->label('Final reason')->placeholder('—')->weight('bold'),
                 TextEntry::make('ticket.resolution_notes')->label('Work done / resolution')->placeholder('—')->prose()->columnSpan(2),
                 TextEntry::make('ticket.fat_number')->label('FAT number')->placeholder('—')->visible($visits),
+                TextEntry::make('ticket.onu_status')->label('ONU')->badge()->placeholder('—')->visible($visits)
+                    ->formatStateUsing(fn (?string $state) => VisitPhotos::ONU_STATUSES[$state] ?? $state)
+                    ->color(fn (?string $state) => $state === VisitPhotos::ONU_REPLACED ? 'warning' : 'gray'),
                 TextEntry::make('ticket.provisioned_at')->label('Provisioned by the NOC')->dateTime('d M Y H:i')
                     ->placeholder(fn (Outage $record) => $record->ticket?->provision_requested_at ? 'Requested '.$record->ticket->provision_requested_at->format('d M H:i').' — waiting for the NOC' : 'Not yet — the technician sends it to the NOC before the speed tests')
                     ->helperText(fn (Outage $record) => $record->ticket?->provisionedBy?->name)
-                    ->visible(fn (Outage $record) => $visits && VisitPhotos::isRelocation($record)),
+                    ->visible(fn (Outage $record) => $visits && VisitPhotos::needsProvisioning($record)),
                 TextEntry::make('materials')->label('Materials')->placeholder('—')->visible($visits)->columnSpan(2)
                     ->state(fn (Outage $record) => collect([
                         'ONU' => $record->ticket?->onu_type, 'Drop cable' => $record->ticket?->drop_cable_m ? $record->ticket->drop_cable_m.' m' : null,
