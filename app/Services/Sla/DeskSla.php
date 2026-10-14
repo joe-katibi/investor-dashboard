@@ -301,7 +301,7 @@ class DeskSla
             default => 'outage.view',
         };
 
-        return User::query()->active()->role($roles)->get()->filter(fn (User $user) => $user->can($permission))->pluck('id')->all();
+        return User::query()->active()->withAnyRole($roles)->get()->filter(fn (User $user) => $user->can($permission))->pluck('id')->all();
     }
 
     private function record(Outage $outage, string $event, array $meta, CarbonImmutable $now): void

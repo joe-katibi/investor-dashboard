@@ -24,6 +24,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Auth;
 use Laravel\Sanctum\HasApiTokens;
+use Spatie\Permission\Models\Role;
 use Spatie\Permission\Traits\HasRoles;
 
 #[Fillable([
@@ -125,6 +126,21 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
     public function scopeActive(Builder $query): void
     {
         $query->where('is_active', true);
+    }
+
+    /**
+     * People with any of these roles. Names come from settings (alert lists, SLA escalation, credit
+     * roles…): a role that has since been renamed or deleted is skipped — Spatie's role() would throw
+     * and stop the whole job — and no role at all matches nobody.
+     *
+     * @param  iterable<string>|string|null  $names
+     */
+    public function scopeWithAnyRole(Builder $query, iterable|string|null $names): void
+    {
+        $names = array_values(array_filter(array_map('strval', is_iterable($names) ? [...$names] : [(string) $names])));
+        $existing = $names === [] ? [] : Role::query()->where('guard_name', $this->getDefaultGuardName())->whereIn('name', $names)->pluck('name')->all();
+
+        $existing === [] ? $query->whereRaw('1 = 0') : $query->role($existing);
     }
 
     public function isAvailable(): bool

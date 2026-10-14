@@ -156,7 +156,7 @@ class MaintenanceNotifier
     {
         $roles = array_values(array_filter((array) $this->settings->get('maintenance.stakeholder_roles')));
 
-        return $roles === [] ? collect() : User::query()->active()->role($roles)->get();
+        return User::query()->active()->withAnyRole($roles)->get();
     }
 
     public function window(ChangeRequest $changeRequest): string

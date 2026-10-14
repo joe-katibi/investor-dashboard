@@ -93,7 +93,7 @@ class TicketFollowUpMonitor
         $hours = round($this->settings->int('ticketing.followup_minutes') / 60, 1);
         $subject = "{$count} ticket".($count === 1 ? '' : 's')." ready for credit – {$now->format('d M Y H:i')}";
 
-        $users = User::query()->active()->role(array_values(array_filter((array) $this->settings->get('ticketing.credit_roles'))) ?: ['__none__'])->get();
+        $users = User::query()->active()->withAnyRole((array) $this->settings->get('ticketing.credit_roles'))->get();
         $emails = $users->pluck('email')
             ->merge((array) $this->settings->get('ticketing.credit_emails'))
             ->map(fn ($email) => Str::lower(trim((string) $email)))

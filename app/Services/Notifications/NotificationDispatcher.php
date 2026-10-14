@@ -152,7 +152,7 @@ class NotificationDispatcher
         $users = collect();
 
         if (! empty($targets['roles'])) {
-            $users = $users->merge(User::query()->active()->role($targets['roles'])->get());
+            $users = $users->merge(User::query()->active()->withAnyRole($targets['roles'])->get());
         }
 
         if (! empty($targets['user_ids'])) {

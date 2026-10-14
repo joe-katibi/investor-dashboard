@@ -13,7 +13,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('olts', function (Blueprint $table) {
-            $table->json('aliases')->nullable()->after('code');
+            $table->jsonb('aliases')->nullable()->after('code'); // jsonb: PostgreSQL can compare it (OLT lists use DISTINCT)
         });
     }
 
