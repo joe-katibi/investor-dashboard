@@ -823,6 +823,27 @@ test and the **smart-device photo** (both locked until then) and completes the v
 Field Support confirms. Completing a visit asks **ONU: Existing ONU / ONU replaced** — *Existing ONU* is the usual
 support flow; *ONU replaced* is only accepted once the NOC has provisioned it.
 
+**72-hour follow-up after a site visit (CX Follow-up – Site Visit).** 72 hours (*Ticket Settings → Follow-up & credit*)
+after CX Field Support confirms a site visit, the visit enters the **CX Follow-up – Site Visit** FIFO queue (role *CX
+Follow-up – Site Visit Agent*, permission `queue.work_visit_aftercare`); the visit itself stays closed. The agent calls
+the customer and records, on *Record 72-hour follow-up call*: the **disposition** (Satisfied, Dissatisfied, Vandalism /
+Damage, Pending Resolution, Unreachable, Other Outcomes — each with its sub-disposition), from which follow the **call
+outcome** (Connected / Unreachable / Callback required) and the **customer feedback**; the **action required**; the
+**rating** (1–5); **service working**; **installation quality**; **technician conduct**; and comments.
+
+| Action required | What happens |
+|---|---|
+| No Action / Existing Ticket Follow-Up | closed with the feedback |
+| Technician Revisit / NOC Escalation | the same issue is back: the visit is **reopened** to Site Visit Dispatch |
+| Raise Ticket | a different issue: a **new customer ticket** is raised from the call (customer details copied) |
+| Unreachable / Callback | offered again at the call-back time (or after 4 hours); after 3 attempts closed as unreachable |
+
+Only visits confirmed after the feature was installed are queued. *Site Visits → 72-hour follow-up* lists the calls
+due. Reports: **Tickets: 72-hour Follow-up Calls (Site Visits)** (every call) and **Tickets: 72-hour Follow-up Summary
+(Satisfaction)** — satisfied %, average rating, service working %, installation and technician conduct, visits reopened,
+new tickets, by feedback, disposition, sub-disposition, action, technician, visit type and agent, with vandalism counted
+apart and the share of calls made within 24 hours of being due.
+
 **Ongoing outages.** For LOS-type issues the customer's OLT / FDT / slot / port is checked against every open FTTH
 outage — **also those not yet confirmed by NOC**. The agent sees it on the form; the ticket is linked to the outage and
 gets the delay reason "Affected by an outage". *Link to outage* does the same by hand.

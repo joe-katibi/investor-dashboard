@@ -44,7 +44,7 @@ class ReportRegistry
         'planned_maintenance' => 'Planned Maintenance Report',
         'assignment_history' => 'FIFO Assignment History Report',
         'audit_trail' => 'Audit Trail Report',
-    ] + [ProductivityReport::KEY => 'Staff Productivity (all modules)', AvailabilityTimeReport::KEY => AvailabilityTimeReport::TITLE] + DeskSlaReports::REPORTS + InsightReports::REPORTS + MobilityReports::REPORTS + TicketReports::REPORTS + FourGTicketReports::REPORTS;
+    ] + [ProductivityReport::KEY => 'Staff Productivity (all modules)', AvailabilityTimeReport::KEY => AvailabilityTimeReport::TITLE] + DeskSlaReports::REPORTS + InsightReports::REPORTS + MobilityReports::REPORTS + TicketReports::REPORTS + FourGTicketReports::REPORTS + AftercareReports::REPORTS;
 
     /** Reports that cover every ticket, whatever its vertical. */
     public const SHARED = ['assignment_history', 'audit_trail'];
@@ -67,7 +67,7 @@ class ReportRegistry
             isset(InsightReports::REPORTS[$key]) => InsightReports::allows($key, $user),
             $key === 'mobility_audit' => $user->can('mobility.view') && $user->can('audit.view'),
             $key === 'ticket_audit' => $user->can('ticket.view') && $user->can('audit.view'),
-            isset(TicketReports::REPORTS[$key]) => $user->can('ticket.view'),
+            isset(TicketReports::REPORTS[$key]), isset(AftercareReports::REPORTS[$key]) => $user->can('ticket.view'),
             // 4G tickets: whoever sees the 4G Tickets list (4G NOC, its teams, CX Tier II).
             isset(FourGTicketReports::REPORTS[$key]) => FourGTicketResource::canSeeList($user),
             $key === 'mobility_4g' || isset(MobilityReports::REPORTS[$key]) => $user->can('mobility.view'),
@@ -83,6 +83,10 @@ class ReportRegistry
 
         if (isset(TicketReports::REPORTS[$key])) {
             return app(TicketReports::class)->run($key, $filters);
+        }
+
+        if (isset(AftercareReports::REPORTS[$key])) {
+            return app(AftercareReports::class)->run($key, $filters);
         }
 
         if (isset(FourGTicketReports::REPORTS[$key])) {

@@ -15,8 +15,8 @@ class TicketTickCommand extends Command
     {
         $result = $monitor->tick();
 
-        if ($result['flagged'] > 0 || $result['notified'] > 0) {
-            $this->info("{$result['flagged']} ticket(s) placed in the follow-up queue; {$result['notified']} listed as ready for credit.");
+        if ($result['flagged'] > 0 || $result['notified'] > 0 || $result['aftercare'] > 0) {
+            $this->info("{$result['flagged']} ticket(s) placed in the follow-up queue; {$result['notified']} listed as ready for credit; {$result['aftercare']} site visit(s) due for the 72-hour call.");
         }
 
         return self::SUCCESS;

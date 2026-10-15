@@ -648,11 +648,11 @@ class TicketingTest extends TestCase
 
         // 8 SLA hours by 18:00, and the evening does not count.
         Carbon::setTestNow('2026-10-05 22:00:00');
-        $this->assertSame(['flagged' => 0, 'notified' => 0], $monitor->tick());
+        $this->assertSame(['flagged' => 0, 'notified' => 0, 'aftercare' => 0], $monitor->tick());
 
         // 08:30 next morning: 9.5 SLA hours.
         Carbon::setTestNow('2026-10-06 08:30:00');
-        $this->assertSame(['flagged' => 1, 'notified' => 1], $monitor->tick());
+        $this->assertSame(['flagged' => 1, 'notified' => 1, 'aftercare' => 0], $monitor->tick());
 
         $ticket = $this->details($visit);
         $this->assertNotNull($ticket->follow_up_due_at);
@@ -666,7 +666,7 @@ class TicketingTest extends TestCase
         $this->assertSame(1, $billingManager->notifications()->count());
 
         // Nothing is repeated on the next run.
-        $this->assertSame(['flagged' => 0, 'notified' => 0], $monitor->tick());
+        $this->assertSame(['flagged' => 0, 'notified' => 0, 'aftercare' => 0], $monitor->tick());
 
         // The follow-up call clears the queue item.
         $agent = $this->makeUser('CX Follow-up Agent', 'CX');

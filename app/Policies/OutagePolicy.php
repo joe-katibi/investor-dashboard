@@ -522,6 +522,14 @@ class OutagePolicy
             && $user->can('visit.dispatch');
     }
 
+    /** CX Follow-up – Site Visit: the call 72 hours after the visit, while it is in that queue. */
+    public function visitAftercare(User $user, Outage $outage): bool
+    {
+        return $outage->isSiteVisit()
+            && $outage->openQueueEntries()->where('queue_type', QueueType::VisitAftercare->value)->exists()
+            && $user->can(QueueType::VisitAftercare->defaultPermission());
+    }
+
     /** CX Field Support confirms the closure with the customer. */
     public function visitConfirm(User $user, Outage $outage): bool
     {

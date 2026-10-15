@@ -131,6 +131,7 @@ class RolesAndPermissionsSeeder extends Seeder
         'CX Retention' => ['ticket.view', 'ticket.create'],
         'CX Follow-up Agent' => ['ticket.view', 'ticket.create', 'ticket.work', 'queue.view', 'queue.work_cx_callback', 'queue.work_ticket_follow_up'],
         'CX Field Support' => ['ticket.view', 'ticket.work', 'ticket.reopen', 'queue.view', 'queue.work_cx_field_support', 'queue.work_ticket_follow_up'],
+        'CX Follow-up – Site Visit Agent' => ['ticket.view', 'visit.view', 'ticket.create', 'queue.view', 'queue.work_visit_aftercare'],
         'Billing Agent' => ['ticket.view', 'ticket.work', 'queue.view', 'queue.work_billing'],
         'Billing Manager' => ['ticket.view', 'ticket.work', 'ticket.approve', 'queue.view', 'queue.work_billing_manager', 'queue.override', 'reports.view'],
         'Commercial / Sales Admin' => ['ticket.view', 'ticket.work', 'ticket.approve', 'queue.view', 'queue.work_commercial'],
@@ -151,7 +152,7 @@ class RolesAndPermissionsSeeder extends Seeder
     /** Roles the customer ticketing module adds. */
     public const TICKETING_ROLES = [
         'Ticketing Manager', 'CX Frontline', 'CX Retention', 'CX Follow-up Agent', 'CX Field Support', 'Billing Agent', 'Billing Manager',
-        'Commercial / Sales Admin', 'Site Visit Dispatcher', 'Site Visit Technician', 'Shifting / Relocation Technician', 'Infra Support Dispatcher', 'Infra Support Technician',
+        'Commercial / Sales Admin', 'Site Visit Dispatcher', 'Site Visit Technician', 'Shifting / Relocation Technician', 'CX Follow-up – Site Visit Agent', 'Infra Support Dispatcher', 'Infra Support Technician',
         'Design Engineer', 'Access Officer',
     ];
 

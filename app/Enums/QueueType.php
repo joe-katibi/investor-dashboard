@@ -52,6 +52,9 @@ enum QueueType: string implements HasColor, HasLabel
     // Tickets pending past the follow-up trigger (9 hours): a call to the customer, alongside the main work.
     case TicketFollowUp = 'ticket_follow_up';
 
+    // 72 hours after CX Field Support confirms a site visit: a call to check the service is still fine (the visit stays closed).
+    case VisitAftercare = 'visit_aftercare';
+
     // A step of a custom workflow: one queue type, each entry for the team (and with the name) of its step.
     case CustomStep = 'custom_step';
 
@@ -88,6 +91,7 @@ enum QueueType: string implements HasColor, HasLabel
             self::Access => 'Access Team',
             self::CxFieldSupport => 'CX Field Support',
             self::TicketFollowUp => 'Pending Ticket Follow-up',
+            self::VisitAftercare => 'CX Follow-up – Site Visit (72 h)',
             self::CustomStep => 'Custom Workflow Step',
         };
     }
@@ -113,6 +117,7 @@ enum QueueType: string implements HasColor, HasLabel
             self::VisitDispatch, self::InfraSupportDispatch => 'warning',
             self::VisitTechnician, self::InfraSupportTechnician => 'primary',
             self::TicketFollowUp => 'danger',
+            self::VisitAftercare => 'success',
             self::CustomStep => 'info',
         };
     }
@@ -159,7 +164,7 @@ enum QueueType: string implements HasColor, HasLabel
      */
     public function isParallel(): bool
     {
-        return in_array($this, [self::SupportTechnician, self::TicketFollowUp], true);
+        return in_array($this, [self::SupportTechnician, self::TicketFollowUp, self::VisitAftercare], true);
     }
 
     public function isMobility(): bool
@@ -189,7 +194,7 @@ enum QueueType: string implements HasColor, HasLabel
         return match ($this) {
             self::Ticket4gNoc, self::TicketIp, self::TicketRf, self::TicketCore => Vertical::MOBILITY_4G,
             self::TicketNoc, self::VisitDispatch, self::VisitTechnician, self::InfraSupportDispatch, self::InfraSupportTechnician,
-            self::Design, self::Access, self::CxFieldSupport => Vertical::FTTH,
+            self::Design, self::Access, self::CxFieldSupport, self::VisitAftercare => Vertical::FTTH,
             default => null,
         };
     }
@@ -236,7 +241,7 @@ enum QueueType: string implements HasColor, HasLabel
             self::CxTier2, self::Billing, self::BillingManager, self::Commercial, self::CxManager, self::CxCallback, self::TicketNoc,
             self::Ticket4gNoc, self::TicketIp, self::TicketRf, self::TicketCore,
             self::VisitDispatch, self::VisitTechnician, self::InfraSupportDispatch, self::InfraSupportTechnician, self::Design, self::Access,
-            self::CxFieldSupport, self::TicketFollowUp,
+            self::CxFieldSupport, self::TicketFollowUp, self::VisitAftercare,
         ];
     }
 

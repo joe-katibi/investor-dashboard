@@ -123,6 +123,12 @@ class Settings
         'ticketing.escalation_target_minutes' => 540,  // escalated → returned
         'ticketing.sla_tiers' => [3, 6, 9, 12, 15, 18, 21, 24, 48, 72], // TAT brackets in hours (then "above")
         'ticketing.followup_enabled' => true,
+        // The call after a site visit: this long after CX Field Support confirms it; a customer not reached is tried again.
+        'ticketing.aftercare_enabled' => true,
+        'ticketing.aftercare_hours' => 72,
+        'ticketing.aftercare_retry_hours' => 4,
+        'ticketing.aftercare_max_attempts' => 3,
+        'ticketing.aftercare_since' => null,          // only visits confirmed from then on (set when the feature was installed)
         'ticketing.followup_minutes' => 540,           // pending this long (SLA clock) → follow-up call + ready for credit
         'ticketing.credit_notify' => true,
         'ticketing.credit_roles' => ['CX Manager', 'Billing Manager'],

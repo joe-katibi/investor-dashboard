@@ -37,6 +37,7 @@ use App\Services\Outages\Concerns\ManagesMobilityOutages;
 use App\Services\Outages\Concerns\ManagesPlannedMaintenance;
 use App\Services\Outages\Concerns\ManagesRelocations;
 use App\Services\Outages\Concerns\ManagesTickets;
+use App\Services\Outages\Concerns\ManagesVisitAftercare;
 use App\Services\Sla\DeskSla;
 use App\Services\Sla\SlaService;
 use App\Support\AuditContext;
@@ -59,7 +60,7 @@ use Illuminate\Validation\ValidationException;
  */
 class OutageWorkflow
 {
-    use ManagesCustomFlows, ManagesFieldMaintenance, ManagesFourGTickets, ManagesMobilityOutages, ManagesPlannedMaintenance, ManagesRelocations, ManagesTickets;
+    use ManagesCustomFlows, ManagesFieldMaintenance, ManagesFourGTickets, ManagesMobilityOutages, ManagesPlannedMaintenance, ManagesRelocations, ManagesTickets, ManagesVisitAftercare;
 
     public function __construct(
         private readonly TicketNumberGenerator $tickets,

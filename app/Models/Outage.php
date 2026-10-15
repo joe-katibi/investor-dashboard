@@ -228,7 +228,7 @@ class Outage extends Model
     {
         return $this->hasOne(OutageQueueEntry::class)->ofMany(['id' => 'max'], function (Builder $query): void {
             $query->whereIn('status', QueueEntryStatus::openValues())
-                ->whereNotIn('queue_type', [QueueType::SupportTechnician->value, QueueType::TicketFollowUp->value]);
+                ->whereNotIn('queue_type', [QueueType::SupportTechnician->value, QueueType::TicketFollowUp->value, QueueType::VisitAftercare->value]);
         });
     }
 

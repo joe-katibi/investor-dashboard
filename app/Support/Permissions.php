@@ -107,6 +107,7 @@ final class Permissions
             'queue.work_access' => 'Desk: Access Team',
             'queue.work_cx_field_support' => 'Desk: CX Field Support (confirm, reschedule, call back)',
             'queue.work_ticket_follow_up' => 'Desk: follow-up calls on tickets pending past the trigger',
+            'queue.work_visit_aftercare' => 'Desk: CX Follow-up – Site Visit (the call 72 hours after a visit is closed)',
             'queue.override' => 'Assign / reassign and override FIFO',
         ],
         'Configuration' => [

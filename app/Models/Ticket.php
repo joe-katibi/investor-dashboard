@@ -56,6 +56,8 @@ class Ticket extends Model
             'progress_reminded_at' => 'datetime',
             // Shifting / relocation: NOC provisioning, and the move to another OLT / region.
             'provision_requested_at' => 'datetime',
+            'aftercare_due_at' => 'datetime',
+            'aftercare_done_at' => 'datetime',
             'provisioned_at' => 'datetime',
             'relocated_at' => 'datetime',
             'first_assigned_at' => 'datetime',

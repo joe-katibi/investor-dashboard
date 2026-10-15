@@ -99,6 +99,10 @@ class TicketSettings extends Page
             'followup_enabled' => $s->bool('ticketing.followup_enabled'),
             'followup_minutes' => $s->int('ticketing.followup_minutes'),
             'credit_notify' => $s->bool('ticketing.credit_notify'),
+            'aftercare_enabled' => $s->bool('ticketing.aftercare_enabled'),
+            'aftercare_hours' => $s->int('ticketing.aftercare_hours'),
+            'aftercare_retry_hours' => $s->int('ticketing.aftercare_retry_hours'),
+            'aftercare_max_attempts' => $s->int('ticketing.aftercare_max_attempts'),
             'credit_roles' => array_values((array) $s->get('ticketing.credit_roles')),
             'credit_emails' => array_values((array) $s->get('ticketing.credit_emails')),
             'confirm_closure' => $s->bool('ticketing.confirm_closure'),
@@ -163,6 +167,14 @@ class TicketSettings extends Page
                             Select::make('credit_roles')->label('Roles')->multiple()->searchable()->options(fn () => Role::query()->orderBy('name')->pluck('name', 'name')),
                             TagsInput::make('credit_emails')->label('Extra e-mail addresses')->nestedRecursiveRules(['email'])->placeholder('credits@company.com'),
                         ])->columns(2),
+                    Section::make('After a site visit')
+                        ->description('This long after CX Field Support confirms a site visit, it goes to the “CX Follow-up – Site Visit” queue: an agent calls the customer to check the service is still fine.')
+                        ->schema([
+                            Toggle::make('aftercare_enabled')->label('Call the customer after a site visit')->columnSpanFull(),
+                            TextInput::make('aftercare_hours')->label('Call after (hours)')->numeric()->minValue(1)->maxValue(2000)->required()->helperText('72 = three days.'),
+                            TextInput::make('aftercare_retry_hours')->label('Not reached: try again after (hours)')->numeric()->minValue(1)->maxValue(168)->required(),
+                            TextInput::make('aftercare_max_attempts')->label('Attempts before closing as unreachable')->numeric()->minValue(1)->maxValue(10)->required(),
+                        ])->columns(3),
                 ]),
 
                 Tab::make('Site visits & customer SMS')->icon(Heroicon::OutlinedMapPin)->schema([
@@ -259,6 +271,10 @@ class TicketSettings extends Page
             'ticketing.followup_enabled' => (bool) ($state['followup_enabled'] ?? false),
             'ticketing.followup_minutes' => (int) $state['followup_minutes'],
             'ticketing.credit_notify' => (bool) ($state['credit_notify'] ?? false),
+            'ticketing.aftercare_enabled' => (bool) ($state['aftercare_enabled'] ?? false),
+            'ticketing.aftercare_hours' => (int) $state['aftercare_hours'],
+            'ticketing.aftercare_retry_hours' => (int) $state['aftercare_retry_hours'],
+            'ticketing.aftercare_max_attempts' => (int) $state['aftercare_max_attempts'],
             'ticketing.credit_roles' => array_values((array) ($state['credit_roles'] ?? [])),
             'ticketing.credit_emails' => $emails((array) ($state['credit_emails'] ?? [])),
             'ticketing.confirm_closure' => (bool) ($state['confirm_closure'] ?? false),

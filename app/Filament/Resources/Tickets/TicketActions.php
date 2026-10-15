@@ -17,9 +17,11 @@ use App\Models\Team;
 use App\Models\TicketFollowUp;
 use App\Models\User;
 use App\Models\Vendor;
+use App\Models\Vertical;
 use App\Models\VisitType;
 use App\Services\Fifo\EligibilityEvaluator;
 use App\Services\Outages\OutageWorkflow;
+use App\Support\AftercareCalls;
 use App\Support\Permissions;
 use App\Support\Settings;
 use App\Support\VisitPhotos;
@@ -48,7 +50,7 @@ final class TicketActions
     public static function primary(): array
     {
         return [
-            self::assignVisit(), self::enRoute(), self::arrive(), self::resume(), self::completeVisit(), self::notCompleted(), self::provisionRequest(), self::provisioned(),
+            self::assignVisit(), self::enRoute(), self::arrive(), self::resume(), self::completeVisit(), self::notCompleted(), self::provisionRequest(), self::provisioned(), self::aftercareCall(),
             self::verifyVisit(), self::rejectCompletion(), self::confirmVisit(),
             self::approve(), self::decline(), self::raiseVisit(), self::vendorEscalate(), self::vendorFeedback(), self::route(), self::returnToDesk(), self::followUp(), self::close(), self::reopen(),
         ];
@@ -454,6 +456,46 @@ final class TicketActions
             ])
             ->action(fn (Outage $record, array $data) => OutageActions::run($record, fn () => app(OutageWorkflow::class)->relocateVisit($record, Auth::user(), $data),
                 'Relocated — sent to the dispatcher of the new area'));
+    }
+
+    // ------------------------------------------------------------------ 72-hour follow-up (CX Follow-up – Site Visit)
+
+    /** The call 72 hours after the visit: disposition, feedback and what happens next. */
+    public static function aftercareCall(): Action
+    {
+        $reached = fn (Get $get) => filled($get('disposition')) && AftercareCalls::callOutcome((string) $get('disposition')) === 'connected';
+
+        return Action::make('visitAftercare')
+            ->label('Record 72-hour follow-up call')
+            ->icon(Heroicon::OutlinedPhoneArrowUpRight)
+            ->color('success')
+            ->visible(fn (Outage $record) => Auth::user()?->can('visitAftercare', $record))
+            ->modalWidth('3xl')
+            ->modalDescription(fn (Outage $record) => 'Call '.($record->ticket?->customer_name ?: 'the customer').' on '.($record->ticket?->calling_number ?: $record->ticket?->primary_number ?: '—')
+                .': is the service still working well since the visit? Happy: close with the feedback. Same issue back: reopen the visit for a team. A different issue: raise a new ticket.')
+            ->schema([
+                Select::make('disposition')->label('Disposition')->required()->searchable()->native(false)->live()->options(AftercareCalls::options())
+                    ->afterStateUpdated(fn (Set $set, ?string $state) => $set('action_required', AftercareCalls::suggestedAction($state))),
+                Select::make('action_required')->label('Action required')->required()->live()
+                    ->options(collect(AftercareCalls::ACTIONS)->except('callback')->all())->visible($reached),
+                Grid::make(['default' => 1, 'sm' => 2])->schema([
+                    Select::make('rating')->label('Satisfaction (1–5)')->options([5 => '5 — Very satisfied', 4 => '4', 3 => '3', 2 => '2', 1 => '1 — Very dissatisfied']),
+                    Radio::make('service_working')->label('Internet service working')->inline()->boolean(),
+                    Radio::make('installation_quality')->label('Installation quality')->inline()->options(AftercareCalls::QUALITY),
+                    Radio::make('technician_conduct')->label('Technician conduct')->inline()->options(AftercareCalls::QUALITY),
+                ])->visible($reached),
+                Textarea::make('notes')->label('Complaint details / customer comments')->rows(3)->maxLength(5000)->required($reached),
+                DateTimePicker::make('callback_at')->label('Call back at (optional)')->seconds(false)->minDate(fn () => now()->startOfMinute())
+                    ->helperText('Not reached: offered again at this time, or a few hours from now.')
+                    ->visible(fn (Get $get) => filled($get('disposition')) && ! $reached($get)),
+                Select::make('subcategory_id')->label('New issue (category — subcategory)')->searchable()->required()
+                    ->options(fn () => TicketForm::subcategoryOptions(null, verticalId: Vertical::idFor(Vertical::FTTH)))
+                    ->visible(fn (Get $get) => $reached($get) && $get('action_required') === 'raise_ticket'),
+                Textarea::make('new_ticket_narration')->label('Narration for the new ticket')->rows(3)->maxLength(5000)->required()
+                    ->visible(fn (Get $get) => $reached($get) && $get('action_required') === 'raise_ticket'),
+            ])
+            ->action(fn (Outage $record, array $data) => OutageActions::run($record, fn () => app(OutageWorkflow::class)->recordVisitAftercare($record, Auth::user(), $data),
+                'Follow-up call recorded'));
     }
 
     // ------------------------------------------------------------------ verification / confirmation

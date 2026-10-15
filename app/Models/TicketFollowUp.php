@@ -28,11 +28,12 @@ class TicketFollowUp extends Model
     public const KINDS = [
         'callback' => 'Call-back', 'pending' => 'Pending ticket follow-up', 'confirmation' => 'Closure confirmation',
         'field_support' => 'Field support',
+        'aftercare' => '72-hour follow-up (site visit)',
     ];
 
     protected function casts(): array
     {
-        return ['called_at' => 'datetime'];
+        return ['called_at' => 'datetime', 'callback_at' => 'datetime', 'service_working' => 'boolean', 'rating' => 'integer'];
     }
 
     public function outage(): BelongsTo

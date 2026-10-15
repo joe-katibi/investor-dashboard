@@ -29,6 +29,7 @@ use Throwable;
  *     the customer while the work goes on, and is marked ready for credit;
  *  2. the people who handle credits get one notification and one e-mail listing the tickets that
  *     became ready for credit since the last one, with the list attached as a spreadsheet.
+ *  3. site visits confirmed 72 hours ago go to the CX Follow-up – Site Visit queue for a call.
  *
  * Run every few minutes by the scheduler (oms:ticket-tick).
  */
@@ -42,14 +43,15 @@ class TicketFollowUpMonitor
         private readonly ReportExporter $exporter,
     ) {}
 
-    /** @return array{flagged: int, notified: int} */
+    /** @return array{flagged: int, notified: int, aftercare: int} */
     public function tick(?CarbonInterface $now = null): array
     {
         $now = CarbonImmutable::instance($now ?? now());
+        $aftercare = $this->aftercare($now);
         $minutes = $this->settings->int('ticketing.followup_minutes');
 
         if (! $this->settings->bool('ticketing.followup_enabled') || $minutes <= 0) {
-            return ['flagged' => 0, 'notified' => 0];
+            return ['flagged' => 0, 'notified' => 0, 'aftercare' => $aftercare];
         }
 
         $flagged = 0;
@@ -69,7 +71,37 @@ class TicketFollowUpMonitor
                 }
             });
 
-        return ['flagged' => $flagged, 'notified' => $this->settings->bool('ticketing.credit_notify') ? $this->notifyCredit($now) : 0];
+        return ['flagged' => $flagged, 'notified' => $this->settings->bool('ticketing.credit_notify') ? $this->notifyCredit($now) : 0, 'aftercare' => $aftercare];
+    }
+
+    /**
+     * Site visits CX Field Support confirmed 72 hours ago (the set time) go to the CX Follow-up – Site
+     * Visit queue for a call: is the service still fine? Only visits confirmed since the feature was
+     * installed, so the visits closed before are not queued all at once.
+     */
+    public function aftercare(CarbonInterface $now): int
+    {
+        $hours = $this->settings->int('ticketing.aftercare_hours');
+
+        if (! $this->settings->bool('ticketing.aftercare_enabled') || $hours <= 0) {
+            return 0;
+        }
+
+        $since = $this->settings->get('ticketing.aftercare_since');
+        $flagged = 0;
+
+        Outage::query()->siteVisits()->where('is_closed', true)
+            ->whereHas('ticket', fn ($q) => $q->whereNull('aftercare_due_at')->whereNotNull('confirmed_at')
+                ->where('confirmed_at', '<=', CarbonImmutable::instance($now)->subHours($hours))
+                ->when(filled($since), fn ($q) => $q->where('confirmed_at', '>=', $since)))
+            ->orderBy('id')->limit(500)->pluck('id')
+            ->each(function (int $id) use (&$flagged): void {
+                if ($this->workflow->flagVisitAftercare($id)) {
+                    $flagged++;
+                }
+            });
+
+        return $flagged;
     }
 
     /** One digest for everything that became ready for credit since the last one. */

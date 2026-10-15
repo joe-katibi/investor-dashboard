@@ -32,6 +32,8 @@ class TicketEvent extends Model
         'provision_requested' => 'Sent to the NOC for provisioning',
         'provisioned' => 'Provisioned by the NOC',
         'relocated' => 'Relocated to another OLT / region',
+        'aftercare_due' => '72-hour follow-up call due',
+        'aftercare_call' => '72-hour follow-up call',
         'verified' => 'Verified by dispatcher',
         'confirmed' => 'Confirmed with the customer',
         'escalated' => 'Escalated',

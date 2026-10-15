@@ -181,7 +181,8 @@ class FifoAssignmentEngine
         $stillWaitingAhead = 0;
 
         foreach ($entries as $entry) {
-            if ($entry->queueDefinition?->isManual() || ! $entry->outage || $entry->outage->is_closed) {
+            // The 72-hour follow-up call is made on a site visit that is already closed.
+            if ($entry->queueDefinition?->isManual() || ! $entry->outage || ($entry->outage->is_closed && $entry->queue_type !== QueueType::VisitAftercare)) {
                 $stillWaitingAhead++;
 
                 continue;

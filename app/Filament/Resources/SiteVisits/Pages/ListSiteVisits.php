@@ -58,6 +58,9 @@ class ListSiteVisits extends ListRecords
             'customer' => Tab::make('CX Field Support')->icon(Heroicon::OutlinedPhone)->modifyQueryUsing($desk(QueueType::CxFieldSupport)),
             'follow_up' => Tab::make('Follow-up due')
                 ->modifyQueryUsing(fn (Builder $query) => $open($query)->whereHas('ticket', fn (Builder $t) => $t->whereNotNull('follow_up_due_at'))),
+            // Closed visits whose 72-hour call is due (CX Follow-up – Site Visit).
+            'aftercare' => Tab::make('72-hour follow-up')->icon(Heroicon::OutlinedPhoneArrowUpRight)
+                ->modifyQueryUsing(fn (Builder $query) => $query->whereHas('ticket', fn (Builder $t) => $t->whereNotNull('aftercare_due_at')->whereNull('aftercare_done_at'))),
             'sla' => Tab::make('SLA at risk / breached')->icon(Heroicon::OutlinedClock)
                 ->modifyQueryUsing(fn (Builder $query) => $open($query)->whereIn('sla_state', [SlaState::Breached->value, SlaState::AtRisk->value])),
             'closed' => Tab::make('Closed')->modifyQueryUsing(fn (Builder $query) => $query->where('is_closed', true)),

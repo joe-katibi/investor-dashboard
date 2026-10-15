@@ -19,6 +19,7 @@ use App\Models\Vertical;
 use App\Models\VisitType;
 use App\Services\Maintenance\MaintenanceNotifier;
 use App\Services\Tickets\BusinessClock;
+use App\Support\AftercareCalls;
 use App\Support\VisitPhotos;
 use Carbon\CarbonInterface;
 use Filament\Actions\ActionGroup;
@@ -43,6 +44,17 @@ final class TicketViews
         'priority:id,name,color', 'status:id,name,color', 'currentAssignee:id,name', 'technician:id,name', 'activeAssignments',
         'vertical:id,name,code',
     ];
+
+    /** The latest 72-hour follow-up call of a visit, looked up once per page. */
+    public static function aftercareCall(Outage $record): ?TicketFollowUp
+    {
+        self::$aftercareCalls ??= new \WeakMap;
+
+        return (self::$aftercareCalls[$record] ??= [TicketFollowUp::query()->where('outage_id', $record->id)->where('kind', 'aftercare')->with('user:id,name')->latest('id')->first()])[0];
+    }
+
+    /** @var \WeakMap<Outage, array{0: ?TicketFollowUp}>|null per visit shown; gone with it */
+    private static ?\WeakMap $aftercareCalls = null;
 
     /**
      * The site visit a customer ticket is waiting for (the latest one still open), with its desk and
@@ -303,6 +315,30 @@ final class TicketViews
                     ->placeholder('Not taken yet'))->all())
                 ->columns(['default' => 1, 'sm' => 2, 'lg' => 3])->columnSpanFull()
                 ->visible(fn (Outage $record) => $visits && VisitPhotos::appOnly($record)),
+
+            // The call 72 hours after the visit (CX Follow-up – Site Visit).
+            Section::make('72-hour follow-up')->icon(Heroicon::OutlinedPhoneArrowUpRight)->schema([
+                TextEntry::make('aftercare_state')->label('Status')->badge()
+                    ->state(fn (Outage $record) => match (true) {
+                        $record->ticket?->aftercare_done_at !== null => 'Done — '.(AftercareCalls::FEEDBACK[$record->ticket->aftercare_result] ?? ['reopened' => 'Visit reopened', 'new_ticket' => 'New ticket raised', 'unreachable' => 'Customer not reached'][$record->ticket->aftercare_result] ?? $record->ticket->aftercare_result),
+                        default => 'Call due since '.$record->ticket?->aftercare_due_at?->format('d M Y H:i'),
+                    })
+                    ->color(fn (Outage $record) => $record->ticket?->aftercare_done_at ? 'success' : 'warning')
+                    ->helperText(fn (Outage $record) => $record->ticket?->aftercare_attempts ? $record->ticket->aftercare_attempts.' call(s)' : null),
+                TextEntry::make('aftercare_disposition')->label('Last call')->placeholder('Not called yet')
+                    ->state(fn (Outage $record) => ($call = self::aftercareCall($record)) ? AftercareCalls::label($call->disposition).' — '.(AftercareCalls::ACTIONS[$call->action_required] ?? '') : null)
+                    ->helperText(fn (Outage $record) => ($call = self::aftercareCall($record)) ? $call->called_at?->format('d M Y H:i').' · '.$call->user?->name : null),
+                TextEntry::make('aftercare_scores')->label('Customer feedback')->placeholder('—')
+                    ->state(fn (Outage $record) => ($call = self::aftercareCall($record)) ? collect([
+                        $call->rating ? "Rating {$call->rating}/5" : null,
+                        $call->service_working === null ? null : 'Service '.($call->service_working ? 'working' : 'NOT working'),
+                        $call->installation_quality ? 'Installation '.strtolower(AftercareCalls::QUALITY[$call->installation_quality]) : null,
+                        $call->technician_conduct ? 'Technician '.strtolower(AftercareCalls::QUALITY[$call->technician_conduct]) : null,
+                    ])->filter()->implode(' · ') ?: null : null),
+                TextEntry::make('aftercare_notes')->label('Comments')->placeholder('—')->columnSpanFull()
+                    ->state(fn (Outage $record) => self::aftercareCall($record)?->notes),
+            ])->columns(3)->columnSpanFull()
+                ->visible(fn (Outage $record) => $visits && $record->ticket?->aftercare_due_at !== null),
 
             Section::make('Outcome')->icon(Heroicon::OutlinedCheckBadge)->schema([
                 TextEntry::make('ticket.finalReason.name')->label('Final reason')->placeholder('—')->weight('bold'),

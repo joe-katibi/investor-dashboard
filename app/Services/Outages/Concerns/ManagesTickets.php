@@ -856,42 +856,47 @@ trait ManagesTickets
         $result = DB::transaction(function () use ($outage, $by, $reason): Outage {
             $outage = $this->lock($outage);
             Gate::forUser($by)->authorize('ticketReopen', $outage);
-            $ticket = $this->ticketOf($outage);
-            $previous = $outage->status?->name;
-
-            OutageReopening::query()->create([
-                'outage_id' => $outage->id,
-                'user_id' => $by->id,
-                'reason' => trim($reason),
-                'previous_status_id' => $outage->status_id,
-                'previous_closed_at' => $outage->resolved_at ?? $outage->cancelled_at,
-                'previous_closed_by' => $outage->resolved_by ?? $outage->cancelled_by,
-                'previous_end_time' => $outage->end_time,
-                'previous_sla_state' => $outage->sla_state?->value,
-                'previous_resolution' => $outage->final_reason,
-            ]);
-
-            $outage->forceFill([
-                'reopened_at' => now(), 'reopen_count' => $outage->reopen_count + 1, 'end_time' => null,
-                'resolved_at' => null, 'resolved_by' => null, 'restored_at' => null, 'restored_by' => null,
-                'cancelled_at' => null, 'cancelled_by' => null, 'final_reason' => null,
-            ]);
-
-            $this->withdrawCompletion($outage, $ticket);
-            $ticket->forceFill(['final_reason_id' => null, 'confirmed_at' => null, 'confirmed_by' => null, 'customer_confirmed' => null, 'approval_state' => null])->save();
-
-            $home = $outage->isSiteVisit() ? QueueType::VisitDispatch : ($ticket->home_desk ?? QueueType::CxTier2);
-            $this->transition($outage, $outage->isSiteVisit() ? StatusCode::VisitOpen : StatusCode::TicketOpen, $by, $reason);
-            // The customer was never really served: the SLA clock continues from when it was first reported.
-            $this->sla->apply($outage, 'reopened');
-            $this->ticketEvent($outage, 'reopened', $by, $home, $reason);
-            $this->moveTicket($outage, $ticket, $home, $by, 'reopen', "Reopened (was {$previous}): {$reason}");
-            $this->notifier->dispatch(NotificationEvent::TicketReopened, $outage, ['reason' => $reason]);
+            $this->reopenClosedTicket($outage, $this->ticketOf($outage), $by, $reason);
 
             return $outage->refresh();
         });
 
         return $result->refresh();
+    }
+
+    /** The reopening itself (the caller has checked who may): back to the first desk, history kept. */
+    private function reopenClosedTicket(Outage $outage, Ticket $ticket, User $by, string $reason): void
+    {
+        $previous = $outage->status?->name;
+
+        OutageReopening::query()->create([
+            'outage_id' => $outage->id,
+            'user_id' => $by->id,
+            'reason' => trim($reason),
+            'previous_status_id' => $outage->status_id,
+            'previous_closed_at' => $outage->resolved_at ?? $outage->cancelled_at,
+            'previous_closed_by' => $outage->resolved_by ?? $outage->cancelled_by,
+            'previous_end_time' => $outage->end_time,
+            'previous_sla_state' => $outage->sla_state?->value,
+            'previous_resolution' => $outage->final_reason,
+        ]);
+
+        $outage->forceFill([
+            'reopened_at' => now(), 'reopen_count' => $outage->reopen_count + 1, 'end_time' => null,
+            'resolved_at' => null, 'resolved_by' => null, 'restored_at' => null, 'restored_by' => null,
+            'cancelled_at' => null, 'cancelled_by' => null, 'final_reason' => null,
+        ]);
+
+        $this->withdrawCompletion($outage, $ticket);
+        $ticket->forceFill(['final_reason_id' => null, 'confirmed_at' => null, 'confirmed_by' => null, 'customer_confirmed' => null, 'approval_state' => null])->save();
+
+        $home = $outage->isSiteVisit() ? QueueType::VisitDispatch : ($ticket->home_desk ?? QueueType::CxTier2);
+        $this->transition($outage, $outage->isSiteVisit() ? StatusCode::VisitOpen : StatusCode::TicketOpen, $by, $reason);
+        // The customer was never really served: the SLA clock continues from when it was first reported.
+        $this->sla->apply($outage, 'reopened');
+        $this->ticketEvent($outage, 'reopened', $by, $home, $reason);
+        $this->moveTicket($outage, $ticket, $home, $by, 'reopen', "Reopened (was {$previous}): {$reason}");
+        $this->notifier->dispatch(NotificationEvent::TicketReopened, $outage, ['reason' => $reason]);
     }
 
     // ------------------------------------------------------------------ team leader intervention
