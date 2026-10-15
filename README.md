@@ -1647,6 +1647,28 @@ adds those spelt differently. FDTs, slots and ports are merged by name, and one 
 across. Customers, tickets, outages and team coverage are re-pointed, the duplicates are deleted, and their names
 become aliases of the OLT kept — so the next import matches them. Everything runs in one transaction.
 
+### Moving outages between servers (`oms:export-outages` / `oms:import-outages`)
+
+For outages raised on one server after its database was copied to another (the servers need not reach each other):
+
+```bash
+# old server: the FTTH network outages raised or changed in the last 14 days, with everything attached and their photos
+php artisan oms:export-outages /tmp/outages-export --days=14
+tar czf outages-export.tgz -C /tmp outages-export
+# new server (after copying the file): the plan, then the import
+tar xzf outages-export.tgz -C /tmp
+php artisan oms:import-outages /tmp/outages-export
+php artisan oms:import-outages /tmp/outages-export --apply
+```
+
+The export finds what belongs to an outage through the foreign keys (status history, updates, FIFO queue entries,
+assignments, SLA events, notifications, OLT / FDT / slot / port links, photos…). On import, an outage with the same
+ticket number and time raised is already there and is left alone — so no exact cut-over time is needed; the others are
+inserted under new ids, users matched by e-mail, OLTs / FDTs / slots / ports by name, statuses and types by code. A
+ticket number already used by another outage is replaced by the next free one; the number counter moves past those
+kept. Each import is recorded (`outage_imports`), so running it again brings nothing twice. Users who are not on the
+new server stop the import and are listed; outages changed on the old server after the copy are listed, not merged.
+
 ## Seeded reference data
 
 `php artisan db:seed` always seeds the reference data below (idempotent — safe to re-run on every deploy); demo
