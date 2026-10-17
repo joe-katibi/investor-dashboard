@@ -6,6 +6,7 @@ use App\Enums\NotificationEvent;
 use App\Enums\QueueType;
 use App\Enums\StatusCode;
 use App\Events\MobileNotification;
+use App\Filament\Resources\SiteVisits\Pages\ViewSiteVisit;
 use App\Models\CustomFlow;
 use App\Models\MobileDevice;
 use App\Models\Outage;
@@ -18,11 +19,9 @@ use App\Models\User;
 use App\Models\VisitType;
 use App\Services\Notifications\NotificationDispatcher;
 use App\Services\Outages\OutageWorkflow;
-use App\Filament\Resources\SiteVisits\Pages\ViewSiteVisit;
 use App\Services\Reports\ReportRegistry;
 use App\Support\Settings;
 use App\Support\VisitPhotos;
-use Livewire\Livewire;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Http\UploadedFile;
@@ -35,7 +34,9 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
+use Livewire\Livewire;
 use PragmaRX\Google2FAQRCode\Google2FA;
+use Spatie\Permission\Models\Role;
 use Tests\Concerns\BuildsOmsFixtures;
 use Tests\TestCase;
 
@@ -165,6 +166,15 @@ class MobileApiTest extends TestCase
         $this->postJson('/api/v1/auth/login', ['login' => $agent->email, 'password' => 'password'])
             ->assertForbidden()->assertJsonPath('code', 'not_mobile_user')
             ->assertJsonPath('message', 'Your account is not authorized to use the mobile application.');
+
+        // A role named as a dispatcher / technician is let in whatever its permissions (roles made on the website).
+        Role::findOrCreate('Shifting Dispatcher', 'web')->givePermissionTo('ticket.view');
+        Role::findOrCreate('4G Technician - enode outages', 'web')->givePermissionTo('mobility.view');
+        foreach (['Shifting Dispatcher' => 'dispatch', '4G Technician - enode outages' => 'technician'] as $role => $mobileRole) {
+            $named = $this->makeUser($role, 'DISPATCH');
+            $this->postJson('/api/v1/auth/login', ['login' => $named->email, 'password' => 'password', 'device_name' => 'Pixel 8'])
+                ->assertOk()->assertJsonPath('user.mobile_role', $mobileRole);
+        }
 
         // E-mail or username; the answer never contains the password or the stored secret.
         $login = $this->fixture('login', $this->postJson('/api/v1/auth/login', ['login' => 'tech.one', 'password' => 'password', 'device_name' => 'Pixel 8'])->assertOk());

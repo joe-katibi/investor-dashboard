@@ -55,7 +55,15 @@ final class MobileProfile
             }
         }
 
-        return null;
+        // Any role named as a dispatcher / technician ("Shifting Dispatcher", "4G Technician - enode outages", one added
+        // later…) may use the app too. What they see there still comes from their permissions and their own tickets.
+        $names = $user->getRoleNames()->map(fn (string $name) => mb_strtolower($name));
+
+        return match (true) {
+            $names->contains(fn (string $name) => str_contains($name, 'dispatch')) => self::DISPATCH,
+            $names->contains(fn (string $name) => str_contains($name, 'technician')) => self::TECHNICIAN,
+            default => null,
+        };
     }
 
     /** @return list<QueueType> the queues this person dispatches (empty: not a dispatcher) */

@@ -1391,6 +1391,11 @@ OMS to the front and opens the ticket.
 A JSON API under **`/api/v1`** for the field app (Flutter, in its own repository `oms-mobile`), used by three kinds
 of people only: **dispatchers**, **technicians** and **4G engineers**. Everything else stays on the website.
 
+Who that is comes from their permissions (a dispatch permission, or a technician / engineer desk), **or from a role
+whose name contains "dispatch" or "technician"** — so a role made on the website later ("Shifting Dispatcher",
+"4G Technician - enode outages") may sign in too. What they see in the app still follows their permissions, plus
+the tickets given to them.
+
 ```
                        OMS (Laravel)
    Sanctum API · ticket workflow · authorisation · notification logic
