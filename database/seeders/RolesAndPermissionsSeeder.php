@@ -133,13 +133,16 @@ class RolesAndPermissionsSeeder extends Seeder
         'CX Field Support' => ['ticket.view', 'ticket.work', 'ticket.reopen', 'queue.view', 'queue.work_cx_field_support', 'queue.work_ticket_follow_up'],
         'CX Follow-up – Site Visit Agent' => ['ticket.view', 'visit.view', 'ticket.create', 'queue.view', 'queue.work_visit_aftercare'],
         'Billing Agent' => ['ticket.view', 'ticket.work', 'queue.view', 'queue.work_billing'],
-        'Billing Manager' => ['ticket.view', 'ticket.work', 'ticket.approve', 'queue.view', 'queue.work_billing_manager', 'queue.override', 'reports.view'],
+        'Billing Manager' => ['ticket.view', 'ticket.work', 'ticket.approve', 'queue.view', 'queue.work_billing_manager', 'queue.override', 'ticket.override', 'reports.view'],
         'Commercial / Sales Admin' => ['ticket.view', 'ticket.work', 'ticket.approve', 'queue.view', 'queue.work_commercial'],
         'Site Visit Dispatcher' => [
             'ticket.view', 'ticket.work', 'ticket.cancel', 'visit.create', 'visit.dispatch', 'queue.view', 'queue.work_visit_dispatch', 'reports.view',
         ],
         'Site Visit Technician' => ['ticket.view', 'visit.work', 'queue.work_visit_technician'],
         'Shifting / Relocation Technician' => ['ticket.view', 'visit.work', 'visit.work_shifting', 'queue.work_visit_technician'],
+        'Shifting / Relocation Dispatcher' => [
+            'ticket.view', 'ticket.work', 'ticket.cancel', 'visit.create', 'visit.dispatch', 'visit.dispatch_shifting', 'queue.view', 'queue.work_visit_dispatch', 'reports.view',
+        ],
         'Infra Support Dispatcher' => ['ticket.view', 'ticket.work', 'queue.view', 'queue.work_infra_support_dispatch'],
         'Infra Support Technician' => ['ticket.view', 'ticket.work', 'queue.work_infra_support_tech'],
         'Design Engineer' => ['ticket.view', 'ticket.work', 'queue.view', 'queue.work_design'],
@@ -152,7 +155,7 @@ class RolesAndPermissionsSeeder extends Seeder
     /** Roles the customer ticketing module adds. */
     public const TICKETING_ROLES = [
         'Ticketing Manager', 'CX Frontline', 'CX Retention', 'CX Follow-up Agent', 'CX Field Support', 'Billing Agent', 'Billing Manager',
-        'Commercial / Sales Admin', 'Site Visit Dispatcher', 'Site Visit Technician', 'Shifting / Relocation Technician', 'CX Follow-up – Site Visit Agent', 'Infra Support Dispatcher', 'Infra Support Technician',
+        'Commercial / Sales Admin', 'Site Visit Dispatcher', 'Site Visit Technician', 'Shifting / Relocation Technician', 'Shifting / Relocation Dispatcher', 'CX Follow-up – Site Visit Agent', 'Infra Support Dispatcher', 'Infra Support Technician',
         'Design Engineer', 'Access Officer',
     ];
 

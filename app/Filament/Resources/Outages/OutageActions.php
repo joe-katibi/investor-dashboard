@@ -19,6 +19,7 @@ use App\Models\OutageStatus;
 use App\Models\OutageUpdate;
 use App\Models\Team;
 use App\Models\User;
+use App\Services\Fifo\EligibilityEvaluator;
 use App\Services\Fifo\FifoAssignmentEngine;
 use App\Services\Outages\OutageWorkflow;
 use App\Support\Settings;
@@ -404,19 +405,35 @@ final class OutageActions
             ->label('Assign / override FIFO')
             ->icon(Heroicon::OutlinedArrowsRightLeft)
             ->color('danger')
-            ->visible(fn (Outage $record) => Auth::user()?->can('overrideAssignment', $record))
+            ->visible(fn (Outage $record) => Auth::user()?->can('overrideAssignment', $record) && (! $record->isTicket() || self::ticketQueues($record) !== []))
             ->modalDescription('Manual assignment bypasses FIFO order. It is recorded with your name, the time and your reason.')
-            ->fillForm(fn (Outage $record) => ['queue_type' => $record->current_queue?->value ?? QueueType::NocReview->value])
+            ->fillForm(fn (Outage $record) => ['queue_type' => $record->current_queue?->value ?? ($record->isTicket() ? array_key_first(self::ticketQueues($record)) : QueueType::NocReview->value)])
             ->schema([
-                Select::make('queue_type')->label('Queue')->options(QueueType::class)->required()->live()
+                // A customer ticket / site visit is reassigned where it is: moving it to another desk is "Escalate / hand over".
+                Select::make('queue_type')->label('Queue')->required()->live()
+                    ->options(fn (Outage $record) => $record->isTicket() ? self::ticketQueues($record) : QueueType::class)
                     ->afterStateUpdated(fn (Set $set) => $set('user_id', null)),
                 Select::make('user_id')->label('Assign to')->required()->searchable()
-                    ->options(fn (Get $get) => self::queueUserOptions(self::queueType($get('queue_type')))),
+                    ->options(fn (Get $get, Outage $record) => self::queueUserOptions($type = self::queueType($get('queue_type')), $type ? EligibilityEvaluator::visitPermission($record, $type) : null)),
                 Textarea::make('reason')->label('Override reason')->required()->maxLength(1000),
             ])
             ->action(fn (Outage $record, array $data) => self::run($record, fn () => app(FifoAssignmentEngine::class)->manualAssign(
                 $record, self::queueType($data['queue_type']) ?? QueueType::NocReview, User::query()->findOrFail($data['user_id']), Auth::user(), $data['reason'],
             ), 'Assignment overridden'));
+    }
+
+    /**
+     * The queues a customer ticket / site visit is in now (its desk, and a follow-up or aftercare call), value => label.
+     *
+     * @return array<string, string>
+     */
+    private static function ticketQueues(Outage $record): array
+    {
+        return collect([$record->current_queue])
+            ->merge($record->openQueueEntries()->pluck('queue_type'))
+            ->filter()
+            ->mapWithKeys(fn (QueueType $type) => [$type->value => $type->getLabel()])
+            ->all();
     }
 
     /** An enum-backed Select hands back the enum once hydrated, or the raw value before that. */
@@ -770,13 +787,14 @@ final class OutageActions
             ->all();
     }
 
-    public static function queueUserOptions(?QueueType $type): array
+    public static function queueUserOptions(?QueueType $type, ?string $alsoPermission = null): array
     {
         if (! $type) {
             return [];
         }
 
         return User::permission($type->defaultPermission())
+            ->when($alsoPermission, fn ($q, string $permission) => $q->whereIn('id', User::permission($permission)->select('id')))
             ->active()
             ->withCount('activeAssignments')
             ->orderBy('name')

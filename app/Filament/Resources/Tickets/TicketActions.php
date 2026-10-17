@@ -117,7 +117,7 @@ final class TicketActions
                 Select::make('desk')->label('Send to')->required()->live()->options(fn (Outage $record) => self::routeOptions($record)),
                 Select::make('user_id')->label('A specific person there (optional)')->searchable()
                     ->placeholder('Automatic — next available person (FIFO)')
-                    ->options(fn (Get $get) => OutageActions::queueUserOptions(QueueType::tryFrom((string) $get('desk')))),
+                    ->options(fn (Get $get, Outage $record) => OutageActions::queueUserOptions($desk = QueueType::tryFrom((string) $get('desk')), EligibilityEvaluator::visitPermission($record, $desk))),
                 Select::make('delay_reason_id')->label('Reason for delay (optional)')->options(fn (Outage $record) => self::delayReasons($record->vertical_id))
                     ->visible(fn (Outage $record) => $record->isSiteVisit()),
                 Textarea::make('note')->label('Why / what is needed')->required()->rows(3)->maxLength(2000),
@@ -451,7 +451,7 @@ final class TicketActions
                 TextInput::make('landmark')->label('Landmark')->maxLength(250),
                 Select::make('dispatcher_id')->label('Dispatcher of the new area (optional)')->searchable()
                     ->placeholder('Automatic — the next available dispatcher of the region (FIFO)')
-                    ->options(fn () => self::deskUsers(QueueType::VisitDispatch)),
+                    ->options(fn (Outage $record) => self::deskUsers(QueueType::VisitDispatch, EligibilityEvaluator::visitDispatcherPermission($record))),
                 Textarea::make('note')->label('Note (optional)')->rows(2)->maxLength(2000),
             ])
             ->action(fn (Outage $record, array $data) => OutageActions::run($record, fn () => app(OutageWorkflow::class)->relocateVisit($record, Auth::user(), $data),

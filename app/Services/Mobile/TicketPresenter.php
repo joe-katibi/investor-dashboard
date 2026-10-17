@@ -23,7 +23,7 @@ final class TicketPresenter
     /** Relations the list needs (the list must not load anything row by row). */
     public const LIST_RELATIONS = [
         'priority:id,name,code,color', 'status:id,name,code,color', 'outageType:id,name,is_planned', 'currentAssignee:id,name', 'technician:id,name',
-        'ticket:id,outage_id,customer_name,account_number,address,scheduled_at,visit_type_id,completed_at', 'ticket.visitType:id,name',
+        'ticket:id,outage_id,customer_name,account_number,address,scheduled_at,visit_type_id,completed_at', 'ticket.visitType:id,name,technician_permission,dispatcher_permission',
     ];
 
     public const DETAIL_RELATIONS = [

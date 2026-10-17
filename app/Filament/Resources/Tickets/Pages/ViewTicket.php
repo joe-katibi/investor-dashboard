@@ -48,6 +48,7 @@ class ViewTicket extends ViewRecord
             ActionGroup::make([
                 OutageActions::addUpdate(),
                 ...TicketActions::secondary(),
+                OutageActions::reassign(),
                 OutageActions::rejectAssignment(),
             ])->label('More')->icon(Heroicon::OutlinedEllipsisVertical)->button()->color('gray'),
         ];

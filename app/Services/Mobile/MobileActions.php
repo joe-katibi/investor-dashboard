@@ -223,7 +223,7 @@ final class MobileActions
     {
         $assignment = $this->myAssignment($user, $outage);
         // Field steps belong to the person holding the ticket (or someone who may override FIFO).
-        $holding = $assignment !== null || $user->can('queue.override');
+        $holding = $assignment !== null || $user->can($outage->overridePermission());
         $can = fn (string $ability) => $user->can($ability, $outage);
         // Custom workflow: the flow, its steps and the one the ticket is at.
         $custom = $outage->isCustomFlow() ? $outage->customTicket : null;

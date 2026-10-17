@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /** Kind of site visit; its prefix numbers the visits: INS-1, WiE-1, SUP-1, SHI-1. */
-#[Fillable(['name', 'code_prefix', 'description', 'default_sla_minutes', 'priority_id', 'requires_evidence', 'photo_set', 'technician_permission', 'is_relocation', 'sort_order', 'is_active'])]
+#[Fillable(['name', 'code_prefix', 'description', 'default_sla_minutes', 'priority_id', 'requires_evidence', 'photo_set', 'technician_permission', 'dispatcher_permission', 'is_relocation', 'sort_order', 'is_active'])]
 class VisitType extends Model
 {
     use Auditable, HasAuditColumns;
@@ -21,6 +21,14 @@ class VisitType extends Model
     /** The permissions a visit type can be kept for ("Technicians" on the visit type screen). */
     public const TECHNICIAN_PERMISSIONS = [
         self::SHIFTING_PERMISSION => 'Shifting / Relocation technicians only',
+    ];
+
+    /** Shifting / Relocation visits: only the dispatchers given this permission dispatch them. */
+    public const SHIFTING_DISPATCH_PERMISSION = 'visit.dispatch_shifting';
+
+    /** The permissions a visit type can be kept for ("Dispatchers" on the visit type screen). */
+    public const DISPATCHER_PERMISSIONS = [
+        self::SHIFTING_DISPATCH_PERMISSION => 'Shifting / Relocation dispatchers only',
     ];
 
     /** Which photos a visit of this kind is completed with (App\Support\VisitPhotos). */
@@ -45,6 +53,12 @@ class VisitType extends Model
     public function technicianPermission(): ?string
     {
         return filled($this->technician_permission) ? $this->technician_permission : null;
+    }
+
+    /** The permission a dispatcher needs for visits of this kind; null = every site visit dispatcher. */
+    public function dispatcherPermission(): ?string
+    {
+        return filled($this->dispatcher_permission) ? $this->dispatcher_permission : null;
     }
 
     public function priority(): BelongsTo

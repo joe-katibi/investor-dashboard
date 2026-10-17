@@ -12,6 +12,7 @@ use App\Models\OutageQueueEntry;
 use App\Models\OutageType;
 use App\Models\User;
 use App\Models\Vertical;
+use App\Services\Fifo\EligibilityEvaluator;
 use App\Services\Fifo\FifoAssignmentEngine;
 use App\Services\Sla\DeskSla;
 use App\Support\Settings;
@@ -148,7 +149,7 @@ class FifoQueue extends Page implements HasTable
             Action::make('runFifo')
                 ->label('Run FIFO now')
                 ->icon(Heroicon::OutlinedPlay)
-                ->visible(fn () => Auth::user()?->can('queue.override'))
+                ->visible(fn () => Auth::user()?->can($this->queueType()->overridePermission()))
                 ->action(function (): void {
                     $count = app(FifoAssignmentEngine::class)->process();
                     $this->snapshotCache = null;
@@ -230,11 +231,12 @@ class FifoQueue extends Page implements HasTable
                     ->label('Assign')
                     ->icon(Heroicon::OutlinedArrowsRightLeft)
                     ->color('danger')
-                    ->visible(fn () => Auth::user()?->can('queue.override') && app(Settings::class)->bool('fifo.manual_override'))
+                    ->visible(fn () => Auth::user()?->can($this->queueType()->overridePermission()) && app(Settings::class)->bool('fifo.manual_override'))
                     ->modalDescription('Manual assignment overrides FIFO order and is fully audited.')
                     ->schema([
                         Select::make('user_id')->label('Assign to')->required()->searchable()
-                            ->options(fn () => OutageActions::queueUserOptions($this->queueType())),
+                            ->options(fn (OutageQueueEntry $record) => OutageActions::queueUserOptions($this->queueType(),
+                                $record->outage ? EligibilityEvaluator::visitPermission($record->outage, $this->queueType()) : null)),
                         Textarea::make('reason')->label('Reason')->required()->maxLength(1000),
                     ])
                     ->action(function (OutageQueueEntry $record, array $data): void {

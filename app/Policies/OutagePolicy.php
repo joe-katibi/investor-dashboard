@@ -14,6 +14,7 @@ use App\Models\OutageType;
 use App\Models\SupportRequest;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Services\Fifo\EligibilityEvaluator;
 use App\Support\VisitPhotos;
 
 /**
@@ -190,7 +191,8 @@ class OutagePolicy
 
     public function overrideAssignment(User $user, Outage $outage): bool
     {
-        return $user->can('queue.override') && ! $outage->is_closed && ($outage->workflow === null || $outage->isCustomFlow());
+        return $user->can($outage->overridePermission()) && ! $outage->is_closed
+            && ($outage->workflow === null || $outage->isCustomFlow() || $outage->isTicket());
     }
 
     // ------------------------------------------------------------------ 4G NOC
@@ -410,7 +412,7 @@ class OutagePolicy
         return $outage->isTicket()
             && ! $outage->is_closed
             && $this->interventionRunning($outage)
-            && ((int) $outage->ticket?->intervention_by === (int) $user->id || $user->can('queue.override'));
+            && ((int) $outage->ticket?->intervention_by === (int) $user->id || $user->can('ticket.override'));
     }
 
     public function ticketLinkOutage(User $user, Outage $outage): bool
@@ -423,13 +425,21 @@ class OutagePolicy
         return $outage->isTicket() && $this->addUpdate($user, $outage);
     }
 
+    /** A dispatcher — for a visit kept for some dispatchers (Shifting / Relocation), one of those. */
+    private function mayDispatchVisit(User $user, Outage $outage): bool
+    {
+        $needs = EligibilityEvaluator::visitDispatcherPermission($outage);
+
+        return $user->can('visit.dispatch') && ($needs === null || $user->can($needs));
+    }
+
     /** Dispatcher assigns (or re-assigns) the technician of a visit. */
     public function visitAssign(User $user, Outage $outage): bool
     {
         return $outage->isSiteVisit()
             && ! $outage->is_closed
             && in_array($outage->current_queue, [QueueType::VisitDispatch, QueueType::VisitTechnician], true)
-            && $user->can('visit.dispatch');
+            && $this->mayDispatchVisit($user, $outage);
     }
 
     /** New date / time for the visit: dispatch, or CX Field Support while it holds the visit. */
@@ -438,7 +448,7 @@ class OutagePolicy
         return $outage->isSiteVisit()
             && ! $outage->is_closed
             && $outage->ticket?->completed_at === null
-            && ($user->can('visit.dispatch') || ($outage->current_queue === QueueType::CxFieldSupport && $user->can('ticket.work')));
+            && ($this->mayDispatchVisit($user, $outage) || ($outage->current_queue === QueueType::CxFieldSupport && $user->can('ticket.work')));
     }
 
     public function visitEnRoute(User $user, Outage $outage): bool
@@ -492,7 +502,7 @@ class OutagePolicy
             && VisitPhotos::isRelocation($outage)
             && $outage->ticket?->completed_at === null
             && in_array($outage->current_queue, [QueueType::VisitDispatch, QueueType::VisitTechnician], true)
-            && $user->can('visit.dispatch');
+            && $this->mayDispatchVisit($user, $outage);
     }
 
     /**
@@ -519,7 +529,7 @@ class OutagePolicy
             && ! $outage->is_closed
             && $outage->current_queue === QueueType::VisitDispatch
             && $outage->ticket?->completed_at !== null
-            && $user->can('visit.dispatch');
+            && $this->mayDispatchVisit($user, $outage);
     }
 
     /** CX Follow-up – Site Visit: the call 72 hours after the visit, while it is in that queue. */

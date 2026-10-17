@@ -51,7 +51,7 @@ class ShiftingRelocationTest extends TestCase
         Mail::fake();
         Storage::fake('local');
         $this->workflow = app(OutageWorkflow::class);
-        $this->dispatcher = $this->makeUser('Site Visit Dispatcher', 'DISPATCH');
+        $this->dispatcher = $this->makeUser('Shifting / Relocation Dispatcher', 'DISPATCH');
         $this->technician = $this->makeUser('Shifting / Relocation Technician', 'DISPATCH', attributes: ['phone' => '0700555666']);
         $this->noc = $this->makeUser('NOC Tier II', 'NOC');
         Auth::setUser($this->dispatcher);
@@ -173,7 +173,7 @@ class ShiftingRelocationTest extends TestCase
         $newOlt = $this->makeOlt('OLT-SOUTH');
         $newOlt->forceFill(['region_id' => $south->id])->save();
         $this->dispatcher->regions()->sync([$north->id]);
-        $southDispatcher = $this->makeUser('Site Visit Dispatcher', 'DISPATCH');
+        $southDispatcher = $this->makeUser('Shifting / Relocation Dispatcher', 'DISPATCH');
         $southDispatcher->regions()->sync([$south->id]);
 
         $visit = $this->shifting(['olt_id' => $oldOlt->id, 'region_id' => $north->id]);
@@ -191,7 +191,7 @@ class ShiftingRelocationTest extends TestCase
         $this->assertSame($southDispatcher->id, $visit->current_assignee_id, 'the dispatcher of the new region gets it');
 
         // Or straight to a named dispatcher.
-        $other = $this->makeUser('Site Visit Dispatcher', 'DISPATCH');
+        $other = $this->makeUser('Shifting / Relocation Dispatcher', 'DISPATCH');
         $visit = $this->workflow->relocateVisit($visit, $southDispatcher, ['olt_id' => $newOlt->id, 'address' => 'New house, Kansanga', 'dispatcher_id' => $other->id]);
         $this->assertSame($other->id, $visit->current_assignee_id);
     }

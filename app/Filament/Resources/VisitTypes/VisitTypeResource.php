@@ -57,6 +57,8 @@ class VisitTypeResource extends Resource
                 ->helperText('The installation set: FAT outside (geotagged), inside and its power; cable entry (geotagged); ATB and ONU mounted; power at the ATB; ONU serial number; speed tests; devices working. Taken with the camera in the mobile app only.'),
             Select::make('technician_permission')->label('Technicians')->options(VisitType::TECHNICIAN_PERMISSIONS)->placeholder('Every site visit technician')
                 ->helperText('Kept for some technicians: only those given the permission (Roles, or a person\'s own permissions) are offered these visits, by name or through the technician queue.'),
+            Select::make('dispatcher_permission')->label('Dispatchers')->options(VisitType::DISPATCHER_PERMISSIONS)->placeholder('Every site visit dispatcher')
+                ->helperText('Kept for some dispatchers: only those given the permission receive these visits in the dispatch queue and may assign, reassign, reschedule, relocate and verify them.'),
             Toggle::make('is_relocation')->label('Relocation (Shifting)')
                 ->helperText('The technician sends the visit to the FTTH NOC for provisioning before the speed tests and the smart-device photos; the dispatcher can move it to another OLT / region.'),
             TextInput::make('sort_order')->label('Order in lists')->numeric()->default(0)->minValue(0)->maxValue(999),
@@ -80,6 +82,8 @@ class VisitTypeResource extends Resource
                     ->formatStateUsing(fn (?string $state) => $state === VisitPhotos::INSTALLATION ? '9 photos (app only)' : '2 photos'),
                 TextColumn::make('technician_permission')->label('Technicians')->badge()->color('warning')->placeholder('All')
                     ->formatStateUsing(fn (?string $state) => VisitType::TECHNICIAN_PERMISSIONS[$state] ?? $state),
+                TextColumn::make('dispatcher_permission')->label('Dispatchers')->badge()->color('warning')->placeholder('All')
+                    ->formatStateUsing(fn (?string $state) => VisitType::DISPATCHER_PERMISSIONS[$state] ?? $state),
                 TextColumn::make('description')->wrap()->placeholder('—')->visibleFrom('lg'),
                 AuditFields::activeColumn(),
                 ...AuditFields::columns(),

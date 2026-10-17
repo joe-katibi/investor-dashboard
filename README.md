@@ -802,6 +802,18 @@ visits* (`visit.work_shifting`; role *Shifting / Relocation Technician*, or add 
 With none of them on duty a shifting visit waits in the queue. Installation, Wi-Fi Extender and Support visits go to
 every site visit technician.
 
+**Shifting / Relocation dispatchers.** The same for dispatchers (*Visit Types → Dispatchers*; Shifting, by default):
+only dispatchers with *Dispatch Shifting / Relocation visits* (`visit.dispatch_shifting`; role *Shifting / Relocation
+Dispatcher*, and the Ticketing Manager) receive those visits in the dispatch queue, are listed for them (hand-over,
+relocation, override) and may assign / reassign the technician, reschedule, relocate and verify them. Other site
+visit dispatchers still raise them and dispatch every other kind of visit.
+
+**Overriding FIFO on customer tickets** is its own permission, *Assign / reassign and override FIFO on customer
+tickets and site visits* (`ticket.override`): *Assign / override FIFO* on the ticket or visit (reassigns it at the desk
+it is at), *Assign* on the FIFO queue of a ticket desk, acting on a ticket someone else holds, and ending another
+person's intervention. `queue.override` keeps the same for outages and custom workflows. When it arrived, every role
+and person with `queue.override` was also given `ticket.override`; untick either one to separate them.
+
 **Relocation (Shifting) visits.** Visit types marked *Relocation* (Shifting, by default):
 
 * **NOC provisioning before the speed tests.** On site, the technician takes the photos up to the ONU serial number,
@@ -981,7 +993,7 @@ original place in line.
 applied, the eligible ranking and exclusion counts; every queue / assign / accept / reject / timeout / release /
 override event is written to the assignment history.
 
-**Workflow enforcement**: when a step is assigned, only its assignee (or a `queue.override` holder) can perform it;
+**Workflow enforcement**: when a step is assigned, only its assignee (or a `queue.override` holder; on customer tickets `ticket.override`) can perform it;
 acting on it implicitly accepts the assignment.
 
 **Clusters**: each queue is processed under a distributed cache lock, so every node can run the engine safely.
@@ -1651,6 +1663,21 @@ OLTs whose names match loosely are found on their own (the oldest is kept); `--p
 adds those spelt differently. FDTs, slots and ports are merged by name, and one that only the duplicate had is moved
 across. Customers, tickets, outages and team coverage are re-pointed, the duplicates are deleted, and their names
 become aliases of the OLT kept — so the next import matches them. Everything runs in one transaction.
+
+### Regions set on OLTs afterwards (`oms:fill-ticket-regions`)
+
+Tickets and customers take their OLT's region when they are raised / imported. For those raised before the OLT had
+a region:
+
+```bash
+# the plan, per OLT — nothing changes
+php artisan oms:fill-ticket-regions
+# take a database backup, then
+php artisan oms:fill-ticket-regions --apply
+```
+
+Only tickets and customers **without** a region are filled; one that has a region keeps it. It also lists what it
+cannot fill: tickets with no OLT, and OLTs that have no region yet (set it under *Topology → OLTs* and run again).
 
 ### Moving outages between servers (`oms:export-outages` / `oms:import-outages`)
 

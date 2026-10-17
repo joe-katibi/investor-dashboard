@@ -475,7 +475,7 @@ class FifoAssignmentEngine
      */
     public function manualAssign(Outage $outage, QueueType $type, User $target, User $by, string $reason): OutageAssignment
     {
-        if (! $this->settings->bool('fifo.manual_override') || ! $by->can('queue.override')) {
+        if (! $this->settings->bool('fifo.manual_override') || ! $by->can($type->overridePermission())) {
             throw new AuthorizationException('You are not authorised to override FIFO assignment.');
         }
 
@@ -654,7 +654,7 @@ class FifoAssignmentEngine
             return;
         }
 
-        if ($user->can('queue.override')) {
+        if ($user->can($type->overridePermission())) {
             return;
         }
 

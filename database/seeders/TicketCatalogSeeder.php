@@ -149,6 +149,7 @@ class TicketCatalogSeeder extends Seeder
                 'photo_set' => in_array($prefix, ['INS', 'SHI'], true) ? VisitPhotos::INSTALLATION : VisitPhotos::STANDARD,
                 // Relocations go to the technicians allowed to do them.
                 'technician_permission' => $prefix === 'SHI' ? VisitType::SHIFTING_PERMISSION : null,
+                'dispatcher_permission' => $prefix === 'SHI' ? VisitType::SHIFTING_DISPATCH_PERMISSION : null,
                 // A relocation: NOC provisioning before the speed tests; can move to another OLT / region.
                 'is_relocation' => $prefix === 'SHI',
             ]);

@@ -131,7 +131,7 @@ trait ManagesRelocations
                 $this->fifo->authorizeWork($outage, QueueType::VisitDispatch, $by);
             }
 
-            $dispatcher = $id($data['dispatcher_id'] ?? null) ? $this->deskUser($id($data['dispatcher_id']), QueueType::VisitDispatch) : null;
+            $dispatcher = $id($data['dispatcher_id'] ?? null) ? $this->deskUser($id($data['dispatcher_id']), QueueType::VisitDispatch, $outage) : null;
             $before = $ticket->only(['olt_id', 'fdt_id', 'slot_id', 'port_id', 'region_id', 'address', 'road', 'landmark']);
             $from = collect([Olt::query()->whereKey($before['olt_id'])->value('name'), $before['address']])->filter()->implode(', ') ?: 'not on file';
             $to = collect([$olt->name, $fdt?->name, trim((string) $data['address']), filled($data['road'] ?? null) ? trim((string) $data['road']) : null])->filter()->implode(', ');

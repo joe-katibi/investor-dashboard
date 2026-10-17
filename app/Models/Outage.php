@@ -453,6 +453,12 @@ class Outage extends Model
         $query->where($query->qualifyColumn('workflow'), OutageType::WORKFLOW_CUSTOM);
     }
 
+    /** Permission to assign / reassign it by hand, overriding FIFO: customer tickets and site visits have their own. */
+    public function overridePermission(): string
+    {
+        return $this->isTicket() ? 'ticket.override' : 'queue.override';
+    }
+
     /** A customer ticket or a site visit (not a network outage). */
     public function isTicket(): bool
     {

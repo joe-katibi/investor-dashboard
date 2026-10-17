@@ -4,19 +4,23 @@ namespace Tests\Feature;
 
 use App\Enums\AvailabilityStatus;
 use App\Enums\QueueType;
+use App\Filament\Resources\Outages\OutageActions;
 use App\Filament\Resources\Tickets\TicketActions;
 use App\Models\Outage;
 use App\Models\TicketSubcategory;
 use App\Models\User;
 use App\Models\VisitType;
+use App\Services\Fifo\EligibilityEvaluator;
 use App\Services\Fifo\FifoAssignmentEngine;
 use App\Services\Outages\OutageWorkflow;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Spatie\Permission\Models\Role;
 use Tests\Concerns\BuildsOmsFixtures;
 use Tests\TestCase;
 
@@ -37,7 +41,7 @@ class ShiftingVisitTest extends TestCase
         Mail::fake();
         Storage::fake('local');
         $this->workflow = app(OutageWorkflow::class);
-        $this->dispatcher = $this->makeUser('Site Visit Dispatcher', 'DISPATCH');
+        $this->dispatcher = $this->makeUser('Shifting / Relocation Dispatcher', 'DISPATCH');
         Auth::setUser($this->dispatcher);
     }
 
@@ -114,10 +118,93 @@ class ShiftingVisitTest extends TestCase
         $this->assertSame($plain->id, $support->current_assignee_id);
     }
 
+    public function test_shifting_visits_are_dispatched_only_by_shifting_dispatchers(): void
+    {
+        $this->assertSame(VisitType::SHIFTING_DISPATCH_PERMISSION, VisitType::query()->where('code_prefix', 'SHI')->value('dispatcher_permission'));
+        $this->assertNull(VisitType::query()->where('code_prefix', 'SUP')->value('dispatcher_permission'));
+
+        $plain = $this->makeUser('Site Visit Dispatcher', 'DISPATCH');
+        $shiftingTech = $this->makeUser('Shifting / Relocation Technician', 'DISPATCH');
+        $visit = $this->visit('SHI', 'Shifting');
+        $support = $this->visit('SUP', 'LOS Flashing Red');
+
+        // The dispatch queue gives it to the shifting dispatcher; a plain dispatcher may not act on it, other visits yes.
+        $this->assertSame($this->dispatcher->id, $visit->current_assignee_id);
+        $this->assertFalse($plain->can('visitAssign', $visit));
+        $this->assertTrue($plain->can('visitAssign', $support));
+        $this->assertTrue($this->dispatcher->can('visitAssign', $visit));
+
+        // Not listed as a dispatcher for it, and refused when named or overridden to anyway.
+        $options = OutageActions::queueUserOptions(QueueType::VisitDispatch, EligibilityEvaluator::visitPermission($visit, QueueType::VisitDispatch));
+        $this->assertArrayHasKey($this->dispatcher->id, $options);
+        $this->assertArrayNotHasKey($plain->id, $options);
+
+        try {
+            app(FifoAssignmentEngine::class)->manualAssign($visit, QueueType::VisitDispatch, $plain, $this->makeUser('Super Admin', 'MGMT'), 'Cover');
+            $this->fail('A shifting visit was overridden to a dispatcher without the shifting permission.');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('user_id', $e->errors());
+        }
+
+        // A plain dispatcher booking one straight to a technician is stopped with an explanation.
+        try {
+            $this->workflow->createSiteVisit([
+                'visit_type_id' => VisitType::query()->where('code_prefix', 'SHI')->value('id'),
+                'subcategory_id' => TicketSubcategory::query()->where('name', 'Shifting')->value('id'),
+                'account_number' => 'SF2659302', 'customer_name' => 'Jane Customer', 'calling_number' => '0772000011',
+                'address' => 'Kansanga', 'technician_id' => $shiftingTech->id,
+            ], $plain);
+            $this->fail('A plain dispatcher dispatched a shifting visit.');
+        } catch (ValidationException $e) {
+            $this->assertStringContainsString('Dispatch Shifting / Relocation visits', $e->errors()['technician_id'][0]);
+        }
+
+        $visit = $this->workflow->assignVisit($visit, $this->dispatcher, ['technician_id' => $shiftingTech->id]);
+        $this->assertSame($shiftingTech->id, $visit->current_assignee_id);
+    }
+
+    public function test_overriding_fifo_on_customer_tickets_is_a_permission_of_its_own(): void
+    {
+        $outageLead = $this->makeUser($this->role('Outage Lead', ['outage.view', 'ticket.view', 'queue.view', 'queue.override']), 'MGMT');
+        $ticketLead = $this->makeUser($this->role('Ticket Lead', ['outage.view', 'ticket.view', 'queue.view', 'ticket.override']), 'MGMT');
+        $other = $this->makeUser('Site Visit Dispatcher', 'DISPATCH');
+        $visit = $this->visit('SUP', 'LOS Flashing Red');
+        $outage = $this->reportOutage($this->makeUser('NOC Tier I', 'NOC'));
+
+        $this->assertFalse($outageLead->can('overrideAssignment', $visit));
+        $this->assertTrue($outageLead->can('overrideAssignment', $outage));
+        $this->assertTrue($ticketLead->can('overrideAssignment', $visit));
+        $this->assertFalse($ticketLead->can('overrideAssignment', $outage));
+
+        try {
+            app(FifoAssignmentEngine::class)->manualAssign($visit, QueueType::VisitDispatch, $other, $outageLead, 'Cover');
+            $this->fail('Overriding FIFO on outages also overrode a site visit.');
+        } catch (AuthorizationException) {
+        }
+
+        app(FifoAssignmentEngine::class)->manualAssign($visit, QueueType::VisitDispatch, $other, $ticketLead, 'Cover');
+        $this->assertSame($other->id, $visit->refresh()->current_assignee_id);
+
+        // And may act on a visit held by someone else.
+        app(FifoAssignmentEngine::class)->authorizeWork($visit, QueueType::VisitDispatch, $ticketLead);
+        $this->expectException(AuthorizationException::class);
+        app(FifoAssignmentEngine::class)->authorizeWork($visit, QueueType::VisitDispatch, $outageLead);
+    }
+
+    /** @param  list<string>  $permissions */
+    private function role(string $name, array $permissions): string
+    {
+        Role::findOrCreate($name, 'web')->givePermissionTo($permissions);
+
+        return $name;
+    }
+
     public function test_the_visit_type_screen_sets_which_technicians_do_it(): void
     {
         $this->actingAs($this->makeUser('Super Admin', 'MGMT'));
 
-        $this->get('/admin/customer-care/visit-types')->assertOk()->assertSee('Shifting / Relocation technicians only');
+        $this->get('/admin/customer-care/visit-types')->assertOk()
+            ->assertSee('Shifting / Relocation technicians only')
+            ->assertSee('Shifting / Relocation dispatchers only');
     }
 }

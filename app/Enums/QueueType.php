@@ -140,6 +140,12 @@ enum QueueType: string implements HasColor, HasLabel
         };
     }
 
+    /** Permission to assign / reassign tickets of this queue by hand and act on them without holding them. */
+    public function overridePermission(): string
+    {
+        return $this->isTicketing() ? 'ticket.override' : 'queue.override';
+    }
+
     /**
      * Department code that normally owns the queue. Ticket desks have none: who works a desk is
      * decided by the desk permission (and regions); a department can still be set on the queue.

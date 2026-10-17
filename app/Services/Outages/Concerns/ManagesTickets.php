@@ -191,9 +191,15 @@ trait ManagesTickets
 
             $this->moveTicket($outage, $ticket, QueueType::VisitDispatch, $by, 'route', 'New site visit', announce: false);
 
-            // Booked straight to a technician / team by someone who may dispatch.
+            // Booked straight to a technician / team by someone who may dispatch (this kind of visit).
             if ((filled($data['technician_id'] ?? null) || filled($data['team_id'] ?? null)) && $by->can('visit.dispatch')) {
-                $this->dispatchVisit($outage->refresh(), $ticket->refresh(), $by, $data);
+                if (Gate::forUser($by)->denies('visitAssign', $outage->refresh())) {
+                    $needs = EligibilityEvaluator::visitDispatcherPermission($outage);
+                    throw ValidationException::withMessages(['technician_id' => 'This kind of visit is dispatched only by dispatchers with “'.Permissions::label((string) $needs)
+                        .'”. Leave the technician and team empty: one of them assigns it.']);
+                }
+
+                $this->dispatchVisit($outage, $ticket->refresh(), $by, $data);
             }
 
             return $outage->refresh();
@@ -1754,9 +1760,9 @@ trait ManagesTickets
             throw ValidationException::withMessages(['user_id' => ($user?->name ?? 'That user')." cannot receive tickets at {$desk->getLabel()} (inactive, or without the desk permission)."]);
         }
 
-        // A visit kept for some technicians (Shifting / Relocation) goes only to them.
-        if ($desk === QueueType::VisitTechnician && $outage && ($needs = EligibilityEvaluator::visitTechnicianPermission($outage)) && ! $user->can($needs)) {
-            throw ValidationException::withMessages(['technician_id' => "{$user->name} does not do this kind of visit: it needs “".Permissions::label($needs).'”.']);
+        // A visit kept for some technicians / dispatchers (Shifting / Relocation) goes only to them.
+        if ($outage && ($needs = EligibilityEvaluator::visitPermission($outage, $desk)) && ! $user->can($needs)) {
+            throw ValidationException::withMessages([$desk === QueueType::VisitTechnician ? 'technician_id' : 'user_id' => "{$user->name} does not do this kind of visit: it needs “".Permissions::label($needs).'”.']);
         }
 
         return $user;

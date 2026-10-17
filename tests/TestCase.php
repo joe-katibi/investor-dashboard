@@ -10,22 +10,27 @@ use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 abstract class TestCase extends BaseTestCase
 {
     /**
-     * The tests rebuild their database from nothing, so it may only ever be the throw-away one in
-     * memory. With a cached configuration (`php artisan optimize` / `config:cache`) the settings of
-     * phpunit.xml are ignored and the tests would empty the real database — that happened on a
-     * development machine on 2026-10-10. Nothing runs unless the database is the in-memory one.
+     * The tests rebuild their database from nothing, so it may only ever be a throw-away one: the
+     * in-memory SQLite database (phpunit.xml), or a PostgreSQL database named *_test on this machine
+     * (phpunit.pgsql.xml — PostgreSQL like the production server). With a cached configuration
+     * (`php artisan optimize` / `config:cache`) the phpunit settings are ignored and the tests would
+     * empty the real database — that happened on a development machine on 2026-10-10.
      */
     public function createApplication()
     {
         $app = parent::createApplication();
 
         $connection = $app['config']->get('database.default');
-        $database = $app['config']->get("database.connections.{$connection}.database");
+        $database = (string) $app['config']->get("database.connections.{$connection}.database");
+        $host = (string) $app['config']->get("database.connections.{$connection}.host");
 
-        if ($app->configurationIsCached() || $connection !== 'sqlite' || $database !== ':memory:') {
+        $throwAway = ($connection === 'sqlite' && $database === ':memory:')
+            || ($connection === 'pgsql' && str_ends_with($database, '_test') && in_array($host, ['127.0.0.1', 'localhost', '::1'], true));
+
+        if ($app->configurationIsCached() || ! $throwAway) {
             throw new \RuntimeException(
-                'Refusing to run the tests: they would use the database "'.$database.'" ('.$connection.') instead of the in-memory one. '
-                .'Run "php artisan optimize:clear" first — a cached configuration overrides phpunit.xml.'
+                'Refusing to run the tests: they would use the database "'.$database.'" ('.$connection.') instead of a throw-away one '
+                .'(SQLite in memory, or PostgreSQL *_test on this machine). Run "php artisan optimize:clear" first — a cached configuration overrides phpunit.xml.'
             );
         }
 

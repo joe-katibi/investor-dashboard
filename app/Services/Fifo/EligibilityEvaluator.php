@@ -195,8 +195,8 @@ class EligibilityEvaluator
             $checks['coverage'] = $this->coverageCheck($user, $outage->olts->pluck('id')->all());
         }
 
-        // Site visits of a kind kept for some technicians (Shifting / Relocation): only they get them.
-        if ($outage && $entry->queue_type === QueueType::VisitTechnician && ($needs = self::visitTechnicianPermission($outage))) {
+        // Site visits of a kind kept for some technicians / dispatchers (Shifting / Relocation): only they get them.
+        if ($outage && ($needs = self::visitPermission($outage, $entry->queue_type))) {
             $checks['visit_type'] = $this->check('Visit type', $user->checkPermissionTo($needs), Permissions::label($needs));
         }
 
@@ -230,6 +230,28 @@ class EligibilityEvaluator
         $outage->loadMissing('ticket.visitType');
 
         return $outage->ticket?->visitType?->technicianPermission();
+    }
+
+    /** The permission a dispatcher needs for this site visit (its visit type), or null. */
+    public static function visitDispatcherPermission(Outage $outage): ?string
+    {
+        if (! $outage->isSiteVisit()) {
+            return null;
+        }
+
+        $outage->loadMissing('ticket.visitType');
+
+        return $outage->ticket?->visitType?->dispatcherPermission();
+    }
+
+    /** What someone at this desk needs, beyond the desk permission, to be given this visit; null = nothing more. */
+    public static function visitPermission(Outage $outage, ?QueueType $desk): ?string
+    {
+        return match ($desk) {
+            QueueType::VisitTechnician => self::visitTechnicianPermission($outage),
+            QueueType::VisitDispatch => self::visitDispatcherPermission($outage),
+            default => null,
+        };
     }
 
     public function permissionFor(OutageQueueEntry $entry): string

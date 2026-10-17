@@ -157,8 +157,9 @@ final class TicketViews
                 SelectFilter::make('current_queue')->label('Desk')->options(QueueType::deskOptions()),
                 SelectFilter::make('region')->label('Region')->options(fn () => Region::query()->orderBy('name')->pluck('name', 'id'))
                     ->query(fn (Builder $query, array $data) => $query->when($data['value'] ?? null, fn (Builder $q, $v) => $q->whereHas('ticket', fn (Builder $t) => $t->where('region_id', $v)))),
-                SelectFilter::make('olt')->label('OLT')->searchable()->options(fn () => Olt::query()->orderBy('name')->pluck('name', 'id'))
-                    ->query(fn (Builder $query, array $data) => $query->when($data['value'] ?? null, fn (Builder $q, $v) => $q->whereHas('ticket', fn (Builder $t) => $t->where('olt_id', $v)))),
+                SelectFilter::make('olt')->label('OLT')->multiple()->searchable()->options(fn () => Olt::query()->orderBy('name')->pluck('name', 'id'))
+                    ->query(fn (Builder $query, array $data) => $query->when(array_filter(array_map('intval', (array) ($data['values'] ?? []))),
+                        fn (Builder $q, array $ids) => $q->whereHas('ticket', fn (Builder $t) => $t->whereIn('olt_id', $ids)))),
                 SelectFilter::make('visit_type')->label('Visit type')->visible($visits)->options(fn () => VisitType::query()->orderBy('sort_order')->pluck('name', 'id'))
                     ->query(fn (Builder $query, array $data) => $query->when($data['value'] ?? null, fn (Builder $q, $v) => $q->whereHas('ticket', fn (Builder $t) => $t->where('visit_type_id', $v)))),
                 SelectFilter::make('ticket_type')->label('Ticket type')->options(Ticket::TYPES)
@@ -175,7 +176,7 @@ final class TicketViews
             ->recordActions([
                 ActionGroup::make([
                     OutageActions::accept(), OutageActions::rejectAssignment(), ...TicketActions::primary(),
-                    OutageActions::addUpdate(), ...TicketActions::secondary(),
+                    OutageActions::addUpdate(), ...TicketActions::secondary(), OutageActions::reassign(),
                 ])->extraAttributes(['class' => 'oms-hide-mobile']),
             ]);
     }
