@@ -805,8 +805,10 @@ every site visit technician.
 **Shifting / Relocation dispatchers.** The same for dispatchers (*Visit Types → Dispatchers*; Shifting, by default):
 only dispatchers with *Dispatch Shifting / Relocation visits* (`visit.dispatch_shifting`; role *Shifting / Relocation
 Dispatcher*, and the Ticketing Manager) receive those visits in the dispatch queue, are listed for them (hand-over,
-relocation, override) and may assign / reassign the technician, reschedule, relocate and verify them. Other site
-visit dispatchers still raise them and dispatch every other kind of visit.
+relocation) and may assign / reassign the technician, reschedule, relocate and verify them. Other site visit
+dispatchers still raise them and dispatch every other kind of visit. A manager may still give one to any dispatcher:
+*Assign / override FIFO* offers "Site Visit Dispatch — Shifting / Relocation dispatchers only" and "— every
+dispatcher"; the dispatcher it is given to may then dispatch it, and the override records the failed check.
 
 **Overriding FIFO on customer tickets** is its own permission, *Assign / reassign and override FIFO on customer
 tickets and site visits* (`ticket.override`): *Assign / override FIFO* on the ticket or visit (reassigns it at the desk

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\AvailabilityStatus;
 use App\Enums\QueueType;
 use App\Filament\Resources\Outages\OutageActions;
+use App\Filament\Resources\SiteVisits\Pages\ViewSiteVisit;
 use App\Filament\Resources\Tickets\TicketActions;
 use App\Models\Outage;
 use App\Models\TicketSubcategory;
@@ -13,6 +14,8 @@ use App\Models\VisitType;
 use App\Services\Fifo\EligibilityEvaluator;
 use App\Services\Fifo\FifoAssignmentEngine;
 use App\Services\Outages\OutageWorkflow;
+use Filament\Actions\Testing\TestAction;
+use Filament\Forms\Components\Select;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -20,6 +23,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Livewire\Livewire;
 use Spatie\Permission\Models\Role;
 use Tests\Concerns\BuildsOmsFixtures;
 use Tests\TestCase;
@@ -134,17 +138,10 @@ class ShiftingVisitTest extends TestCase
         $this->assertTrue($plain->can('visitAssign', $support));
         $this->assertTrue($this->dispatcher->can('visitAssign', $visit));
 
-        // Not listed as a dispatcher for it, and refused when named or overridden to anyway.
+        // Not listed as a dispatcher for it on a hand-over.
         $options = OutageActions::queueUserOptions(QueueType::VisitDispatch, EligibilityEvaluator::visitPermission($visit, QueueType::VisitDispatch));
         $this->assertArrayHasKey($this->dispatcher->id, $options);
         $this->assertArrayNotHasKey($plain->id, $options);
-
-        try {
-            app(FifoAssignmentEngine::class)->manualAssign($visit, QueueType::VisitDispatch, $plain, $this->makeUser('Super Admin', 'MGMT'), 'Cover');
-            $this->fail('A shifting visit was overridden to a dispatcher without the shifting permission.');
-        } catch (ValidationException $e) {
-            $this->assertArrayHasKey('user_id', $e->errors());
-        }
 
         // A plain dispatcher booking one straight to a technician is stopped with an explanation.
         try {
@@ -160,6 +157,33 @@ class ShiftingVisitTest extends TestCase
         }
 
         $visit = $this->workflow->assignVisit($visit, $this->dispatcher, ['technician_id' => $shiftingTech->id]);
+        $this->assertSame($shiftingTech->id, $visit->current_assignee_id);
+    }
+
+    public function test_a_manager_may_give_a_shifting_visit_to_any_dispatcher(): void
+    {
+        $plain = $this->makeUser('Site Visit Dispatcher', 'DISPATCH');
+        $shiftingTech = $this->makeUser('Shifting / Relocation Technician', 'DISPATCH');
+        $visit = $this->visit('SHI', 'Shifting');
+        $this->actingAs($this->makeUser('Ticketing Manager', 'MGMT'));
+
+        // The queue offers the Shifting dispatchers and every dispatcher; "Assign to" lists them accordingly.
+        $page = Livewire::test(ViewSiteVisit::class, ['record' => $visit->id])
+            ->mountAction(TestAction::make('reassign'))
+            ->assertSchemaStateSet(['queue_type' => 'visit_dispatch:kept'])
+            ->assertFormFieldExists('queue_type', fn (Select $field) => array_keys($field->getOptions()) === ['visit_dispatch:kept', 'visit_dispatch'])
+            ->assertFormFieldExists('user_id', fn (Select $field) => ! array_key_exists($plain->id, $field->getOptions()) && array_key_exists($this->dispatcher->id, $field->getOptions()));
+
+        $page->fillForm(['queue_type' => 'visit_dispatch'])
+            ->assertFormFieldExists('user_id', fn (Select $field) => array_key_exists($plain->id, $field->getOptions()));
+
+        $page->fillForm(['user_id' => $plain->id, 'reason' => 'Shifting dispatcher on leave'])
+            ->callMountedAction()->assertHasNoActionErrors();
+        $this->assertSame($plain->id, $visit->refresh()->current_assignee_id);
+
+        // The dispatcher it was given to may now dispatch it.
+        $this->assertTrue($plain->can('visitAssign', $visit));
+        $visit = $this->workflow->assignVisit($visit, $plain, ['technician_id' => $shiftingTech->id]);
         $this->assertSame($shiftingTech->id, $visit->current_assignee_id);
     }
 

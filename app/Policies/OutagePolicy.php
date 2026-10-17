@@ -425,12 +425,16 @@ class OutagePolicy
         return $outage->isTicket() && $this->addUpdate($user, $outage);
     }
 
-    /** A dispatcher — for a visit kept for some dispatchers (Shifting / Relocation), one of those. */
+    /**
+     * A dispatcher — for a visit kept for some dispatchers (Shifting / Relocation), one of those, or the
+     * dispatcher a manager gave it to (Assign / override FIFO).
+     */
     private function mayDispatchVisit(User $user, Outage $outage): bool
     {
         $needs = EligibilityEvaluator::visitDispatcherPermission($outage);
 
-        return $user->can('visit.dispatch') && ($needs === null || $user->can($needs));
+        return $user->can('visit.dispatch') && ($needs === null || $user->can($needs)
+            || ($outage->current_queue === QueueType::VisitDispatch && (int) $outage->current_assignee_id === (int) $user->id));
     }
 
     /** Dispatcher assigns (or re-assigns) the technician of a visit. */

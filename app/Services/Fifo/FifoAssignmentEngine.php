@@ -499,8 +499,9 @@ class FifoAssignmentEngine
             throw ValidationException::withMessages(['user_id' => 'The selected user is inactive or lacks permission to work this queue.']);
         }
 
-        // A visit kept for some technicians (Shifting / Relocation) is not overridden to anyone else.
-        if (! ($checks['visit_type']['passed'] ?? true)) {
+        // A visit kept for some technicians (Shifting / Relocation) is not overridden to anyone else. (A dispatcher
+        // without it may be given one: the override is recorded with that failed check.)
+        if ($type === QueueType::VisitTechnician && ! ($checks['visit_type']['passed'] ?? true)) {
             throw ValidationException::withMessages(['user_id' => "{$target->name} is not allowed this kind of visit ({$checks['visit_type']['detail']})."]);
         }
 
