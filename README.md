@@ -1390,6 +1390,11 @@ of people only: **dispatchers**, **technicians** and **4G engineers**. Everythin
 **The phone is an untrusted client.** Who the person is, which tickets they may see and what they may do is
 decided here on every request — never by anything the app sends.
 
+**User guide for the app: `https://<OMS address>/mobile-guide`** (`resources/views/mobile/guide.blade.php`, route
+`mobile.guide`). It needs no sign-in, so staff can read it before their first sign-in; send the link by SMS, e-mail
+or WhatsApp. It is a page on the server, so changing it needs a deploy, not a new APK. It names the dashboard
+lists and availability options: `MobileGuideTest` fails if those labels change and the guide is not updated.
+
 | Endpoint | |
 | --- | --- |
 | `POST auth/login` | username or e-mail + password (+ `code` for accounts with two-step sign-in) → token, expiry, user |

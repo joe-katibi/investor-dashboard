@@ -22,6 +22,9 @@ Route::middleware(['signed', 'throttle:30,1'])->prefix('crf/sign/{signatory}')->
     Route::get('/done', [CrfSignController::class, 'done'])->name('crf.sign.done');
 });
 
+// How to use the mobile app (no login: staff read it before their first sign-in). Sent as a link by SMS / e-mail.
+Route::view('/mobile-guide', 'mobile.guide')->middleware('throttle:60,1')->name('mobile.guide');
+
 // A ticket link meant for the mobile app (https://…/mobile/tickets/123), opened in a browser instead:
 // go to the ticket's page on the website. The same permission check as everywhere else applies there.
 Route::middleware(['auth', 'throttle:60,1'])->get('/mobile/tickets/{outage}', function (Outage $outage) {
