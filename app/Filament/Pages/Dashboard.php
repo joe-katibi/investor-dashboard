@@ -16,8 +16,11 @@ use App\Filament\Widgets\SystemOutagesTable;
 use App\Models\MajorOutageType;
 use App\Models\Vertical;
 use BackedEnum;
+use Filament\Facades\Filament;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
+use Filament\Navigation\NavigationGroup;
+use Filament\Navigation\NavigationItem;
 use Filament\Pages\Dashboard as BaseDashboard;
 use Filament\Pages\Dashboard\Concerns\HasFiltersForm;
 use Filament\Schemas\Components\Section;
@@ -36,9 +39,37 @@ class Dashboard extends BaseDashboard
 
     protected static ?int $navigationSort = 0;
 
+    /**
+     * The panel's home: everyone signs in here. Whoever may not see the Command Centre (a site visit dispatcher, a
+     * technician…) is sent on to the first page of their own menu instead of a 403.
+     */
     public static function canAccess(): bool
     {
+        return Auth::check();
+    }
+
+    public static function shouldRegisterNavigation(): bool
+    {
+        return self::allowed();
+    }
+
+    private static function allowed(): bool
+    {
         return (bool) Auth::user()?->can('outage.view') && (bool) Auth::user()?->can('dashboard.view');
+    }
+
+    public function mount(): void
+    {
+        if (self::allowed()) {
+            return;
+        }
+
+        $first = collect(Filament::getNavigation())
+            ->flatMap(fn (NavigationGroup $group) => $group->getItems())
+            ->map(fn (NavigationItem $item) => $item->getUrl())
+            ->first(fn (?string $url) => filled($url) && $url !== self::getUrl());
+
+        $first ? $this->redirect($first) : abort(403, 'Your account has no pages to open yet. Ask an administrator to give your role its permissions.');
     }
 
     public function filtersForm(Schema $schema): Schema
@@ -62,6 +93,11 @@ class Dashboard extends BaseDashboard
 
     public function getWidgets(): array
     {
+        // Nothing of the Command Centre for someone on their way to their own page.
+        if (! self::allowed()) {
+            return [];
+        }
+
         return [
             CommandCentreOverview::class,
             OutageKpiOverview::class,
