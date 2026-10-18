@@ -12,6 +12,7 @@ use App\Services\Reports\ScheduledReportService;
 use App\Services\Reports\TemplateRenderer;
 use App\Services\Tickets\FourGTicketReportData;
 use App\Services\Tickets\TicketReportData;
+use App\Support\MailSenders;
 use BackedEnum;
 use Cron\CronExpression;
 use Filament\Actions\Action;
@@ -77,6 +78,10 @@ class EmailTemplateResource extends Resource
                     ->required(fn (Get $get) => $get('schedule_type') === 'cron'),
             ])->columns(2)->columnSpanFull(),
             Section::make('Recipients')->schema([
+                Select::make('sender')->label('Send from (alias)')->options(fn () => MailSenders::options())->live()
+                    ->placeholder(fn (Get $get) => 'Automatic for this report — '.MailSenders::describe(MailSenders::forReport($get('report_type'))))
+                    ->helperText('The aliases are set in .env (OMS_MAIL_FROM_…). The mail account must be allowed to send as each one.')
+                    ->columnSpanFull(),
                 TagsInput::make('to')->label('TO')->required()->nestedRecursiveRules(['email']),
                 TagsInput::make('cc')->label('CC')->nestedRecursiveRules(['email']),
             ])->columns(2)->columnSpanFull(),
@@ -119,6 +124,8 @@ class EmailTemplateResource extends Resource
                     'cron' => 'Cron '.$record->cron_expression,
                     default => '—',
                 }),
+                TextColumn::make('sender')->label('From')->wrap()->toggleable()
+                    ->state(fn (EmailTemplate $record) => MailSenders::describe($record->senderKey())),
                 TextColumn::make('to')->label('TO')->badge()->color('gray')->limitList(2),
                 TextColumn::make('last_run_at')->label('Last sent')->dateTime()->placeholder('Never'),
                 TextColumn::make('next_run_at')->label('Next run')->dateTime()->placeholder('—'),

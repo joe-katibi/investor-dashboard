@@ -12,6 +12,7 @@ use App\Services\Reports\ReportExporter;
 use App\Services\Reports\ReportResult;
 use App\Services\Reports\TicketReports;
 use App\Support\AuditContext;
+use App\Support\MailSenders;
 use App\Support\Settings;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -165,7 +166,7 @@ class TicketFollowUpMonitor
 
         try {
             $attachment = $this->exporter->writeXlsx(new ReportResult('Tickets ready for credit', $columns, fn (?int $limit) => $limit ? array_slice($rows, 0, $limit) : $rows));
-            Mail::to($emails)->send(new ScheduledReportMail($subject, $html, $attachment, 'tickets-ready-for-credit'));
+            Mail::to($emails)->send(new ScheduledReportMail($subject, $html, $attachment, 'tickets-ready-for-credit', MailSenders::address(MailSenders::CUSTOMER_TICKETS)));
             NotificationLog::query()->whereIn('id', $logs->pluck('id'))->update(['status' => 'sent', 'sent_at' => now()]);
         } catch (Throwable $exception) {
             // The in-app notice and the report still carry the list; the failure is on the notification log.

@@ -167,7 +167,7 @@ class TicketReportData
                 'Inflow' => ['color' => '#2563eb', 'values' => $trend->pluck('inflow')->all()],
                 'Closed' => ['color' => '#16a34a', 'values' => $trend->pluck('closed')->all()],
             ]),
-            'tk_sla_chart_table' => TicketTables::bars($labels, [
+            'tk_sla_chart_table' => TicketTables::line($labels, [
                 'Closed within SLA %' => ['color' => '#0d9488', 'values' => $trend->pluck('pct')->all()],
             ], '%', 100.0),
             'tk_region_table' => TicketTables::table(['Region', 'Inflow', 'Closed', 'Closed within SLA %', 'Pending', 'Pending – breached'], $p['regions'], ['tones' => [null, null, null, null, null, 'bad']]),

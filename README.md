@@ -1296,6 +1296,27 @@ Excel exports stream (no row limit); PDF is capped at 2,000 rows; on-screen view
 times, or cron), reporting period, TO, CC, subject, body, optional Excel attachment, active flag, last / next run,
 **Preview** and **Send now**.
 
+**Sending addresses (aliases).** Each kind of e-mail comes from its own address, set in `.env` — empty means
+`MAIL_FROM_ADDRESS`:
+
+| `.env` | Used for |
+|---|---|
+| `OMS_MAIL_FROM_OUTAGES` | Two-hour update and the outage summaries (FTTH & 4G) |
+| `OMS_MAIL_FROM_CUSTOMER_TICKETS` | Ticket reports (pending / daily / weekly / monthly / final reasons), tickets ready for credit |
+| `OMS_MAIL_FROM_SITE_VISITS` | Templates set to it |
+| `OMS_MAIL_FROM_4G_OUTAGES` | 4G hourly update; vendor e-mails about 4G outages |
+| `OMS_MAIL_FROM_4G_TICKETS` | 4G ticket reports; vendor e-mails about 4G tickets |
+| `OMS_MAIL_FROM_EXECUTIVE` | Executive summary |
+| `OMS_MAIL_FROM_ALERTS` | Alerts & updates (lifecycle alerts, *Alert Emails*) |
+
+On a template, **Send from (alias)** picks another one; left empty, the report type decides (column *From* in the
+list). The mail account (`MAIL_USERNAME`) must be allowed to send as each alias — on Microsoft 365 / Exchange give it
+*Send As* on each one, or the mail server refuses the message. Run `php artisan optimize` after changing `.env`.
+
+**Closed within SLA %** (ticket dashboard and ticket e-mails) is a line chart: the line is a small PNG drawn by OMS
+(PHP's GD extension; without it, bars), sent inside the e-mail as an inline picture, with each day's value and date
+under it.
+
 Seeded (inactive until recipients are set):
 
 | Template | Schedule | Content |

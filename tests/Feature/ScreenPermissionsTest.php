@@ -56,7 +56,9 @@ class ScreenPermissionsTest extends TestCase
         $agent = $this->makeUser('CX Agent', 'CX');
         $this->actingAs($agent);
 
-        $this->assertFalse(Dashboard::canAccess());
+        // The Command Centre is out of their menu; signing in there sends them on to their own page.
+        $this->assertFalse(Dashboard::shouldRegisterNavigation());
+        $this->assertStringNotContainsString('Command Centre', $this->followingRedirects()->get(Dashboard::getUrl())->assertOk()->getContent());
         $this->assertFalse(TicketDashboard::canAccess());
         $this->assertFalse(SiteVisitResource::canViewAny());
         $this->get(TicketDashboard::getUrl())->assertForbidden();

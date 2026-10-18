@@ -91,7 +91,7 @@ class TicketDashboard extends Page
                 'Inflow' => ['color' => '#2563eb', 'values' => $trend->pluck('inflow')->all()],
                 'Closed' => ['color' => '#16a34a', 'values' => $trend->pluck('closed')->all()],
             ]),
-            'slaChart' => TicketTables::bars($trend->pluck('label')->all(), [
+            'slaChart' => TicketTables::line($trend->pluck('label')->all(), [
                 'Closed within SLA %' => ['color' => '#0d9488', 'values' => $trend->pluck('pct')->all()],
             ], '%', 100.0),
             'url' => fn (array $row) => $row['kind'] === 'visit'

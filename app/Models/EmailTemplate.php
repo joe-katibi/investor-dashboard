@@ -5,13 +5,14 @@ namespace App\Models;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasAuditColumns;
 use App\Services\Reports\ScheduledReportService;
+use App\Support\MailSenders;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
 #[Fillable([
     'name', 'code', 'report_type', 'schedule_type', 'interval_minutes', 'daily_times', 'cron_expression',
-    'period_hours', 'to', 'cc', 'subject', 'body', 'attach_excel', 'description', 'is_active',
+    'period_hours', 'sender', 'to', 'cc', 'subject', 'body', 'attach_excel', 'description', 'is_active',
 ])]
 class EmailTemplate extends Model
 {
@@ -70,6 +71,12 @@ class EmailTemplate extends Model
                     : null;
             }
         });
+    }
+
+    /** The alias it is sent from (App\Support\MailSenders): its own choice, or the one of its report type. */
+    public function senderKey(): ?string
+    {
+        return filled($this->sender) ? $this->sender : MailSenders::forReport($this->report_type);
     }
 
     public function scopeActive(Builder $query): void

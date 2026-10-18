@@ -15,7 +15,8 @@
     <tr>
         <td style="padding:20px 24px;font-size:14px;line-height:1.55;">
             {{-- Rendered by TemplateRenderer: template text and values are escaped; only **bold** markers and OMS-generated tables become HTML. --}}
-            {!! $html !!}
+            {{-- Charts drawn by OMS come as data: pictures, which Outlook and Gmail do not show: sent as inline (cid:) attachments instead. --}}
+            {!! isset($message) ? preg_replace_callback('/src="data:image\/png;base64,([A-Za-z0-9+\/=]+)"/', fn (array $m) => 'src="'.$message->embedData(base64_decode($m[1]), 'chart-'.substr(md5($m[1]), 0, 8).'.png', 'image/png').'"', $html) : $html !!}
         </td>
     </tr>
     <tr>

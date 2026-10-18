@@ -4,7 +4,8 @@ namespace App\Services\Tickets;
 
 /**
  * HTML for the ticket e-mails: tables, KPI tiles and bar charts built from plain tables with
- * inline styles, so they show in every mail client (Outlook included) without images or scripts.
+ * inline styles, so they show in every mail client (Outlook included) without scripts. A line chart
+ * is the one picture (see line()).
  * Everything is returned on ONE line: the template renderer turns line breaks into <br>.
  */
 final class TicketTables
@@ -139,6 +140,108 @@ final class TicketTables
 
         foreach ($series as $name => $s) {
             $html .= '<span style="display:inline-block;width:10px;height:10px;background:'.$s['color'].';">&nbsp;</span>&nbsp;'.e($name).' &nbsp;&nbsp;';
+        }
+
+        return $html.'</div>';
+    }
+
+    /**
+     * A line chart: the line and its points drawn as a PNG (no text in it — no fonts needed), with each
+     * day's value and date in a row of table cells under it, one per point. The picture goes as a data URI;
+     * the e-mail view turns it into an inline (cid:) attachment, which Outlook and Gmail show. Without the GD
+     * extension it falls back to bars.
+     *
+     * @param  list<string>  $categories
+     * @param  array<string, array{color: string, values: list<int|float|null>}>  $series
+     */
+    public static function line(array $categories, array $series, string $suffix = '', ?float $max = null, int $height = 130): string
+    {
+        $all = array_filter(array_merge(...array_values(array_map(fn (array $s) => $s['values'], $series))), fn ($value) => $value !== null);
+
+        if ($categories === [] || $all === [] || ! function_exists('imagecreatetruecolor')) {
+            return self::bars($categories, $series, $suffix, $max, $height);
+        }
+
+        $max = max($max ?? max($all), 1.0);
+        $count = count($categories);
+        [$column, $scale, $pad] = [62, 2, 10];
+        [$width, $plot] = [$count * $column, $height - 2 * $pad];
+
+        $image = imagecreatetruecolor($width * $scale, $height * $scale);
+        imagesavealpha($image, true);
+        imagealphablending($image, false);
+        imagefill($image, 0, 0, imagecolorallocatealpha($image, 255, 255, 255, 127));
+        imagealphablending($image, true);
+        // Drawn at twice the size and shown at half: smooth without GD's anti-aliasing (which ignores line thickness).
+        imageantialias($image, false);
+
+        $grid = imagecolorallocatealpha($image, 148, 163, 184, 70);
+        foreach ([0, 0.5, 1] as $step) {
+            $y = (int) round(($pad + $plot * (1 - $step)) * $scale);
+            imagefilledrectangle($image, 0, $y, $width * $scale, $y + ($step === 0 ? 3 : 1), $grid);
+        }
+
+        foreach ($series as $s) {
+            [$r, $g, $b] = sscanf($s['color'], '#%02x%02x%02x');
+            $points = [];
+
+            foreach ($categories as $i => $category) {
+                $value = $s['values'][$i] ?? null;
+                if ($value !== null) {
+                    $points[] = [(int) round(($i + 0.5) * $column * $scale), (int) round(($pad + $plot * (1 - min((float) $value, $max) / $max)) * $scale)];
+                }
+            }
+
+            // A light area under the line, the line, then the points. Days without a value are stepped over.
+            if (count($points) > 1) {
+                $area = [$points[0][0], ($pad + $plot) * $scale];
+                foreach ($points as [$x, $y]) {
+                    array_push($area, $x, $y);
+                }
+                array_push($area, end($points)[0], ($pad + $plot) * $scale);
+                imagefilledpolygon($image, $area, imagecolorallocatealpha($image, $r, $g, $b, 108));
+
+                $stroke = imagecolorallocate($image, $r, $g, $b);
+                imagesetthickness($image, 3 * $scale);
+                for ($k = 1; $k < count($points); $k++) {
+                    imageline($image, $points[$k - 1][0], $points[$k - 1][1], $points[$k][0], $points[$k][1], $stroke);
+                }
+                imagesetthickness($image, 1);
+            }
+
+            foreach ($points as [$x, $y]) {
+                imagefilledellipse($image, $x, $y, 9 * $scale, 9 * $scale, imagecolorallocate($image, 255, 255, 255));
+                imagefilledellipse($image, $x, $y, 6 * $scale, 6 * $scale, imagecolorallocate($image, $r, $g, $b));
+            }
+        }
+
+        ob_start();
+        imagepng($image);
+        $png = base64_encode((string) ob_get_clean());
+        imagedestroy($image);
+
+        $cell = 'width:'.$column.'px;text-align:center;padding:2px 0 0 0;white-space:nowrap;';
+        $first = array_key_first($series);
+        $html = '<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;table-layout:fixed;width:'.$width.'px;margin:6px 0 4px 0;">'
+            .'<tr><td colspan="'.$count.'" style="padding:0;line-height:0;"><img src="data:image/png;base64,'.$png.'" width="'.$width.'" height="'.$height.'" alt="'.e((string) $first).'" style="display:block;width:'.$width.'px;height:'.$height.'px;border:0;"></td></tr>';
+
+        foreach ($series as $s) {
+            $html .= '<tr>';
+            foreach ($categories as $i => $category) {
+                $value = $s['values'][$i] ?? null;
+                $html .= '<td style="'.$cell.'font-size:11px;font-weight:bold;color:'.($value === null ? '#b6bfcb' : $s['color']).';">'.($value === null ? '–' : e(self::number($value).$suffix)).'</td>';
+            }
+            $html .= '</tr>';
+        }
+
+        $html .= '<tr>';
+        foreach ($categories as $category) {
+            $html .= '<td style="'.$cell.'font-size:10px;color:#475569;">'.e($category).'</td>';
+        }
+        $html .= '</tr></table><div style="font-size:11px;color:#475569;margin:2px 0 14px 0;">';
+
+        foreach ($series as $name => $s) {
+            $html .= '<span style="display:inline-block;width:14px;height:3px;background:'.$s['color'].';vertical-align:middle;">&nbsp;</span>&nbsp;'.e($name).' &nbsp;&nbsp;';
         }
 
         return $html.'</div>';

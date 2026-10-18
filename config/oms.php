@@ -20,6 +20,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Sending addresses (e-mail aliases)
+    |--------------------------------------------------------------------------
+    | Who each kind of e-mail comes from (App\Support\MailSenders). Empty: the
+    | default MAIL_FROM_ADDRESS. The mail account (MAIL_USERNAME) must be allowed
+    | to send as each of them ("Send As" on Microsoft 365 / Exchange).
+    */
+    'mail_from' => [
+        'outages' => env('OMS_MAIL_FROM_OUTAGES'),
+        'customer_tickets' => env('OMS_MAIL_FROM_CUSTOMER_TICKETS'),
+        'site_visits' => env('OMS_MAIL_FROM_SITE_VISITS'),
+        'mobility_outages' => env('OMS_MAIL_FROM_4G_OUTAGES'),
+        'mobility_tickets' => env('OMS_MAIL_FROM_4G_TICKETS'),
+        'executive' => env('OMS_MAIL_FROM_EXECUTIVE'),
+        'alerts' => env('OMS_MAIL_FROM_ALERTS'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | SMS gateway
     |--------------------------------------------------------------------------
     | driver: "log" (writes to the log, nothing is sent), "africastalking",

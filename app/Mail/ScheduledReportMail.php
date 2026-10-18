@@ -4,6 +4,7 @@ namespace App\Mail;
 
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
+use Illuminate\Mail\Mailables\Address;
 use Illuminate\Mail\Mailables\Attachment;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
@@ -17,11 +18,12 @@ class ScheduledReportMail extends Mailable
         public string $bodyHtml,
         public ?string $attachmentPath = null,
         public string $attachmentName = 'report',
+        public ?Address $sender = null,
     ) {}
 
     public function envelope(): Envelope
     {
-        return new Envelope(subject: $this->subjectLine);
+        return new Envelope(from: $this->sender, subject: $this->subjectLine);
     }
 
     public function content(): Content

@@ -9,6 +9,7 @@ use App\Models\NotificationLog;
 use App\Services\Tickets\FourGTicketReportData;
 use App\Services\Tickets\TicketReportData;
 use App\Support\AuditContext;
+use App\Support\MailSenders;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Cron\CronExpression;
@@ -159,7 +160,7 @@ class ScheduledReportService
         ]));
 
         try {
-            Mail::to($to)->cc($cc)->send(new ScheduledReportMail($rendered['subject'], $rendered['html'], $attachment, Str::slug($template->name)));
+            Mail::to($to)->cc($cc)->send(new ScheduledReportMail($rendered['subject'], $rendered['html'], $attachment, Str::slug($template->name), MailSenders::address($template->senderKey())));
             NotificationLog::query()->whereIn('id', $logs->pluck('id'))->update(['status' => 'sent', 'sent_at' => now()]);
         } catch (Throwable $exception) {
             NotificationLog::query()->whereIn('id', $logs->pluck('id'))->update(['status' => 'failed', 'failure_reason' => Str::limit($exception->getMessage(), 1000)]);

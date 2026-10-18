@@ -5,6 +5,7 @@ namespace App\Mail;
 use App\Filament\Support\OutageLink;
 use App\Models\NotificationLog;
 use App\Models\OutagePhoto;
+use App\Support\MailSenders;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Attachment;
@@ -21,7 +22,8 @@ class OutageNotificationMail extends Mailable
 
     public function envelope(): Envelope
     {
-        return new Envelope(subject: (string) $this->log->subject);
+        // Alerts & updates (Configuration → Alert Emails) come from their own alias.
+        return new Envelope(from: MailSenders::address(MailSenders::ALERTS), subject: (string) $this->log->subject);
     }
 
     public function content(): Content
