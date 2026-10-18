@@ -470,6 +470,57 @@ class FifoAssignmentEngine
     }
 
     /**
+     * Offer a waiting ticket to everyone at its desk again: people who let it time out or turned it down are
+     * offered it again, a hold is lifted, and — when asked — its team limit too. Recorded in the assignment
+     * history. Hard rules stay: the desk permission, availability, leave, shifts, regions, Shifting visits.
+     */
+    public function reopenToEveryone(OutageQueueEntry $entry, ?User $by, string $reason, bool $dropTeam = false): void
+    {
+        DB::transaction(function () use ($entry, $by, $reason, $dropTeam): void {
+            $entry = OutageQueueEntry::query()->lockForUpdate()->find($entry->id);
+
+            if (! $entry || $entry->status !== QueueEntryStatus::Pending || $entry->activeAssignment()->exists()) {
+                return;
+            }
+
+            $entry->forceFill(array_merge(
+                ['rejected_user_ids' => [], 'attempts' => 0, 'auto_assign_blocked' => false, 'eligible_from' => null, 'escalated_at' => null],
+                $dropTeam ? ['team_id' => null, 'sub_team_id' => null] : [],
+            ))->save();
+
+            $this->history($entry->outage, null, $entry->queue_type, null, null, 'reopened', $reason, $by);
+        });
+
+        $this->process($entry->queue_type);
+    }
+
+    /**
+     * Every N minutes (FIFO settings: "Offer waiting tickets to everyone again"), a ticket nobody has taken
+     * because everyone at the desk already let it time out or turned it down is offered to all of them again.
+     */
+    public function reopenWaiting(): int
+    {
+        $minutes = $this->settings->int('fifo.reopen_waiting_minutes');
+
+        if (! $this->enabled() || $minutes <= 0) {
+            return 0;
+        }
+
+        $entries = OutageQueueEntry::query()->pending()
+            ->where('auto_assign_blocked', false)
+            ->whereNotNull('rejected_user_ids')->where('attempts', '>', 0)
+            ->where('updated_at', '<=', now()->subMinutes($minutes))
+            ->whereDoesntHave('activeAssignment')
+            ->limit(200)->get();
+
+        foreach ($entries as $entry) {
+            AuditContext::as('system:fifo-reopen', fn () => $this->reopenToEveryone($entry, null, "Waiting over {$minutes} minutes: offered to everyone at the desk again"));
+        }
+
+        return $entries->count();
+    }
+
+    /**
      * Manager assignment / override (spec §27.7). Recorded with who, when and why, plus the
      * eligibility checks the target failed so the override is fully explainable.
      */

@@ -49,6 +49,7 @@ class ViewTicket extends ViewRecord
                 OutageActions::addUpdate(),
                 ...TicketActions::secondary(),
                 OutageActions::reassign(),
+                OutageActions::returnToQueue(),
                 OutageActions::rejectAssignment(),
             ])->label('More')->icon(Heroicon::OutlinedEllipsisVertical)->button()->color('gray'),
         ];

@@ -14,9 +14,10 @@ class FifoSweepCommand extends Command
     public function handle(FifoAssignmentEngine $engine): int
     {
         $released = $engine->sweepIneligibleAssignees();
+        $reopened = $engine->reopenWaiting();
         $assigned = $engine->process();
 
-        $this->info("Released {$released}, assigned {$assigned}.");
+        $this->info("Released {$released}, offered {$reopened} waiting ticket(s) to everyone again, assigned {$assigned}.");
 
         return self::SUCCESS;
     }

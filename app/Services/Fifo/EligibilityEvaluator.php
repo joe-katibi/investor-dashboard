@@ -5,6 +5,7 @@ namespace App\Services\Fifo;
 use App\Enums\AssignmentStatus;
 use App\Enums\AvailabilityStatus;
 use App\Enums\QueueType;
+use App\Models\Olt;
 use App\Models\Outage;
 use App\Models\OutageAssignment;
 use App\Models\OutageQueueEntry;
@@ -41,6 +42,12 @@ class EligibilityEvaluator
     /** @var array<int, list<int>> team id => [team id, sub-team ids...] */
     private array $teamScopes = [];
 
+    /** @var array<int, list<int>> outage id => regions of its OLT(s) */
+    private array $oltRegions = [];
+
+    /** Dispatch desks: with "Restrict dispatchers to their regions’ OLT coverage" they only get work on OLTs of their regions. */
+    public const DISPATCH_QUEUES = [QueueType::Infrastructure, QueueType::VisitDispatch, QueueType::InfraSupportDispatch];
+
     private ?CarbonImmutable $now = null;
 
     public function __construct(private readonly Settings $settings) {}
@@ -51,6 +58,7 @@ class EligibilityEvaluator
         $this->workloads = [];
         $this->assignedAt = [];
         $this->teamScopes = [];
+        $this->oltRegions = [];
         $this->now = CarbonImmutable::now();
     }
 
@@ -193,6 +201,11 @@ class EligibilityEvaluator
         // Off by default: every technician can work every OLT. Switch on to restrict by team OLT coverage.
         if ($outage && $this->settings->bool('fifo.olt_coverage') && in_array($entry->queue_type, [QueueType::Infrastructure, QueueType::Technician, QueueType::SupportTechnician], true)) {
             $checks['coverage'] = $this->coverageCheck($user, $outage->olts->pluck('id')->all());
+        }
+
+        // Off by default: dispatchers get work anywhere. Switch on: only on OLTs of the regions they are locked to.
+        if ($outage && $this->settings->bool('fifo.dispatcher_region_coverage') && in_array($entry->queue_type, self::DISPATCH_QUEUES, true)) {
+            $checks['region_coverage'] = $this->dispatcherCoverageCheck($user, $outage);
         }
 
         // Site visits of a kind kept for some technicians / dispatchers (Shifting / Relocation): only they get them.
@@ -373,6 +386,35 @@ class EligibilityEvaluator
         $covers = in_array((int) $regionId, array_map('intval', $locked), true);
 
         return $this->check('Region', $covers, $covers ? 'Covers the ticket region' : 'Locked to other region(s)');
+    }
+
+    /**
+     * A dispatcher locked to regions (Users → Regions) only gets an outage, ticket or visit whose OLT lies in one of
+     * them: the outage's OLTs, the ticket's OLT. Not locked to any region, or an OLT without a region: not restricted.
+     */
+    private function dispatcherCoverageCheck(User $user, Outage $outage): array
+    {
+        $locked = array_map('intval', ($user->relationLoaded('regions') ? $user->regions : $user->regions()->get())->pluck('id')->all());
+
+        if ($locked === []) {
+            return $this->check('Region OLT coverage', true, 'All regions');
+        }
+
+        $regions = $this->oltRegions[$outage->id] ??= (function () use ($outage): array {
+            $oltIds = $outage->isTicket()
+                ? array_filter([(int) Ticket::query()->where('outage_id', $outage->id)->value('olt_id')])
+                : ($outage->relationLoaded('olts') ? $outage->olts->pluck('id')->all() : $outage->olts()->pluck('olts.id')->all());
+
+            return $oltIds === [] ? [] : array_map('intval', Olt::query()->whereIn('id', $oltIds)->whereNotNull('region_id')->distinct()->pluck('region_id')->all());
+        })();
+
+        if ($regions === []) {
+            return $this->check('Region OLT coverage', true, 'No OLT with a region on it');
+        }
+
+        $covers = array_intersect($regions, $locked) !== [];
+
+        return $this->check('Region OLT coverage', $covers, $covers ? 'The OLT is in one of their regions' : 'The OLT is in another region');
     }
 
     private function coverageCheck(User $user, array $outageOltIds): array

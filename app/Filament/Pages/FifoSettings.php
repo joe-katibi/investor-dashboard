@@ -107,6 +107,8 @@ class FifoSettings extends Page
                 Toggle::make($key('fifo.skill_based'))->label('Skill-based assignment'),
                 Toggle::make($key('fifo.olt_coverage'))->label('Restrict technicians to their teams’ OLT coverage')
                     ->helperText('Off: every technician can take any OLT. On: only teams covering the affected OLT (set on Teams / OLTs).'),
+                Toggle::make($key('fifo.dispatcher_region_coverage'))->label('Restrict dispatchers to their regions’ OLT coverage')
+                    ->helperText('Off: dispatchers get outages, tickets and site visits anywhere. On: a dispatcher locked to regions (Users → Regions) only gets them on OLTs of those regions (the region is set on the OLT). Dispatchers with no region still get everything.'),
                 TextInput::make($key('fifo.max_active_per_user'))->label('Maximum active tickets per user')->numeric()->minValue(0)
                     ->helperText('0 = unlimited. Users may override this individually.'),
             ])->columns(2),
@@ -115,6 +117,8 @@ class FifoSettings extends Page
                 TextInput::make($key('fifo.ack_timeout_minutes'))->label('Default acknowledgement timeout (minutes)')->numeric()->minValue(0)
                     ->helperText('Overridden per queue and per SLA policy. 0 = no timeout.'),
                 TextInput::make($key('fifo.escalate_after_attempts'))->label('Escalate after N rejections / timeouts')->numeric()->minValue(0),
+                TextInput::make($key('fifo.reopen_waiting_minutes'))->label('Offer waiting tickets to everyone again after (minutes)')->numeric()->minValue(0)
+                    ->helperText('Someone who lets a ticket time out or turns it down is not offered it again — when everyone at the desk has, it waits. After this many minutes it is offered to all of them again. 0 = never.'),
                 Toggle::make($key('fifo.requeue_on_rejection'))->label('Requeue on rejection'),
                 Toggle::make($key('fifo.requeue_on_timeout'))->label('Requeue on timeout'),
                 Radio::make($key('fifo.requeue_on_unavailable'))->label('When an assignee becomes unavailable / leaves shift')->options([

@@ -28,10 +28,12 @@ class Settings
         'fifo.require_availability' => true,
         'fifo.skill_based' => false,
         'fifo.olt_coverage' => false,              // restrict technicians to OLTs their teams cover
+        'fifo.dispatcher_region_coverage' => false, // restrict dispatchers to OLTs of their regions
         'fifo.manual_override' => true,
         'fifo.critical_bypass' => true,            // Critical tickets ignore the workload cap
         'fifo.requeue_on_unavailable' => 'unaccepted', // none | unaccepted | all
         'fifo.escalate_after_attempts' => 3,
+        'fifo.reopen_waiting_minutes' => 15,       // a ticket everyone let time out is offered to all again after N minutes (0 = never)
         'fifo.enforce_assignee' => true,           // only the assignee (or an override holder) works the step
 
         // SLA

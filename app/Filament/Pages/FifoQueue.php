@@ -227,6 +227,22 @@ class FifoQueue extends Page implements HasTable
                         'entry' => $record,
                         'rows' => app(FifoAssignmentEngine::class)->explain($record),
                     ])),
+                // Waiting with nobody on it: everyone at the desk again (also those who let it time out), FIFO runs now.
+                Action::make('reopen')
+                    ->label('Offer to everyone again')
+                    ->icon(Heroicon::OutlinedArrowPath)
+                    ->color('warning')
+                    ->visible(fn (OutageQueueEntry $record) => $record->status === QueueEntryStatus::Pending
+                        && Auth::user()?->can($this->queueType()->overridePermission()))
+                    ->requiresConfirmation()
+                    ->modalDescription('People who let it time out or turned it down are offered it again, a team limit is lifted, and FIFO runs now.')
+                    ->action(function (OutageQueueEntry $record): void {
+                        app(FifoAssignmentEngine::class)->reopenToEveryone($record, Auth::user(), 'Returned to the queue for everyone (FIFO queue screen)', dropTeam: true);
+                        $this->snapshotCache = null;
+                        $record->refresh()->activeAssignment()->exists()
+                            ? Notification::make()->title('Assigned')->success()->send()
+                            : Notification::make()->title('Back in the queue for everyone')->body('Nobody can take it right now — see “Why?”.')->warning()->send();
+                    }),
                 Action::make('assign')
                     ->label('Assign')
                     ->icon(Heroicon::OutlinedArrowsRightLeft)

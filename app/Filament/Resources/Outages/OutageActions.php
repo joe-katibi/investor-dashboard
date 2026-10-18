@@ -15,6 +15,7 @@ use App\Models\Outage;
 use App\Models\OutageAssignment;
 use App\Models\OutageFollowUp;
 use App\Models\OutagePhoto;
+use App\Models\OutageQueueEntry;
 use App\Models\OutageStatus;
 use App\Models\OutageUpdate;
 use App\Models\Team;
@@ -85,7 +86,7 @@ final class OutageActions
     {
         return [
             self::addUpdate(), self::setStatus(), self::customerCommunication(), self::cancelSupport(),
-            self::downloadCrf(), self::resendSignoff(), self::reschedule(), self::cancelMaintenance(), self::reassign(),
+            self::downloadCrf(), self::resendSignoff(), self::reschedule(), self::cancelMaintenance(), self::reassign(), self::returnToQueue(),
         ];
     }
 
@@ -422,6 +423,53 @@ final class OutageActions
             ->action(fn (Outage $record, array $data) => self::run($record, fn () => app(FifoAssignmentEngine::class)->manualAssign(
                 $record, self::queueType($data['queue_type']) ?? QueueType::NocReview, User::query()->findOrFail($data['user_id']), Auth::user(), $data['reason'],
             ), 'Assignment overridden'));
+    }
+
+    /**
+     * A ticket waiting in a queue with nobody on it ("Waiting for the next available person"): offer it to
+     * everyone at the desk again — those who let it time out or turned it down too — and run FIFO now.
+     */
+    public static function returnToQueue(): Action
+    {
+        return Action::make('returnToQueue')
+            ->label('Return to queue — offer to everyone')
+            ->icon(Heroicon::OutlinedArrowPath)
+            ->color('warning')
+            ->visible(fn (Outage $record) => ($entry = self::waitingEntry($record)) !== null && (bool) Auth::user()?->can($entry->queue_type->overridePermission()))
+            ->modalDescription(fn (Outage $record) => 'It waits at '.self::waitingEntry($record)?->label().'. Everyone there is offered it again, including people who let it time out or turned it down, and FIFO runs now.')
+            ->schema([
+                Toggle::make('drop_team')->label(fn (Outage $record) => 'Also outside its team ('.(self::waitingEntry($record)?->subTeam?->name ?? self::waitingEntry($record)?->team?->name).')')
+                    ->default(true)->visible(fn (Outage $record) => (bool) self::waitingEntry($record)?->team_id),
+                Textarea::make('reason')->label('Note (optional)')->rows(2)->maxLength(500),
+            ])
+            ->action(function (Outage $record, array $data): void {
+                $entry = self::waitingEntry($record);
+                $user = Auth::user();
+
+                if (! $entry || ! $user?->can($entry->queue_type->overridePermission())) {
+                    return;
+                }
+
+                app(FifoAssignmentEngine::class)->reopenToEveryone($entry, $user, filled($data['reason'] ?? null) ? trim($data['reason']) : 'Returned to the queue for everyone', (bool) ($data['drop_team'] ?? false));
+                $assignee = $entry->refresh()->activeAssignment()->with('user:id,name')->first()?->user;
+
+                $assignee
+                    ? Notification::make()->title("Offered again — now with {$assignee->name}")->success()->send()
+                    : Notification::make()->title('Back in the queue for everyone')->warning()
+                        ->body('Nobody at '.$entry->label().' can take it right now (availability, shift, leave or region). It goes to the first one who can — “Why?” on the FIFO queue shows who and why not.')->send();
+            });
+    }
+
+    /** The open queue entry with nobody on it: at the ticket's current queue first. */
+    private static function waitingEntry(Outage $record): ?OutageQueueEntry
+    {
+        if ($record->is_closed) {
+            return null;
+        }
+
+        return $record->openQueueEntries()->pending()->whereDoesntHave('activeAssignment')->with(['team:id,name', 'subTeam:id,name'])
+            ->orderByRaw('case when queue_type = ? then 0 else 1 end', [$record->current_queue?->value ?? ''])
+            ->first();
     }
 
     /**

@@ -979,6 +979,7 @@ each priority using microsecond queue timestamps with the id as final tie-break.
 | Leave | Not on approved leave |
 | Skill (optional) | Skill for an affected service or the vertical |
 | OLT coverage | **Off by default** (every technician can take any OLT). When "Restrict technicians to their teams’ OLT coverage" is on: a team of the user covers the affected OLT — Infrastructure, Technician and Support Technician queues |
+| Region OLT coverage | **Off by default.** When "Restrict dispatchers to their regions’ OLT coverage" is on: a dispatcher locked to regions (*Users → Regions*) only gets an outage, ticket or visit whose OLT lies in one of them (the region set on the OLT) — Infrastructure, Site Visit Dispatch and Infra Support Dispatch. Not locked to a region, or an OLT without a region: not restricted |
 | Workload | Below the maximum active tickets (per user or global); optional Critical bypass |
 | Previous attempts | Has not already rejected / timed out on this ticket |
 
@@ -994,6 +995,14 @@ original place in line.
 **Audit & explainability**: every assignment stores queue time, priority at assignment, queue position, rules
 applied, the eligible ranking and exclusion counts; every queue / assign / accept / reject / timeout / release /
 override event is written to the assignment history.
+
+**Tickets nobody takes.** Someone who turns a ticket down or lets it time out is not offered it again; once everyone
+at the desk has, it waits ("Waiting for the next available person"). After *Offer waiting tickets to everyone again
+after (minutes)* (FIFO settings, default 15, 0 = never) it is offered to all of them again. At once: **Return to queue —
+offer to everyone** on the outage / ticket / visit (*More*), or *Offer to everyone again* on the FIFO queue — for
+those who may override FIFO there; it can also lift a team limit. Both are in the assignment history ("reopened").
+Hard rules still apply (desk permission, availability, shifts, leave, regions, Shifting visits): if nobody can take
+it, *Why?* on the FIFO queue says why.
 
 **Workflow enforcement**: when a step is assigned, only its assignee (or a `queue.override` holder; on customer tickets `ticket.override`) can perform it;
 acting on it implicitly accepts the assignment.

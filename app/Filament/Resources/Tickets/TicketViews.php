@@ -176,7 +176,7 @@ final class TicketViews
             ->recordActions([
                 ActionGroup::make([
                     OutageActions::accept(), OutageActions::rejectAssignment(), ...TicketActions::primary(),
-                    OutageActions::addUpdate(), ...TicketActions::secondary(), OutageActions::reassign(),
+                    OutageActions::addUpdate(), ...TicketActions::secondary(), OutageActions::reassign(), OutageActions::returnToQueue(),
                 ])->extraAttributes(['class' => 'oms-hide-mobile']),
             ]);
     }
