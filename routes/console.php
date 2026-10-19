@@ -16,6 +16,8 @@ use Illuminate\Support\Facades\Schedule;
 Schedule::command('oms:sla-check')->everyMinute()->onOneServer()->withoutOverlapping(5);
 Schedule::command('oms:fifo-timeouts')->everyMinute()->onOneServer()->withoutOverlapping(5);
 Schedule::command('oms:fifo-sweep')->everyMinute()->onOneServer()->withoutOverlapping(5);
+// Old in-app notifications and notification logs (days: FIFO & SLA Settings → Housekeeping); quiet hours.
+Schedule::command('oms:prune-history')->dailyAt('02:30')->onOneServer()->withoutOverlapping(60);
 // A ticket "with" someone that is not in their My Work: its assignment is put back.
 Schedule::command('oms:check-my-work --fix')->everyTenMinutes()->onOneServer()->withoutOverlapping(10);
 Schedule::command('oms:send-scheduled-reports')->everyMinute()->onOneServer()->withoutOverlapping(10);

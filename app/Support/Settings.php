@@ -131,7 +131,10 @@ class Settings
         'ticketing.aftercare_retry_hours' => 4,
         'ticketing.aftercare_max_attempts' => 3,
         'ticketing.aftercare_since' => null,          // only visits confirmed from then on (set when the feature was installed)
-        'live.tickets_enabled' => false,               // the live Pending / SLA page for management (link with a secret)
+        'history.notifications_read_days' => 30,     // oms:prune-history: read in-app notifications deleted after N days
+        'history.notifications_days' => 90,          // … every in-app notification after N days
+        'history.notification_logs_days' => 180,     // … the record of e-mails / SMS sent after N days
+        'live.tickets_enabled' => false,              // the live Pending / SLA page for management (link with a secret)
         'live.tickets_token' => null,
         'ticketing.followup_minutes' => 540,          // pending this long (SLA clock) → follow-up call + ready for credit
         'ticketing.credit_notify' => true,

@@ -822,6 +822,12 @@ the Site Visit Technician desk (another role) receives every kind of visit.
 not-completed visit, an escalation sent back — goes straight to the person at that desk who sent it out, when they
 may still work that desk and are on duty; otherwise to whoever is next (FIFO).
 
+**Housekeeping.** `oms:prune-history` (every night at 02:30; `--dry-run` counts only) deletes in-app notifications
+read more than 30 days ago, every in-app notification after 90 days and notification logs (e-mails, SMS sent) after
+180 days — *FIFO & SLA Settings → Housekeeping*. The audit trail and the tickets are never deleted. Customer search uses
+trigram indexes (PostgreSQL `pg_trgm`) on account, name and phone; they are only chosen with `random_page_cost` ≈ 1.1
+(SSD) — see the PostgreSQL settings in the deployment notes.
+
 **My Work check.** `php artisan oms:check-my-work` lists tickets that are "with" someone but not in their My Work
 (no active assignment — e.g. tickets carried over from the old server) and assignments left on closed tickets;
 `--fix` repairs them (the assignment is put back, accepted). It runs with `--fix` every 10 minutes.

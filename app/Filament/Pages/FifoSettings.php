@@ -176,6 +176,15 @@ class FifoSettings extends Page
                         ->state('The geolocation and speed-test photos of a site visit are switched under Ticket Settings & Alerts → Site visits, and per visit type (“Needs evidence”).'),
                 ])->columns(2),
 
+            Section::make('Housekeeping')
+                ->description('Old history is deleted every night at 02:30 (oms:prune-history), so the database stays small and every page stays fast. The audit trail and the tickets themselves are never deleted.')
+                ->schema([
+                    TextInput::make($key('history.notifications_read_days'))->label('Delete read in-app notifications after (days)')->numeric()->minValue(1)->required(),
+                    TextInput::make($key('history.notifications_days'))->label('Delete every in-app notification after (days)')->numeric()->minValue(1)->required(),
+                    TextInput::make($key('history.notification_logs_days'))->label('Delete notification logs (e-mails, SMS sent) after (days)')->numeric()->minValue(30)->required()
+                        ->helperText('The record of every e-mail and SMS sent (Monitoring → Notification Logs).'),
+                ])->columns(3),
+
             Section::make('Queues')->schema([
                 TextEntry::make('queues_link')->hiddenLabel()->state(new HtmlString(
                     'Routing, department / team restrictions, per-queue timeouts and manual mode are configured on the '.
