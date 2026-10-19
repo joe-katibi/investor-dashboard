@@ -379,7 +379,7 @@ class OutagePolicy
         }
 
         if ($outage->isSiteVisit()) {
-            return in_array($outage->current_queue, [QueueType::VisitDispatch, QueueType::CxFieldSupport], true)
+            return ($outage->current_queue?->isVisitDispatch() || $outage->current_queue === QueueType::CxFieldSupport)
                 && $outage->ticket?->completed_at === null
                 && $user->canAny(['visit.dispatch', 'ticket.work']);
         }
@@ -434,7 +434,7 @@ class OutagePolicy
         $needs = EligibilityEvaluator::visitDispatcherPermission($outage);
 
         return $user->can('visit.dispatch') && ($needs === null || $user->can($needs)
-            || ($outage->current_queue === QueueType::VisitDispatch && (int) $outage->current_assignee_id === (int) $user->id));
+            || ($outage->current_queue?->isVisitDispatch() && (int) $outage->current_assignee_id === (int) $user->id));
     }
 
     /** Dispatcher assigns (or re-assigns) the technician of a visit. */
@@ -442,7 +442,7 @@ class OutagePolicy
     {
         return $outage->isSiteVisit()
             && ! $outage->is_closed
-            && in_array($outage->current_queue, [QueueType::VisitDispatch, QueueType::VisitTechnician], true)
+            && ($outage->current_queue?->isVisitDispatch() || $outage->current_queue === QueueType::VisitTechnician)
             && $this->mayDispatchVisit($user, $outage);
     }
 
@@ -505,7 +505,7 @@ class OutagePolicy
             && ! $outage->is_closed
             && VisitPhotos::isRelocation($outage)
             && $outage->ticket?->completed_at === null
-            && in_array($outage->current_queue, [QueueType::VisitDispatch, QueueType::VisitTechnician], true)
+            && ($outage->current_queue?->isVisitDispatch() || $outage->current_queue === QueueType::VisitTechnician)
             && $this->mayDispatchVisit($user, $outage);
     }
 
@@ -531,7 +531,7 @@ class OutagePolicy
     {
         return $outage->isSiteVisit()
             && ! $outage->is_closed
-            && $outage->current_queue === QueueType::VisitDispatch
+            && $outage->current_queue?->isVisitDispatch()
             && $outage->ticket?->completed_at !== null
             && $this->mayDispatchVisit($user, $outage);
     }

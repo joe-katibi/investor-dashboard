@@ -42,6 +42,8 @@ enum QueueType: string implements HasColor, HasLabel
 
     // Site visits: dispatch, the field, the desks a visit is escalated to, and the customer call-back.
     case VisitDispatch = 'visit_dispatch';
+    // Shifting / Relocation visits have a dispatch desk of their own (visit types kept for some dispatchers).
+    case ShiftingDispatch = 'shifting_dispatch';
     case VisitTechnician = 'visit_technician';
     case InfraSupportDispatch = 'infra_support_dispatch';
     case InfraSupportTechnician = 'infra_support_tech';
@@ -84,6 +86,7 @@ enum QueueType: string implements HasColor, HasLabel
             self::TicketRf => 'RF Team',
             self::TicketCore => 'Core Team',
             self::VisitDispatch => 'Site Visit Dispatch',
+            self::ShiftingDispatch => 'Shifting Dispatch',
             self::VisitTechnician => 'Site Visit Technician',
             self::InfraSupportDispatch => 'Infrastructure Support Dispatch',
             self::InfraSupportTechnician => 'Infrastructure Support Technician',
@@ -114,7 +117,7 @@ enum QueueType: string implements HasColor, HasLabel
             self::TicketNoc, self::Design, self::Access => 'gray',
             self::Ticket4gNoc => 'success',
             self::TicketIp, self::TicketRf, self::TicketCore => 'primary',
-            self::VisitDispatch, self::InfraSupportDispatch => 'warning',
+            self::VisitDispatch, self::ShiftingDispatch, self::InfraSupportDispatch => 'warning',
             self::VisitTechnician, self::InfraSupportTechnician => 'primary',
             self::TicketFollowUp => 'danger',
             self::VisitAftercare => 'success',
@@ -199,7 +202,7 @@ enum QueueType: string implements HasColor, HasLabel
     {
         return match ($this) {
             self::Ticket4gNoc, self::TicketIp, self::TicketRf, self::TicketCore => Vertical::MOBILITY_4G,
-            self::TicketNoc, self::VisitDispatch, self::VisitTechnician, self::InfraSupportDispatch, self::InfraSupportTechnician,
+            self::TicketNoc, self::VisitDispatch, self::ShiftingDispatch, self::VisitTechnician, self::InfraSupportDispatch, self::InfraSupportTechnician,
             self::Design, self::Access, self::CxFieldSupport, self::VisitAftercare => Vertical::FTTH,
             default => null,
         };
@@ -234,6 +237,12 @@ enum QueueType: string implements HasColor, HasLabel
         return in_array($this, [self::Commercial, self::CxManager, self::BillingManager], true);
     }
 
+    /** A dispatch desk of site visits: Site Visit Dispatch, or Shifting Dispatch for Shifting / Relocation visits. */
+    public function isVisitDispatch(): bool
+    {
+        return $this === self::VisitDispatch || $this === self::ShiftingDispatch;
+    }
+
     /** Desks where one named person does field work (the technician steps). */
     public function isFieldDesk(): bool
     {
@@ -246,7 +255,7 @@ enum QueueType: string implements HasColor, HasLabel
         return [
             self::CxTier2, self::Billing, self::BillingManager, self::Commercial, self::CxManager, self::CxCallback, self::TicketNoc,
             self::Ticket4gNoc, self::TicketIp, self::TicketRf, self::TicketCore,
-            self::VisitDispatch, self::VisitTechnician, self::InfraSupportDispatch, self::InfraSupportTechnician, self::Design, self::Access,
+            self::VisitDispatch, self::ShiftingDispatch, self::VisitTechnician, self::InfraSupportDispatch, self::InfraSupportTechnician, self::Design, self::Access,
             self::CxFieldSupport, self::TicketFollowUp, self::VisitAftercare,
         ];
     }

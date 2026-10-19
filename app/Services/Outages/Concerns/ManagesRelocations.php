@@ -10,6 +10,7 @@ use App\Models\Olt;
 use App\Models\Outage;
 use App\Models\Region;
 use App\Models\User;
+use App\Services\Fifo\EligibilityEvaluator;
 use App\Support\VisitPhotos;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -127,11 +128,11 @@ trait ManagesRelocations
             Gate::forUser($by)->authorize('visitRelocate', $outage);
             $ticket = $this->ticketOf($outage);
 
-            if ($ticket->desk === QueueType::VisitDispatch) {
-                $this->fifo->authorizeWork($outage, QueueType::VisitDispatch, $by);
+            if ($ticket->desk?->isVisitDispatch()) {
+                $this->fifo->authorizeWork($outage, $ticket->desk, $by);
             }
 
-            $dispatcher = $id($data['dispatcher_id'] ?? null) ? $this->deskUser($id($data['dispatcher_id']), QueueType::VisitDispatch, $outage) : null;
+            $dispatcher = $id($data['dispatcher_id'] ?? null) ? $this->deskUser($id($data['dispatcher_id']), EligibilityEvaluator::visitDispatchDesk($outage), $outage) : null;
             $before = $ticket->only(['olt_id', 'fdt_id', 'slot_id', 'port_id', 'region_id', 'address', 'road', 'landmark']);
             $from = collect([Olt::query()->whereKey($before['olt_id'])->value('name'), $before['address']])->filter()->implode(', ') ?: 'not on file';
             $to = collect([$olt->name, $fdt?->name, trim((string) $data['address']), filled($data['road'] ?? null) ? trim((string) $data['road']) : null])->filter()->implode(', ');
@@ -153,7 +154,7 @@ trait ManagesRelocations
             $this->ticketEvent($outage, 'relocated', $by, $ticket->desk, Str::limit($text, 500), ['from' => $before, 'to' => $ticket->only(array_keys($before))]);
             $this->moveTicket($outage, $ticket, QueueType::VisitDispatch, $by, 'relocate', $text, ['user' => $dispatcher], announce: false);
             $this->ticketUpdate($outage, $text.' Sent to '.($dispatcher ? "dispatcher {$dispatcher->name}" : 'the dispatchers of the new area').' to assign a team.', $by, 'action', 'relocated');
-            $this->notifier->dispatch(NotificationEvent::TicketRouted, $outage, ['reason' => $text, 'queue' => QueueType::VisitDispatch->getLabel()]);
+            $this->notifier->dispatch(NotificationEvent::TicketRouted, $outage, ['reason' => $text, 'queue' => EligibilityEvaluator::visitDispatchDesk($outage)->getLabel()]);
             event(new OutageUpdated($outage->id, $outage->ticket_number));
 
             return $outage->refresh();

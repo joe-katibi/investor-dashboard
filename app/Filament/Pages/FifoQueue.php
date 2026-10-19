@@ -253,7 +253,7 @@ class FifoQueue extends Page implements HasTable
                         Select::make('user_id')->label('Assign to')->required()->searchable()
                             // A Shifting visit: only technicians allowed it; a manager may give it to any dispatcher.
                             ->options(fn (OutageQueueEntry $record) => OutageActions::queueUserOptions($this->queueType(),
-                                $record->outage && $this->queueType() === QueueType::VisitTechnician ? EligibilityEvaluator::visitTechnicianPermission($record->outage) : null)),
+                                $record->outage && $this->queueType() === QueueType::VisitTechnician ? EligibilityEvaluator::visitTechnicianPermission($record->outage) : null, $record->outage)),
                         Textarea::make('reason')->label('Reason')->required()->maxLength(1000),
                     ])
                     ->action(function (OutageQueueEntry $record, array $data): void {

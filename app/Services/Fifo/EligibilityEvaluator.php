@@ -18,6 +18,7 @@ use App\Support\Settings;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Spatie\Permission\Exceptions\PermissionDoesNotExist;
+use Spatie\Permission\Models\Permission;
 
 /**
  * Evaluates every eligibility rule of spec §27.3 for a queue entry. The same code path is
@@ -46,7 +47,7 @@ class EligibilityEvaluator
     private array $oltRegions = [];
 
     /** Dispatch desks: with "Restrict dispatchers to their regions’ OLT coverage" they only get work on OLTs of their regions. */
-    public const DISPATCH_QUEUES = [QueueType::Infrastructure, QueueType::VisitDispatch, QueueType::InfraSupportDispatch];
+    public const DISPATCH_QUEUES = [QueueType::Infrastructure, QueueType::VisitDispatch, QueueType::ShiftingDispatch, QueueType::InfraSupportDispatch];
 
     private ?CarbonImmutable $now = null;
 
@@ -157,8 +158,8 @@ class EligibilityEvaluator
 
         // A step of a custom workflow is worked by the members of its team: no permission of its own.
         if (! $entry->queue_type->isCustom()) {
-            $permission = $this->permissionFor($entry);
-            $checks['permission'] = $this->check('Permission', $user->hasPermissionTo($permission), $permission);
+            $permissions = self::deskPermissions($entry->queue_type, $outage, $this->permissionFor($entry));
+            $checks['permission'] = $this->check('Permission', collect($permissions)->contains(fn (string $p) => $user->checkPermissionTo($p)), implode(' or ', $permissions));
         } elseif (! $entry->team_id) {
             $checks['team'] = $this->check('Team', false, 'The step has no team');
         }
@@ -257,14 +258,53 @@ class EligibilityEvaluator
         return $outage->ticket?->visitType?->dispatcherPermission();
     }
 
+    /** The desk of technicians who only do Shifting / Relocation visits (role "Shifting / Relocation Technician"). */
+    public const SHIFTING_TECHNICIAN_DESK = 'queue.work_shifting_technician';
+
+    /**
+     * The desk permissions any of which lets someone be given this ticket at this desk: the desk's own, and for a
+     * Shifting visit at the technician desk also the Shifting technician desk (people who only do shifting).
+     *
+     * @return list<string>
+     */
+    public static function deskPermissions(QueueType $desk, ?Outage $outage, ?string $own = null): array
+    {
+        $permissions = [$own ?? $desk->defaultPermission()];
+
+        if ($desk === QueueType::VisitTechnician && $outage && self::visitTechnicianPermission($outage)) {
+            $permissions[] = self::SHIFTING_TECHNICIAN_DESK;
+        }
+
+        return $permissions;
+    }
+
+    /** The dispatch desk of a site visit: Shifting Dispatch for a visit kept for some dispatchers (Shifting), else Site Visit Dispatch. */
+    public static function visitDispatchDesk(Outage $outage): QueueType
+    {
+        return self::visitDispatcherPermission($outage) ? QueueType::ShiftingDispatch : QueueType::VisitDispatch;
+    }
+
     /** What someone at this desk needs, beyond the desk permission, to be given this visit; null = nothing more. */
     public static function visitPermission(Outage $outage, ?QueueType $desk): ?string
     {
         return match ($desk) {
             QueueType::VisitTechnician => self::visitTechnicianPermission($outage),
-            QueueType::VisitDispatch => self::visitDispatcherPermission($outage),
+            QueueType::VisitDispatch, QueueType::ShiftingDispatch => self::visitDispatcherPermission($outage),
             default => null,
         };
+    }
+
+    /**
+     * Only the permissions that exist (a desk permission added by a migration not run yet must not empty a queue).
+     *
+     * @param  list<string>  $permissions
+     * @return list<string>
+     */
+    private static function existing(array $permissions): array
+    {
+        $found = Permission::query()->whereIn('name', $permissions)->where('guard_name', 'web')->pluck('name')->all();
+
+        return $found !== [] ? array_values(array_intersect($permissions, $found)) : [$permissions[0]];
     }
 
     public function permissionFor(OutageQueueEntry $entry): string
@@ -285,7 +325,8 @@ class EligibilityEvaluator
     private function population(OutageQueueEntry $entry, bool $includeInactive): Collection
     {
         $custom = $entry->queue_type->isCustom();
-        $permission = $custom ? 'team:'.(int) $entry->team_id : $this->permissionFor($entry);
+        $permissions = $custom ? [] : self::existing(self::deskPermissions($entry->queue_type, $entry->outage, $this->permissionFor($entry)));
+        $permission = $custom ? 'team:'.(int) $entry->team_id : implode('+', $permissions);
         $departmentId = $entry->department_id;
         $key = implode('|', [$permission, $departmentId, (int) $includeInactive]);
 
@@ -299,7 +340,7 @@ class EligibilityEvaluator
             // Custom workflow step: the members of the step's team (and of its sub-teams).
             $query = $custom
                 ? User::query()->whereHas('teams', fn ($team) => $team->whereIn('teams.id', $entry->team_id ? $this->teamScope((int) $entry->team_id) : [0]))
-                : User::permission($permission);
+                : User::permission($permissions);
         } catch (PermissionDoesNotExist) {
             return $this->populations[$key] = collect();
         }

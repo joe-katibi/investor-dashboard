@@ -139,9 +139,9 @@ class RolesAndPermissionsSeeder extends Seeder
             'ticket.view', 'ticket.work', 'ticket.cancel', 'visit.create', 'visit.dispatch', 'queue.view', 'queue.work_visit_dispatch', 'reports.view',
         ],
         'Site Visit Technician' => ['ticket.view', 'visit.work', 'queue.work_visit_technician'],
-        'Shifting / Relocation Technician' => ['ticket.view', 'visit.work', 'visit.work_shifting', 'queue.work_visit_technician'],
+        'Shifting / Relocation Technician' => ['ticket.view', 'visit.work', 'visit.work_shifting', 'queue.work_shifting_technician'],
         'Shifting / Relocation Dispatcher' => [
-            'ticket.view', 'ticket.work', 'ticket.cancel', 'visit.create', 'visit.dispatch', 'visit.dispatch_shifting', 'queue.view', 'queue.work_visit_dispatch', 'reports.view',
+            'ticket.view', 'ticket.work', 'ticket.cancel', 'visit.create', 'visit.dispatch', 'visit.dispatch_shifting', 'queue.view', 'queue.work_shifting_dispatch', 'reports.view',
         ],
         'Infra Support Dispatcher' => ['ticket.view', 'ticket.work', 'queue.view', 'queue.work_infra_support_dispatch'],
         'Infra Support Technician' => ['ticket.view', 'ticket.work', 'queue.work_infra_support_tech'],

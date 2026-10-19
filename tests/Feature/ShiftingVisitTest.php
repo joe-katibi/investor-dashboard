@@ -37,6 +37,9 @@ class ShiftingVisitTest extends TestCase
 
     private User $dispatcher;
 
+    /** Site Visit Dispatch: every other kind of visit. */
+    private User $siteDispatcher;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -46,6 +49,7 @@ class ShiftingVisitTest extends TestCase
         Storage::fake('local');
         $this->workflow = app(OutageWorkflow::class);
         $this->dispatcher = $this->makeUser('Shifting / Relocation Dispatcher', 'DISPATCH');
+        $this->siteDispatcher = $this->makeUser('Site Visit Dispatcher', 'DISPATCH');
         Auth::setUser($this->dispatcher);
     }
 
@@ -62,7 +66,7 @@ class ShiftingVisitTest extends TestCase
             'subcategory_id' => TicketSubcategory::query()->where('name', $issue)->value('id'),
             'account_number' => 'SF2659301', 'customer_name' => 'John Customer', 'calling_number' => '0772000010',
             'address' => 'Lukuli water pump',
-        ], $this->dispatcher);
+        ], $prefix === 'SHI' ? $this->dispatcher : $this->siteDispatcher);
     }
 
     public function test_shifting_visits_are_kept_for_shifting_technicians(): void
@@ -118,8 +122,33 @@ class ShiftingVisitTest extends TestCase
         $this->assertSame($shifting->id, $visit->refresh()->current_assignee_id);
 
         // Any other visit still goes to every technician.
-        $support = $this->workflow->assignVisit($this->visit('SUP', 'LOS Flashing Red'), $this->dispatcher, ['technician_id' => $plain->id]);
+        $support = $this->workflow->assignVisit($this->visit('SUP', 'LOS Flashing Red'), $this->siteDispatcher, ['technician_id' => $plain->id]);
         $this->assertSame($plain->id, $support->current_assignee_id);
+    }
+
+    public function test_shifting_technicians_only_receive_shifting_visits(): void
+    {
+        $shifting = $this->makeUser('Shifting / Relocation Technician', 'DISPATCH');
+        $plain = $this->makeUser('Site Visit Technician', 'DISPATCH', attributes: ['availability_status' => 'offline']);
+
+        // A Support visit: not listed, refused by name, and the technician queue does not give it to them.
+        $support = $this->visit('SUP', 'LOS Flashing Red');
+        $this->assertArrayNotHasKey($shifting->id, TicketActions::visitTechnicians($support));
+        $this->assertArrayHasKey($plain->id, TicketActions::visitTechnicians($support));
+        try {
+            $this->workflow->assignVisit($support, $this->siteDispatcher, ['technician_id' => $shifting->id]);
+            $this->fail('A shifting technician was given a Support visit.');
+        } catch (ValidationException $e) {
+            $this->assertNotEmpty($e->errors());
+        }
+        $support = $this->workflow->assignVisit($support->refresh(), $this->siteDispatcher, []);
+        $this->assertSame(QueueType::VisitTechnician, $support->current_queue);
+        $this->assertNull($support->current_assignee_id, 'waits for a Site Visit Technician');
+
+        // A Shifting visit: theirs, by name and through the queue.
+        $this->assertArrayHasKey($shifting->id, TicketActions::visitTechnicians($this->visit('SHI', 'Shifting')));
+        $auto = $this->workflow->assignVisit($this->visit('SHI', 'Shifting'), $this->dispatcher, []);
+        $this->assertSame($shifting->id, $auto->current_assignee_id);
     }
 
     public function test_shifting_visits_are_dispatched_only_by_shifting_dispatchers(): void
@@ -132,14 +161,20 @@ class ShiftingVisitTest extends TestCase
         $visit = $this->visit('SHI', 'Shifting');
         $support = $this->visit('SUP', 'LOS Flashing Red');
 
-        // The dispatch queue gives it to the shifting dispatcher; a plain dispatcher may not act on it, other visits yes.
+        // Each at its own desk: Shifting Dispatch gives it to the shifting dispatcher; Support visits go to Site Visit
+        // Dispatch, never to the shifting dispatcher. A plain dispatcher may not act on a shifting visit, other visits yes.
+        $this->assertSame(QueueType::ShiftingDispatch, $visit->current_queue);
         $this->assertSame($this->dispatcher->id, $visit->current_assignee_id);
+        $this->assertSame(QueueType::VisitDispatch, $support->current_queue);
+        $this->assertNotSame($this->dispatcher->id, $support->current_assignee_id);
+        $this->assertFalse(app(EligibilityEvaluator::class)->checks($support->openQueueEntries()->firstOrFail(), $this->dispatcher->load('regions'))['permission']['passed'],
+            'a pure shifting dispatcher is not offered Support visits');
         $this->assertFalse($plain->can('visitAssign', $visit));
         $this->assertTrue($plain->can('visitAssign', $support));
         $this->assertTrue($this->dispatcher->can('visitAssign', $visit));
 
         // Not listed as a dispatcher for it on a hand-over.
-        $options = OutageActions::queueUserOptions(QueueType::VisitDispatch, EligibilityEvaluator::visitPermission($visit, QueueType::VisitDispatch));
+        $options = OutageActions::queueUserOptions(QueueType::ShiftingDispatch, EligibilityEvaluator::visitPermission($visit, QueueType::ShiftingDispatch));
         $this->assertArrayHasKey($this->dispatcher->id, $options);
         $this->assertArrayNotHasKey($plain->id, $options);
 
@@ -170,11 +205,11 @@ class ShiftingVisitTest extends TestCase
         // The queue offers the Shifting dispatchers and every dispatcher; "Assign to" lists them accordingly.
         $page = Livewire::test(ViewSiteVisit::class, ['record' => $visit->id])
             ->mountAction(TestAction::make('reassign'))
-            ->assertSchemaStateSet(['queue_type' => 'visit_dispatch:kept'])
-            ->assertFormFieldExists('queue_type', fn (Select $field) => array_keys($field->getOptions()) === ['visit_dispatch:kept', 'visit_dispatch'])
+            ->assertSchemaStateSet(['queue_type' => 'shifting_dispatch'])
+            ->assertFormFieldExists('queue_type', fn (Select $field) => array_keys($field->getOptions()) === ['shifting_dispatch', 'shifting_dispatch:any'])
             ->assertFormFieldExists('user_id', fn (Select $field) => ! array_key_exists($plain->id, $field->getOptions()) && array_key_exists($this->dispatcher->id, $field->getOptions()));
 
-        $page->fillForm(['queue_type' => 'visit_dispatch'])
+        $page->fillForm(['queue_type' => 'shifting_dispatch:any'])
             ->assertFormFieldExists('user_id', fn (Select $field) => array_key_exists($plain->id, $field->getOptions()));
 
         $page->fillForm(['user_id' => $plain->id, 'reason' => 'Shifting dispatcher on leave'])

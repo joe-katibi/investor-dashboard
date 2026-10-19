@@ -58,7 +58,7 @@ class FifoSettings extends Page
         ],
         '4G customer tickets' => [QueueType::Ticket4gNoc, QueueType::TicketIp, QueueType::TicketRf, QueueType::TicketCore],
         'Site visits' => [
-            QueueType::VisitDispatch, QueueType::VisitTechnician, QueueType::InfraSupportDispatch, QueueType::InfraSupportTechnician, QueueType::Design,
+            QueueType::VisitDispatch, QueueType::ShiftingDispatch, QueueType::VisitTechnician, QueueType::InfraSupportDispatch, QueueType::InfraSupportTechnician, QueueType::Design,
             QueueType::Access, QueueType::CxFieldSupport, QueueType::VisitAftercare,
         ],
     ];

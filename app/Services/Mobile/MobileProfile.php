@@ -28,16 +28,16 @@ final class MobileProfile
     /** The permission that makes someone a dispatcher => the queues they then manage (waiting to be dispatched, out in the field). */
     private const DISPATCH_DESKS = [
         'outage.dispatch' => [QueueType::Infrastructure, QueueType::Technician],
-        'visit.dispatch' => [QueueType::VisitDispatch, QueueType::VisitTechnician],
+        'visit.dispatch' => [QueueType::VisitDispatch, QueueType::ShiftingDispatch, QueueType::VisitTechnician],
         'queue.work_infra_support_dispatch' => [QueueType::InfraSupportDispatch, QueueType::InfraSupportTechnician],
     ];
 
     /** Queues where a ticket waits for the dispatcher to act. */
-    public const AWAITING_DISPATCH = [QueueType::Infrastructure, QueueType::VisitDispatch, QueueType::InfraSupportDispatch];
+    public const AWAITING_DISPATCH = [QueueType::Infrastructure, QueueType::VisitDispatch, QueueType::ShiftingDispatch, QueueType::InfraSupportDispatch];
 
     /** Being given field work makes someone a technician (or, for 4G transmission, an engineer). */
     private const FIELD_PERMISSIONS = [
-        'queue.work_technician', 'queue.work_support', 'queue.work_visit_technician', 'queue.work_infra_support_tech', 'queue.work_mobility_engineer',
+        'queue.work_technician', 'queue.work_support', 'queue.work_visit_technician', 'queue.work_shifting_technician', 'queue.work_infra_support_tech', 'queue.work_mobility_engineer',
     ];
 
     /** dispatch | technician | engineer — or null: this account has no business in the mobile app. */

@@ -20,7 +20,6 @@ use App\Models\OutageStatus;
 use App\Models\OutageUpdate;
 use App\Models\Team;
 use App\Models\User;
-use App\Models\VisitType;
 use App\Services\Fifo\EligibilityEvaluator;
 use App\Services\Fifo\FifoAssignmentEngine;
 use App\Services\Outages\OutageWorkflow;
@@ -417,7 +416,7 @@ final class OutageActions
                     ->options(fn (Outage $record) => $record->isTicket() ? self::ticketQueues($record) : QueueType::class)
                     ->afterStateUpdated(fn (Set $set) => $set('user_id', null)),
                 Select::make('user_id')->label('Assign to')->required()->searchable()
-                    ->options(fn (Get $get, Outage $record) => self::queueUserOptions(self::queueType($get('queue_type')), self::onlyPermission($record, $get('queue_type')))),
+                    ->options(fn (Get $get, Outage $record) => self::overrideUserOptions($record, $get('queue_type'))),
                 Textarea::make('reason')->label('Override reason')->required()->maxLength(1000),
             ])
             ->action(fn (Outage $record, array $data) => self::run($record, fn () => app(FifoAssignmentEngine::class)->manualAssign(
@@ -474,6 +473,7 @@ final class OutageActions
 
     /**
      * The queues a customer ticket / site visit is in now (its desk, and a follow-up or aftercare call), value => label.
+     * At Shifting Dispatch a manager may also give the visit to any site visit dispatcher ("shifting_dispatch:any").
      *
      * @return array<string, string>
      */
@@ -483,40 +483,32 @@ final class OutageActions
             ->merge($record->openQueueEntries()->pluck('queue_type'))
             ->filter()
             ->unique()
-            ->flatMap(function (QueueType $type) use ($record): array {
-                // A visit kept for some dispatchers (Shifting): those first, and every dispatcher as the override.
-                $kept = $type === QueueType::VisitDispatch ? EligibilityEvaluator::visitDispatcherPermission($record) : null;
-
-                return $kept ? [
-                    $type->value.self::KEPT => $type->getLabel().' — '.(VisitType::DISPATCHER_PERMISSIONS[$kept] ?? Permissions::label($kept)),
-                    $type->value => $type->getLabel().' — every dispatcher',
-                ] : [$type->value => $type->getLabel()];
-            })
+            ->flatMap(fn (QueueType $type): array => $type === QueueType::ShiftingDispatch ? [
+                $type->value => $type->getLabel(),
+                $type->value.self::ANY => $type->getLabel().' — any site visit dispatcher',
+            ] : [$type->value => $type->getLabel()])
             ->all();
     }
 
-    /** Marks the queue option that lists only the people a visit is kept for ("visit_dispatch:kept"). */
-    private const KEPT = ':kept';
+    /** Marks the queue option that lists every site visit dispatcher for a Shifting visit ("shifting_dispatch:any"). */
+    private const ANY = ':any';
 
     /** An enum-backed Select hands back the enum once hydrated, or the raw value before that. */
     private static function queueType(mixed $state): ?QueueType
     {
-        return $state instanceof QueueType ? $state : (is_string($state) ? QueueType::tryFrom(str_replace(self::KEPT, '', $state)) : null);
+        return $state instanceof QueueType ? $state : (is_string($state) ? QueueType::tryFrom(str_replace(self::ANY, '', $state)) : null);
     }
 
-    /**
-     * Who may be picked on the override: a technician of a Shifting visit must be allowed it; a dispatcher
-     * only when the "kept" option is chosen — a manager may give the visit to any dispatcher.
-     */
-    private static function onlyPermission(Outage $record, mixed $state): ?string
+    /** Who "Assign to" lists: the people of the chosen desk (allowed this kind of visit), or every site visit dispatcher. */
+    private static function overrideUserOptions(Outage $record, mixed $state): array
     {
+        if (is_string($state) && str_ends_with($state, self::ANY)) {
+            return self::queueUserOptions(QueueType::VisitDispatch) + self::queueUserOptions(QueueType::ShiftingDispatch);
+        }
+
         $type = self::queueType($state);
 
-        return match (true) {
-            $type === QueueType::VisitTechnician => EligibilityEvaluator::visitTechnicianPermission($record),
-            $type === QueueType::VisitDispatch && is_string($state) && str_ends_with($state, self::KEPT) => EligibilityEvaluator::visitDispatcherPermission($record),
-            default => null,
-        };
+        return self::queueUserOptions($type, $type ? EligibilityEvaluator::visitPermission($record, $type) : null, $record);
     }
 
     // ------------------------------------------------------------------ NOC
@@ -864,13 +856,13 @@ final class OutageActions
             ->all();
     }
 
-    public static function queueUserOptions(?QueueType $type, ?string $alsoPermission = null): array
+    public static function queueUserOptions(?QueueType $type, ?string $alsoPermission = null, ?Outage $outage = null): array
     {
         if (! $type) {
             return [];
         }
 
-        return User::permission($type->defaultPermission())
+        return User::permission(EligibilityEvaluator::deskPermissions($type, $outage))
             ->when($alsoPermission, fn ($q, string $permission) => $q->whereIn('id', User::permission($permission)->select('id')))
             ->active()
             ->withCount('activeAssignments')

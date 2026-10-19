@@ -495,7 +495,7 @@ final class MobileActions
                 'visible' => $can('visitAssign'),
                 'label' => $outage->current_queue === QueueType::VisitTechnician ? 'Reassign technician' : 'Assign technician',
                 'style' => 'warning',
-                'primary' => $outage->current_queue === QueueType::VisitDispatch && $ticket?->completed_at === null,
+                'primary' => (bool) $outage->current_queue?->isVisitDispatch() && $ticket?->completed_at === null,
                 'description' => 'Pick a technician, or leave it on automatic: the visit goes to the technician queue (FIFO). The customer is texted the technician\'s name and number.',
                 'fields' => fn () => [
                     $this->select('technician_id', 'Technician', $this->options(TicketActions::visitTechnicians($outage)), placeholder: 'Automatic — next available technician (FIFO)', search: true),

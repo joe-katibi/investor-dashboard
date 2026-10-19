@@ -495,6 +495,56 @@ class FifoAssignmentEngine
     }
 
     /**
+     * Keeps My Work true to what the tickets say. A ticket "with" someone (its current holder) must be an active
+     * assignment of theirs, or it is not in their My Work: the assignment is put back, accepted — or, when the
+     * person may no longer work that desk, the ticket goes back to the queue. An assignment left open on a closed
+     * ticket is closed. With $apply false only the findings are returned.
+     *
+     * @return array{missing: list<array{outage: Outage, user: ?User, fix: string}>, closed: list<OutageAssignment>}
+     */
+    public function repairMyWork(bool $apply): array
+    {
+        $active = AssignmentStatus::activeValues();
+        $missing = Outage::query()->where('is_closed', false)->whereNotNull('current_assignee_id')->whereNotNull('current_queue')
+            ->whereDoesntHave('assignments', fn ($q) => $q->whereColumn('outage_assignments.user_id', 'outages.current_assignee_id')->whereIn('status', $active))
+            ->with('currentAssignee')->limit(500)->get();
+        $closed = OutageAssignment::query()->whereIn('status', $active)->whereHas('outage', fn ($q) => $q->where('is_closed', true))->with('outage')->limit(500)->get();
+
+        $findings = ['missing' => [], 'closed' => $closed->all()];
+
+        foreach ($missing as $outage) {
+            $user = $outage->currentAssignee;
+            // A step of a custom workflow has no desk permission: its team decides.
+            $own = $this->evaluator->permissionFor($outage->openQueueEntries()->where('queue_type', $outage->current_queue->value)->first() ?? new OutageQueueEntry(['queue_type' => $outage->current_queue]));
+            $mayWork = $user && $user->is_active && ($outage->current_queue->isCustom()
+                || collect(EligibilityEvaluator::deskPermissions($outage->current_queue, $outage, $own))->contains(fn (string $p) => $user->can($p)));
+            $findings['missing'][] = ['outage' => $outage, 'user' => $user, 'fix' => $mayWork ? 'assignment put back' : 'back to the queue (the person may not work this desk now)'];
+
+            if (! $apply) {
+                continue;
+            }
+
+            AuditContext::as('system:my-work-check', function () use ($outage, $user, $mayWork): void {
+                if ($mayWork) {
+                    $entry = $outage->openQueueEntries()->where('queue_type', $outage->current_queue->value)->first() ?? $this->enqueueWithoutProcessing($outage, $outage->current_queue);
+                    $this->accept($this->assign($entry, $user, AssignmentType::Manual, null, 'It was with them but not in their My Work: assignment put back'), $user);
+                } else {
+                    $outage->forceFill(['current_assignee_id' => null])->save();
+                    $this->scheduleProcessing($outage->current_queue);
+                }
+            });
+        }
+
+        if ($apply) {
+            foreach ($closed as $assignment) {
+                AuditContext::as('system:my-work-check', fn () => $this->closeAssignment($assignment, AssignmentStatus::Completed, 'Ticket already closed', null, 'completed'));
+            }
+        }
+
+        return $findings;
+    }
+
+    /**
      * Every N minutes (FIFO settings: "Offer waiting tickets to everyone again"), a ticket nobody has taken
      * because everyone at the desk already let it time out or turned it down is offered to all of them again.
      */
@@ -546,7 +596,11 @@ class FifoAssignmentEngine
 
         // Overrides never bypass hard controls: the target must be active and permitted.
         // (A step of a custom workflow has no permission of its own: its team decides, and a manager may go outside it.)
-        if (! $checks['active']['passed'] || ! ($checks['permission']['passed'] ?? true)) {
+        // A Shifting visit may also be given to a site visit dispatcher (recorded with the failed check).
+        $permitted = ($checks['permission']['passed'] ?? true)
+            || ($type === QueueType::ShiftingDispatch && $target->can(QueueType::VisitDispatch->defaultPermission()));
+
+        if (! $checks['active']['passed'] || ! $permitted) {
             throw ValidationException::withMessages(['user_id' => 'The selected user is inactive or lacks permission to work this queue.']);
         }
 

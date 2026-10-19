@@ -419,6 +419,7 @@ class WorkflowConfig
                 'steps' => [
                     $step(null, 'Booked', 'CX, a dispatcher or a customer ticket raises the visit.', [E::OutageCreated, E::SiteVisitRaised], 'visit.create'),
                     $step(Q::VisitDispatch, 'Dispatch and verification', 'The dispatcher assigns a technician; later verifies the completed work or sends it back.', [E::VisitScheduled, E::VisitRescheduled, E::VisitCompleted]),
+                    $step(Q::ShiftingDispatch, 'Shifting dispatch and verification', 'Shifting / Relocation visits: dispatched and verified at their own desk, by the Shifting dispatchers.', [E::VisitScheduled, E::VisitRescheduled, E::VisitCompleted], kind: 'branch'),
                     $step(Q::VisitTechnician, 'Technician', 'En route, on premise, completed with the FAT number and photos — or not completed, with the reason.', [E::Assigned, E::VisitCompleted, E::TicketCustomerSms]),
                     $step(Q::CxFieldSupport, 'Confirmation with the customer', 'CX Field Support confirms with the customer and closes the visit.', [E::Resolved, E::TicketReopened]),
                     $step(Q::InfraSupportDispatch, 'Infrastructure support dispatch', 'Escalation: the visit needs infrastructure work.', [E::TicketRouted], kind: 'branch'),

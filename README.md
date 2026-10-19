@@ -802,6 +802,25 @@ visits* (`visit.work_shifting`; role *Shifting / Relocation Technician*, or add 
 With none of them on duty a shifting visit waits in the queue. Installation, Wi-Fi Extender and Support visits go to
 every site visit technician.
 
+**Shifting Dispatch desk.** Shifting / Relocation visits are dispatched and verified at a desk of their own,
+*Shifting Dispatch* (`queue.work_shifting_dispatch`), not at Site Visit Dispatch: dispatchers who only handle
+shifting get only shifting, and Site Visit Dispatchers no longer receive it. The role *Shifting / Relocation
+Dispatcher* works that desk (when it arrived, it was taken off Site Visit Dispatch); give a person both desks to
+handle both. *Inhouse Shifting* is a Technical Support case, raised as a Support visit (Site Visit Dispatch).
+
+**Shifting technicians.** *Desk: Shifting technician* (`queue.work_shifting_technician`) qualifies for Shifting /
+Relocation visits only. The role *Shifting / Relocation Technician* works it instead of the Site Visit Technician desk,
+so its people receive only shifting — by name, in the lists and through the technician queue. Someone who also has
+the Site Visit Technician desk (another role) receives every kind of visit.
+
+**Back to the dispatcher who dispatched it.** A ticket returned to a desk — a technician's completed or
+not-completed visit, an escalation sent back — goes straight to the person at that desk who sent it out, when they
+may still work that desk and are on duty; otherwise to whoever is next (FIFO).
+
+**My Work check.** `php artisan oms:check-my-work` lists tickets that are "with" someone but not in their My Work
+(no active assignment — e.g. tickets carried over from the old server) and assignments left on closed tickets;
+`--fix` repairs them (the assignment is put back, accepted). It runs with `--fix` every 10 minutes.
+
 **Shifting / Relocation dispatchers.** The same for dispatchers (*Visit Types → Dispatchers*; Shifting, by default):
 only dispatchers with *Dispatch Shifting / Relocation visits* (`visit.dispatch_shifting`; role *Shifting / Relocation
 Dispatcher*, and the Ticketing Manager) receive those visits in the dispatch queue, are listed for them (hand-over,

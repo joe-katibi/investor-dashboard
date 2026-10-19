@@ -16,6 +16,8 @@ use Illuminate\Support\Facades\Schedule;
 Schedule::command('oms:sla-check')->everyMinute()->onOneServer()->withoutOverlapping(5);
 Schedule::command('oms:fifo-timeouts')->everyMinute()->onOneServer()->withoutOverlapping(5);
 Schedule::command('oms:fifo-sweep')->everyMinute()->onOneServer()->withoutOverlapping(5);
+// A ticket "with" someone that is not in their My Work: its assignment is put back.
+Schedule::command('oms:check-my-work --fix')->everyTenMinutes()->onOneServer()->withoutOverlapping(10);
 Schedule::command('oms:send-scheduled-reports')->everyMinute()->onOneServer()->withoutOverlapping(10);
 Schedule::command('oms:maintenance-tick')->everyMinute()->onOneServer()->withoutOverlapping(5);
 Schedule::command('oms:mobility-tick')->everyMinute()->onOneServer()->withoutOverlapping(5);

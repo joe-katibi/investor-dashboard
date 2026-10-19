@@ -4,6 +4,7 @@ namespace App\Services\Outages\Concerns;
 
 use App\Enums\AssignmentStatus;
 use App\Enums\AssignmentType;
+use App\Enums\AvailabilityStatus;
 use App\Enums\NotificationChannel;
 use App\Enums\NotificationEvent;
 use App\Enums\QueueType;
@@ -176,7 +177,7 @@ trait ManagesTickets
                 'preferred_time' => filled($data['preferred_time'] ?? null) ? trim((string) $data['preferred_time']) : null,
                 'scheduled_at' => $scheduled,
                 'parent_outage_id' => $parent?->id,
-                'home_desk' => QueueType::VisitDispatch,
+                'home_desk' => $visitType->dispatcherPermission() ? QueueType::ShiftingDispatch : QueueType::VisitDispatch,
             ])->refresh();
 
             $this->openTicket($outage, $ticket, $by, "{$visitType->name} visit raised".($subcategory ? " for “{$subcategory->name}”" : '')
@@ -456,8 +457,8 @@ trait ManagesTickets
             Gate::forUser($by)->authorize('visitAssign', $outage);
             $ticket = $this->ticketOf($outage);
 
-            if ($ticket->desk === QueueType::VisitDispatch) {
-                $this->fifo->authorizeWork($outage, QueueType::VisitDispatch, $by);
+            if ($ticket->desk?->isVisitDispatch()) {
+                $this->fifo->authorizeWork($outage, $ticket->desk, $by);
             }
 
             $this->dispatchVisit($outage, $ticket, $by, $data);
@@ -684,13 +685,13 @@ trait ManagesTickets
             $outage = $this->lock($outage);
             Gate::forUser($by)->authorize('visitVerify', $outage);
             $ticket = $this->ticketOf($outage);
-            $this->fifo->authorizeWork($outage, QueueType::VisitDispatch, $by);
+            $this->fifo->authorizeWork($outage, $ticket->desk ?? QueueType::VisitDispatch, $by);
 
             $ticket->forceFill(['delay_reason_id' => $delayReasonId ?: $ticket->delay_reason_id]);
             $this->requireDelayReason($outage, $ticket, $ticket->completed_at);
             $ticket->forceFill(['verified_at' => now(), 'verified_by' => $by->id])->save();
 
-            $this->ticketEvent($outage, 'verified', $by, QueueType::VisitDispatch, $note);
+            $this->ticketEvent($outage, 'verified', $by, $ticket->desk ?? QueueType::VisitDispatch, $note);
             $this->ticketUpdate($outage, 'Dispatcher verified the completed work.'.($note ? " {$note}" : ''), $by, 'action', 'verified');
 
             if (app(Settings::class)->bool('ticketing.confirm_closure')) {
@@ -714,7 +715,7 @@ trait ManagesTickets
             $outage = $this->lock($outage);
             Gate::forUser($by)->authorize('visitVerify', $outage);
             $ticket = $this->ticketOf($outage);
-            $this->fifo->authorizeWork($outage, QueueType::VisitDispatch, $by);
+            $this->fifo->authorizeWork($outage, $ticket->desk ?? QueueType::VisitDispatch, $by);
 
             $technician = $ticket->completed_by;
             $this->withdrawCompletion($outage, $ticket);
@@ -1374,6 +1375,17 @@ trait ManagesTickets
         $from = $ticket->desk;
         $now = now();
 
+        // A Shifting / Relocation visit is dispatched at its own desk.
+        if ($to->isVisitDispatch() && $outage->isSiteVisit()) {
+            $to = EligibilityEvaluator::visitDispatchDesk($outage);
+        }
+
+        // Returned (work done, not completed, sent back): to the person at that desk who sent it out — the dispatcher
+        // who dispatched the technician, the agent who escalated — when they may still work that desk; else FIFO.
+        if ($kind === 'return' && $from && $from !== $to && empty($options['user'])) {
+            $options['user'] = $this->sender($outage, $from, $to);
+        }
+
         if ($from) {
             $this->fifo->complete($outage, $from, $by, Str::limit(($kind === 'return' ? 'Returned to ' : 'Sent to ').$to->getLabel(), 200));
         }
@@ -1432,6 +1444,28 @@ trait ManagesTickets
         $this->syncTicketStatus($outage, $ticket, $by, Str::limit($note, 500));
     }
 
+    /** Who sent the ticket from desk $to to desk $from (the latest such hand-over), if they may still work $to. */
+    private function sender(Outage $outage, QueueType $from, QueueType $to): ?User
+    {
+        $desks = $to->isVisitDispatch() ? [QueueType::VisitDispatch->value, QueueType::ShiftingDispatch->value] : [$to->value];
+        $userId = TicketDeskMove::query()->where('outage_id', $outage->id)->where('to_desk', $from->value)
+            ->whereIn('from_desk', $desks)->whereNotNull('moved_by')->latest('id')->value('moved_by');
+        $user = $userId ? User::query()->find($userId) : null;
+
+        if (! $user || ! $user->is_active || ! collect(EligibilityEvaluator::deskPermissions($to, $outage))->contains(fn (string $p) => $user->can($p))) {
+            return null;
+        }
+
+        // Off duty (offline, away): whoever is on duty at the desk takes it (FIFO) rather than it waiting for them.
+        if (app(Settings::class)->bool('fifo.require_availability') && ! in_array($user->availability_status, [AvailabilityStatus::Available, AvailabilityStatus::Busy], true)) {
+            return null;
+        }
+
+        $needs = EligibilityEvaluator::visitPermission($outage, $to);
+
+        return $needs === null || $user->can($needs) ? $user : null;
+    }
+
     /** The desk that handed the ticket to where it is now (and who did). */
     private function previousDesk(Outage $outage, Ticket $ticket): ?array
     {
@@ -1449,7 +1483,7 @@ trait ManagesTickets
 
         // Handed over by a technician in the field: it goes back to that technician's dispatcher, not to the technician queue.
         $desk = match ($move->from_desk) {
-            QueueType::VisitTechnician => QueueType::VisitDispatch,
+            QueueType::VisitTechnician => EligibilityEvaluator::visitDispatchDesk($outage),
             QueueType::InfraSupportTechnician => QueueType::InfraSupportDispatch,
             default => $move->from_desk,
         };
@@ -1722,7 +1756,7 @@ trait ManagesTickets
 
         if ($outage->isSiteVisit()) {
             return match (true) {
-                $desk === QueueType::VisitDispatch => $ticket->completed_at ? StatusCode::VisitPendingVerification : StatusCode::VisitOpen,
+                $desk->isVisitDispatch() => $ticket->completed_at ? StatusCode::VisitPendingVerification : StatusCode::VisitOpen,
                 $desk === QueueType::VisitTechnician => match (true) {
                     ! $held() => StatusCode::VisitPendingWithoutTeam,
                     $ticket->en_route_at !== null || $ticket->arrived_at !== null => StatusCode::VisitInProgress,
@@ -1756,7 +1790,7 @@ trait ManagesTickets
     {
         $user = User::query()->find($userId);
 
-        if (! $user || ! $user->is_active || ! $user->can($desk->defaultPermission())) {
+        if (! $user || ! $user->is_active || ! collect(EligibilityEvaluator::deskPermissions($desk, $outage))->contains(fn (string $p) => $user->can($p))) {
             throw ValidationException::withMessages(['user_id' => ($user?->name ?? 'That user')." cannot receive tickets at {$desk->getLabel()} (inactive, or without the desk permission)."]);
         }
 

@@ -44,7 +44,7 @@ class ListSiteVisits extends ListRecords
             'open' => Tab::make('Open')->modifyQueryUsing($open),
             'mine' => Tab::make('Assigned to me')->icon(Heroicon::OutlinedUser)
                 ->modifyQueryUsing(fn (Builder $query) => $open($query)->where(fn (Builder $q) => $q->where('current_assignee_id', Auth::id())->orWhere('technician_id', Auth::id()))),
-            'dispatch' => Tab::make('With dispatch')->icon(Heroicon::OutlinedTruck)->modifyQueryUsing($desk(QueueType::VisitDispatch)),
+            'dispatch' => Tab::make('With dispatch')->icon(Heroicon::OutlinedTruck)->modifyQueryUsing($desk(QueueType::VisitDispatch, QueueType::ShiftingDispatch)),
             'today' => Tab::make('Booked today')->icon(Heroicon::OutlinedCalendarDays)
                 ->modifyQueryUsing(fn (Builder $query) => $open($query)->whereHas('ticket', fn (Builder $t) => $t->whereBetween('scheduled_at', [now()->startOfDay(), now()->endOfDay()]))),
             'no_team' => Tab::make('Pending without team')
