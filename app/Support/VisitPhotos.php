@@ -56,6 +56,8 @@ final class VisitPhotos
             'help' => 'The power meter reading at the ATB.'],
         'onu_serial' => ['label' => 'Photograph of the ONU showing the serial number', 'short' => 'ONU serial number', 'geotag' => false, 'many' => false,
             'help' => 'The label with the serial number, readable.'],
+        'escalation_geo' => ['label' => 'Geotagged photo of the site', 'short' => 'Escalation to Infrastructure Support (geotagged)', 'geotag' => true, 'many' => false,
+            'help' => 'Taken on site, showing what Infrastructure Support has to fix: your position, the place and the time are stamped on the photo.'],
         'speed_test' => ['label' => 'Speed test photo', 'short' => 'Speed test', 'geotag' => false, 'many' => false,
             'help' => 'Photo of the speed test result after the fix.'],
         'onu_mac' => ['label' => 'Photo of the MAC address at the back of the ONU', 'short' => 'ONU MAC address', 'geotag' => false, 'many' => false,
@@ -78,6 +80,7 @@ final class VisitPhotos
         'geo_photo' => 'Geolocation photo', 'speed_test' => 'Speed test photo', 'fat_outside' => 'FAT — outside (geotagged)',
         'fat_inside' => 'FAT — inside, terminations', 'fat_power' => 'FAT — port power', 'cable_entry' => 'Cable entry (geotagged)',
         'atb_onu' => 'ATB and ONU mounted', 'atb_power' => 'ATB — power', 'onu_serial' => 'ONU serial number', 'onu_mac' => 'ONU MAC address', 'devices_ok' => 'Devices working',
+        'escalation_geo' => 'Escalation to Infrastructure Support (geotagged)',
     ];
 
     /** Relocations: these are taken once the NOC has provisioned the service at the new location. */

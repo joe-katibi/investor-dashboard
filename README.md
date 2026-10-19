@@ -255,6 +255,11 @@ evidence). The two geotagged photos use the geolocation feature below and appear
 On the website the visit shows them under **Installation photos** (click to view) and under *Photos & files*.
 
 ### Geolocation photo
+**Escalation to Infrastructure Support from the app** (*Escalate to Infrastructure Support*, a separate action — the
+general *Escalate / hand over* no longer offers that desk in the app) needs a geotagged photo of the site, with the
+phone's position whatever *Require location* says. It is kept on the ticket as *Escalation to Infrastructure Support
+(geotagged)* and listed in the Geolocation Photos report. On the website the hand-over is unchanged.
+
 The **geolocation photo** of a site visit (mobile app, *Complete visit*) is taken at the phone's position. The app
 stamps the picture like a GPS camera does — a small map with a pin, the place, the address, latitude and longitude
 (with how exact the fix is), the day, time and time zone — and the same details are

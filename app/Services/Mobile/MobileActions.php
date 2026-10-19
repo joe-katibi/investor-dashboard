@@ -228,6 +228,8 @@ final class MobileActions
         // Custom workflow: the flow, its steps and the one the ticket is at.
         $custom = $outage->isCustomFlow() ? $outage->customTicket : null;
         $ticket = $outage->isTicket() ? $outage->ticket : null;
+        // Desks to hand over to; Infrastructure Support has its own action in the app (a geotagged photo is required).
+        $routes = $ticket ? array_diff_key(TicketActions::routeOptions($outage), [QueueType::InfraSupportDispatch->value => true]) : [];
         $approvalSlot = $can('approvePreventive') ? MaintenanceApproval::openSlotFor($outage, $user) : null;
         // Emergency / Regular outage worked by a field team: position => photo on the ticket (or null).
         $sitePhotos = $outage->offersSitePhotos() ? $outage->sitePhotos() : null;
@@ -721,25 +723,46 @@ final class MobileActions
 
             // ---------------------------------------------------------- customer tickets / visits: desk work
             'ticket_route' => [
-                'visible' => $can('ticketRoute') && $holding && TicketActions::routeOptions($outage) !== [],
+                'visible' => $can('ticketRoute') && $holding && $routes !== [],
                 'label' => 'Escalate / hand over',
                 'style' => 'warning',
                 'description' => 'From '.($outage->current_queue?->getLabel() ?? '—').'. The next available person at the desk you choose gets it (FIFO).',
                 'fields' => fn () => [
-                    $this->select('desk', 'Send to', $this->options(TicketActions::routeOptions($outage)), required: true),
+                    $this->select('desk', 'Send to', $this->options($routes), required: true),
                     ...($outage->isSiteVisit() ? [$this->select('delay_reason_id', 'Reason for delay (optional)', $this->options(TicketActions::delayReasons($outage->vertical_id)))] : []),
                     $this->textarea('note', 'Why / what is needed', required: true, max: 2000),
                 ],
-                'handle' => function (array $data) use ($outage, $user): string {
+                'handle' => function (array $data) use ($outage, $user, $routes): string {
                     $desk = QueueType::tryFrom((string) $data['desk']);
 
-                    if (! $desk || ! array_key_exists($desk->value, TicketActions::routeOptions($outage))) {
-                        throw ValidationException::withMessages(['desk' => 'Choose one of the desks this ticket can go to.']);
+                    if (! $desk || ! array_key_exists($desk->value, $routes)) {
+                        throw ValidationException::withMessages(['desk' => $desk === QueueType::InfraSupportDispatch
+                            ? 'Use “Escalate to Infrastructure Support”: it needs a geotagged photo of the site.'
+                            : 'Choose one of the desks this ticket can go to.']);
                     }
 
                     $this->workflow->routeTicket($outage, $user, $desk, $data['note'], $this->id($data['delay_reason_id'] ?? null));
 
                     return 'Ticket handed over';
+                },
+            ],
+            // Infrastructure Support only with a geotagged photo of the site (where, and what has to be fixed).
+            'ticket_escalate_infra' => [
+                'visible' => $can('ticketRoute') && $holding && array_key_exists(QueueType::InfraSupportDispatch->value, TicketActions::routeOptions($outage)),
+                'label' => 'Escalate to Infrastructure Support',
+                'style' => 'warning',
+                'description' => 'Take a photo of the site with your position (Location on): it goes with the escalation to Infrastructure Support Dispatch.',
+                'fields' => fn () => [
+                    $this->photo('escalation_geo', VisitPhotos::PHOTOS['escalation_geo']['label'], VisitPhotos::PHOTOS['escalation_geo']['help'], required: true, location: true, locationRequired: true),
+                    ...($outage->isSiteVisit() ? [$this->select('delay_reason_id', 'Reason for delay (optional)', $this->options(TicketActions::delayReasons($outage->vertical_id)))] : []),
+                    $this->textarea('note', 'What Infrastructure Support has to do', required: true, max: 2000),
+                ],
+                'handle' => function (array $data) use ($outage, $user): string {
+                    [$path, $name] = $this->store($data['escalation_geo'], OutageAttachment::DIRECTORY);
+                    $this->workflow->routeTicket($outage, $user, QueueType::InfraSupportDispatch, $data['note'], $this->id($data['delay_reason_id'] ?? null),
+                        photo: [$path, $name, $data['escalation_geo_location'] ?? null]);
+
+                    return 'Escalated to Infrastructure Support';
                 },
             ],
             'ticket_return' => [
@@ -914,7 +937,7 @@ final class MobileActions
      * Every photo in the app is taken with the phone's camera, there and then — nothing from the
      * gallery. The app stamps the time on the picture and sends it as "{name}_taken_at".
      */
-    private function photo(string $name, string $label, ?string $help = null, bool $required = false, bool $location = false): array
+    private function photo(string $name, string $label, ?string $help = null, bool $required = false, bool $location = false, bool $locationRequired = false): array
     {
         return [
             'name' => $name, 'type' => 'photo', 'label' => $label, 'required' => $required, 'help' => $help,
@@ -922,7 +945,7 @@ final class MobileActions
             'capture' => 'camera',
             // A geolocation photo: the app takes the phone's position with it and sends it as "{name}_lat", "{name}_lng",
             // "{name}_accuracy" (metres) and "{name}_place". "required" = no photo without a position.
-            'location' => $location ? (app(Settings::class)->bool('ticketing.require_location') ? 'required' : 'optional') : null,
+            'location' => $location ? ($locationRequired || app(Settings::class)->bool('ticketing.require_location') ? 'required' : 'optional') : null,
         ];
     }
 

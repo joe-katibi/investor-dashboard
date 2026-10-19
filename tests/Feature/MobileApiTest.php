@@ -816,6 +816,47 @@ class MobileApiTest extends TestCase
         $this->api($this->technician, 'GET', 'geo/place?lat=2.5&lng=31.5')->assertOk()->assertExactJson(['place' => null, 'address' => null, 'map' => null]);
     }
 
+    public function test_escalating_to_infrastructure_support_from_the_app_needs_a_geotagged_photo(): void
+    {
+        $dispatcher = $this->makeUser('Site Visit Dispatcher', 'DISPATCH');
+        $this->makeUser('Infra Support Dispatcher', 'INFRA');
+        Auth::setUser($dispatcher);
+        $visit = $this->workflow->createSiteVisit([
+            'visit_type_id' => VisitType::query()->where('code_prefix', 'SUP')->value('id'),
+            'subcategory_id' => TicketSubcategory::query()->where('name', 'Drop Cable Cut')->value('id'),
+            'account_number' => 'SF2659301', 'customer_name' => 'John Customer', 'calling_number' => '0772000010', 'address' => 'Lukuli',
+        ], $dispatcher);
+        $this->assertSame($dispatcher->id, $visit->current_assignee_id);
+
+        // Its own action; the general hand-over no longer offers Infrastructure Support.
+        $actions = $this->api($dispatcher, 'GET', "tickets/{$visit->id}")->assertOk()->json('ticket.actions');
+        $escalate = collect($actions)->firstWhere('key', 'ticket_escalate_infra');
+        $this->assertNotNull($escalate);
+        $photo = collect($escalate['fields'])->firstWhere('name', 'escalation_geo');
+        $this->assertTrue($photo['required']);
+        $this->assertSame('required', $photo['location']);
+        $route = collect($actions)->firstWhere('key', 'ticket_route');
+        $this->assertNotContains('infra_support_dispatch', array_column(collect($route['fields'])->firstWhere('name', 'desk')['options'], 'value'));
+        $this->act($dispatcher, $visit, 'ticket_route', ['desk' => 'infra_support_dispatch', 'note' => 'Drop cable cut'])->assertStatus(422)->assertJsonValidationErrors('desk');
+
+        // Without the photo, or without the position: refused.
+        $this->act($dispatcher, $visit, 'ticket_escalate_infra', ['note' => 'Drop cable cut at the pole'])->assertStatus(422)->assertJsonValidationErrors('escalation_geo');
+        $this->act($dispatcher, $visit, 'ticket_escalate_infra', ['note' => 'Drop cable cut at the pole', 'escalation_geo' => UploadedFile::fake()->image('site.jpg', 800, 600)])
+            ->assertStatus(422)->assertJsonValidationErrors(['escalation_geo_lat', 'escalation_geo_lng']);
+
+        $this->act($dispatcher, $visit, 'ticket_escalate_infra', [
+            'note' => 'Drop cable cut at the pole', 'escalation_geo' => UploadedFile::fake()->image('site.jpg', 800, 600),
+            'escalation_geo_lat' => '0.338276', 'escalation_geo_lng' => '32.581402', 'escalation_geo_accuracy' => '6', 'escalation_geo_place' => 'Lukuli, Kampala',
+        ])->assertOk();
+
+        $visit->refresh();
+        $this->assertSame(QueueType::InfraSupportDispatch, $visit->current_queue);
+        $this->assertTrue((bool) $visit->currentAssignee?->can('queue.work_infra_support_dispatch'), 'with an Infrastructure Support dispatcher');
+        $photo = OutageAttachment::query()->where('outage_id', $visit->id)->where('kind', 'escalation_geo')->sole();
+        $this->assertTrue($photo->hasLocation());
+        $this->assertSame('Lukuli, Kampala', $photo->place);
+    }
+
     public function test_notifications_devices_and_availability(): void
     {
         Event::fake([MobileNotification::class]);

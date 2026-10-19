@@ -250,11 +250,14 @@ trait ManagesTickets
     // ------------------------------------------------------------------ desk to desk
 
     /** Escalate / hand the ticket to another desk (allowed by the desk routes), optionally to a named person there. */
-    public function routeTicket(Outage $outage, User $by, QueueType $to, string $note, ?int $delayReasonId = null, ?int $userId = null): Outage
+    /**
+     * @param  array{0?: ?string, 1?: ?string, 2?: ?array}  $photo  a photo taken on site [path, original name, position] (the app's escalation to Infrastructure Support)
+     */
+    public function routeTicket(Outage $outage, User $by, QueueType $to, string $note, ?int $delayReasonId = null, ?int $userId = null, array $photo = []): Outage
     {
         $this->requireText($note, 'note', 'Say why the ticket is handed over.');
 
-        $result = DB::transaction(function () use ($outage, $by, $to, $note, $delayReasonId, $userId): Outage {
+        $result = DB::transaction(function () use ($outage, $by, $to, $note, $delayReasonId, $userId, $photo): Outage {
             $outage = $this->lock($outage);
             Gate::forUser($by)->authorize('ticketRoute', $outage);
             $ticket = $this->ticketOf($outage);
@@ -280,6 +283,11 @@ trait ManagesTickets
 
             if ($delayReasonId) {
                 $ticket->forceFill(['delay_reason_id' => $delayReasonId]);
+            }
+
+            // The geotagged photo of the site that goes with an escalation from the app: on the ticket, with where and when.
+            if (filled($photo[0] ?? null)) {
+                $this->storeTicketPhotos($outage, $by, ['escalation_geo' => [$photo[0], $photo[1] ?? null, 'Escalation to '.$to->getLabel(), $photo[2] ?? null]]);
             }
 
             $this->moveTicket($outage, $ticket, $to, $by, 'route', $note, ['user' => $target, 'delay_reason_id' => $delayReasonId]);
