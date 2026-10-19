@@ -1329,6 +1329,12 @@ Excel exports stream (no row limit); PDF is capped at 2,000 rows; on-screen view
 times, or cron), reporting period, TO, CC, subject, body, optional Excel attachment, active flag, last / next run,
 **Preview** and **Send now**.
 
+**Live link for management.** *Customer Care → Dashboard → Live link for management* (needs *Manage email
+templates*) switches on a page with the *Tickets – Pending / SLA Update* summary that refreshes itself every minute and
+opens without signing in: `/live/tickets/{secret}`. Figures only — headline, SLA per department / OLT / region, issues
+per OLT, closed in the period — never a customer's name or account. "Make a new link" ends the old one at once;
+switched off, the link answers "not found". Built at most once a minute whoever is looking; not indexed by search engines.
+
 **Sending addresses (aliases).** Each kind of e-mail comes from its own address, set in `.env` — empty means
 `MAIL_FROM_ADDRESS`:
 

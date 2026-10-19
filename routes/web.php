@@ -4,6 +4,7 @@ use App\Filament\Support\OutageLink;
 use App\Http\Controllers\CrfDocumentController;
 use App\Http\Controllers\CrfSignController;
 use App\Http\Controllers\DesktopAlertController;
+use App\Http\Controllers\LiveTicketSummaryController;
 use App\Http\Controllers\OutageAttachmentController;
 use App\Http\Controllers\OutagePhotoController;
 use App\Http\Controllers\ReportExportController;
@@ -21,6 +22,9 @@ Route::middleware(['signed', 'throttle:30,1'])->prefix('crf/sign/{signatory}')->
     Route::get('/pdf', [CrfSignController::class, 'pdf'])->name('crf.sign.pdf');
     Route::get('/done', [CrfSignController::class, 'done'])->name('crf.sign.done');
 });
+
+// Tickets – Pending / SLA as a live page for management (no login: the link carries a secret; summary figures only).
+Route::get('/live/tickets/{token}', LiveTicketSummaryController::class)->middleware('throttle:30,1')->name('live.tickets');
 
 // How to use the mobile app (no login: staff read it before their first sign-in). Sent as a link by SMS / e-mail.
 Route::view('/mobile-guide', 'mobile.guide')->middleware('throttle:60,1')->name('mobile.guide');

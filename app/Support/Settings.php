@@ -131,7 +131,9 @@ class Settings
         'ticketing.aftercare_retry_hours' => 4,
         'ticketing.aftercare_max_attempts' => 3,
         'ticketing.aftercare_since' => null,          // only visits confirmed from then on (set when the feature was installed)
-        'ticketing.followup_minutes' => 540,           // pending this long (SLA clock) → follow-up call + ready for credit
+        'live.tickets_enabled' => false,               // the live Pending / SLA page for management (link with a secret)
+        'live.tickets_token' => null,
+        'ticketing.followup_minutes' => 540,          // pending this long (SLA clock) → follow-up call + ready for credit
         'ticketing.credit_notify' => true,
         'ticketing.credit_roles' => ['CX Manager', 'Billing Manager'],
         'ticketing.credit_emails' => [],

@@ -5,13 +5,18 @@ namespace App\Filament\Pages;
 use App\Filament\Concerns\RefreshesOnOmsEvents;
 use App\Filament\Resources\SiteVisits\SiteVisitResource;
 use App\Filament\Resources\Tickets\TicketResource;
+use App\Http\Controllers\LiveTicketSummaryController;
 use App\Models\Outage;
 use App\Services\Reports\InsightReports;
 use App\Services\Tickets\BusinessClock;
 use App\Services\Tickets\TicketMetrics;
 use App\Services\Tickets\TicketTables;
+use App\Support\Settings;
 use BackedEnum;
 use Filament\Actions\Action;
+use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
+use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Auth;
@@ -71,7 +76,40 @@ class TicketDashboard extends Page
             Action::make('book')->label('Book site visit')->icon(Heroicon::OutlinedMapPin)->color('gray')
                 ->visible(fn () => Auth::user()?->can('createVisit', Outage::class))
                 ->url(fn () => SiteVisitResource::getUrl('create')),
+            $this->liveLink(),
         ];
+    }
+
+    /**
+     * The live "Tickets – Pending / SLA" page for management: a link with a secret, no sign-in, figures only.
+     * Switch it on or off, and make a new link (the old one stops working at once).
+     */
+    private function liveLink(): Action
+    {
+        $settings = app(Settings::class);
+        $url = fn (): ?string => $settings->bool('live.tickets_enabled') && filled($settings->get('live.tickets_token'))
+            ? route('live.tickets', ['token' => $settings->get('live.tickets_token')]) : null;
+
+        return Action::make('liveLink')->label('Live link for management')->icon(Heroicon::OutlinedLink)->color('gray')
+            ->visible(fn () => (bool) Auth::user()?->can('templates.manage'))
+            ->modalHeading('Live link: Tickets – Pending / SLA')
+            ->modalDescription('A page that refreshes itself every minute with the pending / SLA summary — figures by department, OLT and region, no customer names or accounts. Anyone with the link can open it without signing in: send it to management only.')
+            ->fillForm(fn () => ['enabled' => $settings->bool('live.tickets_enabled'), 'renew' => false, 'link' => $url()])
+            ->schema([
+                TextInput::make('link')->label('Link')->readOnly()->placeholder('Switched off')->copyable(),
+                Toggle::make('enabled')->label('Link switched on'),
+                Toggle::make('renew')->label('Make a new link (the current one stops working)'),
+            ])
+            ->modalSubmitActionLabel('Save')
+            ->action(function (array $data) use ($settings, $url): void {
+                $token = ! empty($data['renew']) || blank($settings->get('live.tickets_token')) ? LiveTicketSummaryController::newToken() : $settings->get('live.tickets_token');
+                $settings->set(['live.tickets_enabled' => (bool) ($data['enabled'] ?? false), 'live.tickets_token' => $token], Auth::id());
+                $settings->flush();
+
+                ($link = $url())
+                    ? Notification::make()->title('Live link saved')->body($link)->success()->persistent()->send()
+                    : Notification::make()->title('Live link switched off')->warning()->send();
+            });
     }
 
     protected function getViewData(): array
