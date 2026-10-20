@@ -4,7 +4,6 @@ namespace App\Services\Outages\Concerns;
 
 use App\Enums\AssignmentStatus;
 use App\Enums\AssignmentType;
-use App\Enums\AvailabilityStatus;
 use App\Enums\NotificationChannel;
 use App\Enums\NotificationEvent;
 use App\Enums\QueueType;
@@ -1390,8 +1389,10 @@ trait ManagesTickets
 
         // Returned (work done, not completed, sent back): to the person at that desk who sent it out — the dispatcher
         // who dispatched the technician, the agent who escalated — when they may still work that desk; else FIFO.
+        $returnedTo = null;
+
         if ($kind === 'return' && $from && $from !== $to && empty($options['user'])) {
-            $options['user'] = $this->sender($outage, $from, $to);
+            $options['user'] = $returnedTo = $this->sender($outage, $from, $to);
         }
 
         if ($from) {
@@ -1432,7 +1433,13 @@ trait ManagesTickets
         ], fn ($value) => $value !== null));
 
         if (! empty($options['user'])) {
-            $this->fifo->assign($entry, $options['user'], AssignmentType::Dispatch, $by, Str::limit($note, 250));
+            $assignment = $this->fifo->assign($entry, $options['user'], AssignmentType::Dispatch, $by, Str::limit($note, 250));
+
+            // Back with the person who sent it out: theirs, nothing to accept — an offline dispatcher keeps it (it is
+            // not released for being away, nor timed out) and finds it in My Work.
+            if ($returnedTo) {
+                $this->fifo->accept($assignment, $returnedTo);
+            }
         }
 
         $outage->refresh();
@@ -1464,8 +1471,8 @@ trait ManagesTickets
             return null;
         }
 
-        // Off duty (offline, away): whoever is on duty at the desk takes it (FIFO) rather than it waiting for them.
-        if (app(Settings::class)->bool('fifo.require_availability') && ! in_array($user->availability_status, [AvailabilityStatus::Available, AvailabilityStatus::Busy], true)) {
+        // Always the same person — offline, it waits in their My Work — unless they are on approved leave.
+        if ($user->leaves()->approvedAt(now())->exists()) {
             return null;
         }
 

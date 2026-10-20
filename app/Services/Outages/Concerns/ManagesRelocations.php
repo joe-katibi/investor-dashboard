@@ -86,13 +86,22 @@ trait ManagesRelocations
             $note = filled($note) ? trim((string) $note) : null;
             $ticket->forceFill(['provisioned_at' => now(), 'provisioned_by' => $by->id])->save();
 
+            // Back to the technician handling it: Site Visit Technician desk, or for a shifting visit the Shifting technician desk.
             $technician = User::query()->find($ticket->provision_requested_by ?? $outage->technician_id);
-            $back = $technician && $technician->is_active && $technician->can(QueueType::VisitTechnician->defaultPermission()) ? $technician : null;
+            $back = $technician && $technician->is_active
+                && collect(EligibilityEvaluator::deskPermissions(QueueType::VisitTechnician, $outage))->contains(fn (string $permission) => $technician->can($permission))
+                && EligibilityEvaluator::allows($technician, EligibilityEvaluator::visitTechnicianPermission($outage))
+                ? $technician : null;
             $text = 'Provisioning done by the NOC'.($note ? ": {$note}" : '.').' Take the speed tests and the smart-device photos, then complete the visit.';
 
             $outage->forceFill(['latest_update' => Str::limit($text, 2000)])->save();
             $this->ticketEvent($outage, 'provisioned', $by, QueueType::TicketNoc, $note);
             $this->moveTicket($outage, $ticket, QueueType::VisitTechnician, $by, 'provision', $text, ['user' => $back], announce: false);
+
+            // They are on site in the middle of the job: theirs at once, nothing to accept again.
+            if ($back && ($assignment = $outage->activeAssignments()->where('user_id', $back->id)->where('queue_type', QueueType::VisitTechnician->value)->first())) {
+                $this->fifo->accept($assignment, $back);
+            }
             $this->ticketUpdate($outage, $text.' Back to '.($back ? "technician {$back->name}" : 'the technician queue').'.', $by, 'action', 'provisioned');
             $this->notifier->dispatch(NotificationEvent::TicketReturned, $outage, ['reason' => $text, 'queue' => QueueType::VisitTechnician->getLabel()]);
             $this->tellTicketUsers(NotificationEvent::TicketReturned, $outage, [$back?->id], ['reason' => $text]);

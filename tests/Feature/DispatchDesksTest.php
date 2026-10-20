@@ -79,11 +79,23 @@ class DispatchDesksTest extends TestCase
         $this->assertSame(QueueType::VisitDispatch, $visit->current_queue);
         $this->assertSame($second->id, $visit->current_assignee_id, 'back with the dispatcher who dispatched it');
 
-        // Off duty when it comes back: whoever is on duty takes it.
+        // Offline when it comes back: still theirs, accepted, and not taken away by the availability sweep.
         $again = $this->workflow->assignVisit($this->supportVisit($first, 'SF2'), $first, ['technician_id' => $technician->id]);
         $first->forceFill(['availability_status' => AvailabilityStatus::Offline])->save();
         $again = $this->complete($again, $technician);
-        $this->assertSame($second->id, $again->current_assignee_id);
+        $this->assertSame($first->id, $again->current_assignee_id);
+        app(FifoAssignmentEngine::class)->sweepIneligibleAssignees();
+        $this->assertSame($first->id, $again->refresh()->current_assignee_id);
+        $this->assertSame(AssignmentStatus::Accepted, OutageAssignment::query()->where('outage_id', $again->id)->where('user_id', $first->id)->latest('id')->value('status'));
+
+        // On approved leave: whoever is on duty takes it.
+        $first->forceFill(['availability_status' => AvailabilityStatus::Available])->save();
+        $second->forceFill(['availability_status' => AvailabilityStatus::Offline])->save();
+        $third = $this->workflow->assignVisit($this->supportVisit($first, 'SF5'), $first, ['technician_id' => $technician->id]);
+        $second->forceFill(['availability_status' => AvailabilityStatus::Available])->save();
+        $first->leaves()->create(['starts_at' => now()->subHour(), 'ends_at' => now()->addDays(3), 'leave_type' => 'annual', 'status' => 'approved']);
+        $third = $this->complete($third, $technician);
+        $this->assertSame($second->id, $third->current_assignee_id);
     }
 
     public function test_inhouse_shifting_is_a_support_case(): void

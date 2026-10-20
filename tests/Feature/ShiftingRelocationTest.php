@@ -111,6 +111,10 @@ class ShiftingRelocationTest extends TestCase
         $this->assertArrayHasKey($this->technician->id, TicketActions::visitTechnicians($visit));
         $this->assertArrayNotHasKey($plain->id, TicketActions::visitTechnicians($visit));
         $visit = $this->workflow->assignVisit($visit, $this->dispatcher, ['technician_id' => $this->technician->id]);
+        // Others at the same desks, free and with nothing on hand (next in line for FIFO): the visit must still come
+        // back to the technician who handles it, and then to the dispatcher who dispatched it.
+        $this->makeUser('Shifting / Relocation Technician', 'DISPATCH');
+        $this->makeUser('Shifting / Relocation Dispatcher', 'DISPATCH');
         $texts = fn () => NotificationLog::query()->where('outage_id', $visit->id)->where('event', 'ticket_customer_sms')->count();
         $textsWhenAssigned = $texts();
 
