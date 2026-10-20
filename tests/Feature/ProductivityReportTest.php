@@ -190,7 +190,8 @@ class ProductivityReportTest extends TestCase
         $template = EmailTemplate::query()->where('code', 'productivity_daily')->firstOrFail();
         $rendered = app(ScheduledReportService::class)->render($template, now());
         $this->assertStringContainsString('Mon 05 Oct 2026 (to 19:00)', $rendered['subject']);
-        $this->assertStringContainsString($tier2->name, $rendered['html']);
+        // The e-mail is HTML: a name like "O'Keefe" is in it as O&#039;Keefe.
+        $this->assertStringContainsString(e($tier2->name), $rendered['html']);
         $this->assertStringContainsString('Outages (FTTH / core / system)', $rendered['html']);
         $this->assertStringNotContainsString('{{', $rendered['html']);
 
