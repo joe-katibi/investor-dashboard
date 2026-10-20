@@ -561,14 +561,21 @@ class OutagePolicy
         return $outage->isTicket() && ! $outage->is_closed && $outage->current_queue !== null && $outage->current_queue->isTicketing();
     }
 
+    /**
+     * In the field: a site visit at the technician desk, or a visit / customer ticket at Infrastructure Support
+     * technician (escalated there). Site visit technicians need "travel, arrive, pause and complete"; the Infrastructure
+     * Support technician desk is itself enough on its own desk.
+     */
     private function visitInField(User $user, Outage $outage): bool
     {
-        return $outage->isSiteVisit()
+        $infra = $outage->current_queue === QueueType::InfraSupportTechnician;
+
+        return ($outage->isSiteVisit() || ($infra && $outage->isTicket()))
             && ! $outage->is_closed
             && $outage->current_queue !== null
             && $outage->current_queue->isFieldDesk()
             && $outage->ticket?->completed_at === null
-            && $user->can('visit.work');
+            && ($user->can('visit.work') || ($infra && $user->can(QueueType::InfraSupportTechnician->defaultPermission())));
     }
 
     private function interventionRunning(Outage $outage): bool

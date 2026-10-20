@@ -1414,6 +1414,11 @@ trait ManagesTickets
 
         $escalation = $kind === 'route' && $from !== null;
 
+        // Handed to Infrastructure Support technician: their own trip — on the way, at the premise — not the earlier technician's.
+        if ($to === QueueType::InfraSupportTechnician && $from !== $to) {
+            $ticket->forceFill(['en_route_at' => null, 'arrived_at' => null, 'paused_at' => null, 'paused_seconds' => 0]);
+        }
+
         $ticket->forceFill([
             'desk' => $to,
             'desk_since' => $now,
