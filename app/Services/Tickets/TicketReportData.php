@@ -30,7 +30,7 @@ class TicketReportData
     /** Placeholders offered on the e-mail template screen. */
     public const PLACEHOLDERS = [
         'report_time', 'report_date', 'tk_sla_clock', 'tk_period_hours', 'tk_followup_hours', 'tk_pending', 'tk_pending_within', 'tk_pending_at_risk',
-        'tk_pending_breached', 'tk_in_follow_up', 'tk_closed', 'tk_closed_sla_pct', 'tk_headline_table', 'tk_sla_per_department_table',
+        'tk_pending_breached', 'tk_in_follow_up', 'tk_closed', 'tk_closed_sla_pct', 'tk_closed_today', 'tk_headline_table', 'tk_sla_per_department_table',
         'tk_sla_per_olt_table', 'tk_issue_per_olt_table', 'tk_sla_per_region_table', 'tk_follow_up_table', 'tk_closed_table', 'tk_report_title',
         'tk_period_label', 'tk_previous_label', 'tk_movement_table', 'tk_closed_sla_table', 'tk_pending_sla_table', 'tk_inflow_chart_table',
         'tk_sla_chart_table', 'tk_region_table', 'tk_pending_reasons_table', 'tk_trend_table', 'tk_raised', 'tk_raised_table', 'tk_final_reasons_table',
@@ -94,7 +94,9 @@ class TicketReportData
                 ['Breached', $c['breached'], null, $c['breached'] > 0 ? 'bad' : null],
                 ['In follow-up', $c['in_follow_up'], 'ready for credit', $c['in_follow_up'] > 0 ? 'warn' : null],
                 ["Closed ({$periodHours}h)", $c['closed'], $this->metrics->pct($c['closed_pct']).' within SLA'],
+                ['Closed today', $c['closed_today'], $this->metrics->pct($c['closed_today_pct']).' within SLA'],
             ]),
+            'tk_closed_today' => $c['closed_today'],
             'tk_sla_per_department_table' => TicketTables::crosstab($s['by_department'], $tones),
             'tk_sla_per_olt_table' => TicketTables::crosstab($s['by_olt'], $tones),
             'tk_issue_per_olt_table' => TicketTables::crosstab($s['issue_by_olt']),

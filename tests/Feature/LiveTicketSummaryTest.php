@@ -27,6 +27,7 @@ class LiveTicketSummaryTest extends TestCase
         Auth::setUser($agent);
         app(OutageWorkflow::class)->createTicket(['subcategory_id' => TicketSubcategory::query()->where('name', 'Slow Speeds')->value('id'),
             'account_number' => 'SF2659301', 'customer_name' => 'Jane Nakato', 'calling_number' => '0772000001', 'description' => 'Slow'], $agent);
+        $outage = $this->reportOutage($this->makeUser('CX Agent', 'CX'), ['title' => 'Kira FDT 4 down']);
         Auth::logout();
 
         // Off until someone switches it on.
@@ -45,7 +46,12 @@ class LiveTicketSummaryTest extends TestCase
         // Without signing in: the summary, never a customer's name or account.
         $this->app['auth']->forgetGuards();
         $this->get("/live/tickets/{$token}")->assertOk()
-            ->assertSee('Tickets: Pending / SLA')->assertSee('SLA per department')->assertSee('SLA per region')
+            ->assertSee('Executive live summary')
+            // FTTH outages (the open one listed), 4G outages, customer tickets & visits, 4G tickets.
+            ->assertSee('FTTH outages')->assertSee($outage->ticket_number)->assertSee('Kira FDT 4 down')
+            ->assertSee('4G outages')->assertSee('Sites down')
+            ->assertSee('SLA per department')->assertSee('SLA per region')->assertSee('Closed today')
+            ->assertSee('4G tickets')->assertSee('Pending — with whom', false)
             ->assertDontSee('Jane Nakato')->assertDontSee('SF2659301')
             ->assertHeader('X-Robots-Tag', 'noindex, nofollow');
         $this->get('/live/tickets/'.str_repeat('x', 48))->assertNotFound();

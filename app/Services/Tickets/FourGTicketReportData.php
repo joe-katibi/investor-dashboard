@@ -25,6 +25,9 @@ class FourGTicketReportData
         'ticket_4g_update' => 'update', 'ticket_4g_daily' => 'day', 'ticket_4g_weekly' => 'week', 'ticket_4g_monthly' => 'month',
     ];
 
+    /** Since midnight (the executive live page; not an e-mail type). */
+    public const TODAY = 'ticket_4g_today';
+
     /** Placeholders offered on the e-mail template screen. */
     public const PLACEHOLDERS = [
         'report_time', 'report_date', 't4_title', 't4_period_label', 't4_previous_label', 't4_open', 't4_raised', 't4_closed', 't4_closed_sla_pct',
@@ -52,7 +55,11 @@ class FourGTicketReportData
         $now = CarbonImmutable::instance($now);
         $range = fn (CarbonImmutable $a, CarbonImmutable $b) => $a->isSameDay($b) ? $a->format('d M Y H:i').' – '.$b->format('H:i') : $a->format('d M H:i').' – '.$b->format('d M Y H:i');
 
-        switch (self::TYPES[$reportType] ?? 'update') {
+        switch ($reportType === self::TODAY ? 'today' : (self::TYPES[$reportType] ?? 'update')) {
+            case 'today':
+                $from = $now->startOfDay();
+
+                return [$from, $now, 'Today from 00:00', $from->subDay(), $now->subDay(), 'Yesterday to '.$now->format('H:i'), '4G Tickets – Today'];
             case 'week':
                 $from = $now->subWeek()->startOfWeek();
                 $to = $from->endOfWeek();

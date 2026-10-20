@@ -123,6 +123,9 @@ class TicketMetrics
         $pending = $this->pending($now, $filters);
         $closed = $this->closed($now->subHours(max(1, $periodHours)), $now, $filters);
         $measured = $closed->whereIn('result', ['met', 'breached']);
+        // Since midnight, whatever the period of the e-mail.
+        $today = $this->closed($now->startOfDay(), $now, $filters);
+        $todayMeasured = $today->whereIn('result', ['met', 'breached']);
         $tiers = $this->tierLabels();
 
         $issues = $pending->countBy('issue')->sortDesc()->keys();
@@ -145,6 +148,8 @@ class TicketMetrics
                 'closed_met' => $measured->where('result', 'met')->count(),
                 'closed_breached' => $measured->where('result', 'breached')->count(),
                 'closed_pct' => $this->percent($measured->where('result', 'met')->count(), $measured->count()),
+                'closed_today' => $today->count(),
+                'closed_today_pct' => $this->percent($todayMeasured->where('result', 'met')->count(), $todayMeasured->count()),
             ],
             'by_department' => $this->crosstab($pending, 'department', 'tier', $tiers, 'Department'),
             'by_olt' => $this->crosstab($pending, 'olt', 'tier', $tiers, 'OLT'),

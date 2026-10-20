@@ -92,8 +92,8 @@ class TicketDashboard extends Page
 
         return Action::make('liveLink')->label('Live link for management')->icon(Heroicon::OutlinedLink)->color('gray')
             ->visible(fn () => (bool) Auth::user()?->can('templates.manage'))
-            ->modalHeading('Live link: Tickets – Pending / SLA')
-            ->modalDescription('A page that refreshes itself every minute with the pending / SLA summary — figures by department, OLT and region, no customer names or accounts. Anyone with the link can open it without signing in: send it to management only.')
+            ->modalHeading('Live link: executive summary')
+            ->modalDescription('A page that refreshes itself every minute: FTTH outages, 4G outages, customer tickets & site visits (the pending / SLA summary) and 4G tickets — open now and since midnight, no customer names or accounts. Anyone with the link can open it without signing in: send it to management only.')
             ->fillForm(fn () => ['enabled' => $settings->bool('live.tickets_enabled'), 'renew' => false, 'link' => $url()])
             ->schema([
                 TextInput::make('link')->label('Link')->readOnly()->placeholder('Switched off')->copyable(),
