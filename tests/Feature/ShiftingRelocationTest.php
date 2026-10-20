@@ -119,6 +119,12 @@ class ShiftingRelocationTest extends TestCase
         $visit = $this->workflow->visitArrive($visit, $this->technician);
         $this->assertTrue($this->technician->can('visitProvisionRequest', $visit));
 
+        // Pause and resume, like any technician (without the "Shifting / Relocation visits" tick: the desk is enough).
+        $visit = $this->workflow->visitPause($visit, $this->technician, 'Waiting for the customer to open the gate');
+        $this->assertNotNull($this->details($visit)->paused_at);
+        $visit = $this->workflow->visitResume($visit, $this->technician);
+        $this->assertNull($this->details($visit)->paused_at);
+
         // The speed tests and the smart-device photo wait for the NOC.
         $this->assertSame(['speed_test', 'devices_ok'], VisitPhotos::locked($visit));
         $this->workflow->addVisitPhotos($visit, $this->technician, $this->photosBeforeProvisioning());
