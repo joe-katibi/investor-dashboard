@@ -863,7 +863,7 @@ final class OutageActions
         }
 
         return User::permission(EligibilityEvaluator::deskPermissions($type, $outage))
-            ->when($alsoPermission, fn ($q, string $permission) => $q->whereIn('id', User::permission($permission)->select('id')))
+            ->when($alsoPermission, fn ($q, string $permission) => $q->whereIn('id', User::permission(EligibilityEvaluator::satisfiedBy($permission))->select('id')))
             ->active()
             ->withCount('activeAssignments')
             ->orderBy('name')

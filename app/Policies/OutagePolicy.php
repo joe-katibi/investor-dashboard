@@ -433,7 +433,9 @@ class OutagePolicy
     {
         $needs = EligibilityEvaluator::visitDispatcherPermission($outage);
 
+        // A shifting visit: "Dispatch Shifting / Relocation visits", or working the Shifting Dispatch desk, or holding it.
         return $user->can('visit.dispatch') && ($needs === null || $user->can($needs)
+            || $user->can(QueueType::ShiftingDispatch->defaultPermission())
             || ($outage->current_queue?->isVisitDispatch() && (int) $outage->current_assignee_id === (int) $user->id));
     }
 

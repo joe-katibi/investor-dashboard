@@ -451,7 +451,7 @@ final class TicketActions
                 TextInput::make('landmark')->label('Landmark')->maxLength(250),
                 Select::make('dispatcher_id')->label('Dispatcher of the new area (optional)')->searchable()
                     ->placeholder('Automatic — the next available dispatcher of the region (FIFO)')
-                    ->options(fn (Outage $record) => self::deskUsers(EligibilityEvaluator::visitDispatchDesk($record), EligibilityEvaluator::visitDispatcherPermission($record))),
+                    ->options(fn (Outage $record) => self::deskUsers($desk = EligibilityEvaluator::visitDispatchDesk($record), EligibilityEvaluator::visitPermission($record, $desk))),
                 Textarea::make('note')->label('Note (optional)')->rows(2)->maxLength(2000),
             ])
             ->action(fn (Outage $record, array $data) => OutageActions::run($record, fn () => app(OutageWorkflow::class)->relocateVisit($record, Auth::user(), $data),
@@ -696,7 +696,7 @@ final class TicketActions
     public static function deskUsers(QueueType $desk, ?string $alsoPermission = null, ?Outage $outage = null): array
     {
         return User::permission(EligibilityEvaluator::deskPermissions($desk, $outage))
-            ->when($alsoPermission, fn ($q, string $permission) => $q->whereIn('id', User::permission($permission)->select('id')))
+            ->when($alsoPermission, fn ($q, string $permission) => $q->whereIn('id', User::permission(EligibilityEvaluator::satisfiedBy($permission))->select('id')))
             ->active()
             ->with('teams:id,name')
             ->withCount('activeAssignments')

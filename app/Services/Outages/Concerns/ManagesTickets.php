@@ -1471,7 +1471,7 @@ trait ManagesTickets
 
         $needs = EligibilityEvaluator::visitPermission($outage, $to);
 
-        return $needs === null || $user->can($needs) ? $user : null;
+        return EligibilityEvaluator::allows($user, $needs) ? $user : null;
     }
 
     /** The desk that handed the ticket to where it is now (and who did). */
@@ -1803,7 +1803,7 @@ trait ManagesTickets
         }
 
         // A visit kept for some technicians / dispatchers (Shifting / Relocation) goes only to them.
-        if ($outage && ($needs = EligibilityEvaluator::visitPermission($outage, $desk)) && ! $user->can($needs)) {
+        if ($outage && ($needs = EligibilityEvaluator::visitPermission($outage, $desk)) && ! EligibilityEvaluator::allows($user, $needs)) {
             throw ValidationException::withMessages([$desk === QueueType::VisitTechnician ? 'technician_id' : 'user_id' => "{$user->name} does not do this kind of visit: it needs “".Permissions::label($needs).'”.']);
         }
 

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\QueueType;
 use App\Enums\StatusCode;
 use App\Filament\Resources\SiteVisits\Pages\ViewSiteVisit;
+use App\Filament\Resources\Tickets\TicketActions;
 use App\Models\FinalReason;
 use App\Models\NotificationLog;
 use App\Models\Outage;
@@ -23,6 +24,8 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
+use Spatie\Permission\Models\Role;
+use Spatie\Permission\PermissionRegistrar;
 use Tests\Concerns\BuildsOmsFixtures;
 use Tests\TestCase;
 
@@ -51,6 +54,12 @@ class ShiftingRelocationTest extends TestCase
         Mail::fake();
         Storage::fake('local');
         $this->workflow = app(OutageWorkflow::class);
+        // As on the production server: the role works the Shifting Dispatch desk without "Dispatch Shifting / Relocation
+        // visits" ticked — the desk alone lets them dispatch, verify and close shifting visits.
+        Role::findByName('Shifting / Relocation Dispatcher', 'web')->revokePermissionTo('visit.dispatch_shifting');
+        // The same for technicians: the Shifting technician desk alone lets them be given shifting visits.
+        Role::findByName('Shifting / Relocation Technician', 'web')->revokePermissionTo('visit.work_shifting');
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
         $this->dispatcher = $this->makeUser('Shifting / Relocation Dispatcher', 'DISPATCH');
         $this->technician = $this->makeUser('Shifting / Relocation Technician', 'DISPATCH', attributes: ['phone' => '0700555666']);
         $this->noc = $this->makeUser('NOC Tier II', 'NOC');
@@ -94,7 +103,14 @@ class ShiftingRelocationTest extends TestCase
     public function test_the_noc_provisions_before_the_speed_tests_and_the_visit_goes_back_to_the_same_technician(): void
     {
         $fieldSupport = $this->makeUser('CX Field Support', 'CX');
-        $visit = $this->workflow->assignVisit($this->shifting(), $this->dispatcher, ['technician_id' => $this->technician->id]);
+        $plain = $this->makeUser('Site Visit Technician', 'DISPATCH');
+        $visit = $this->shifting();
+
+        // The dispatcher may assign it, and is offered the shifting technicians (not the others).
+        $this->assertTrue($this->dispatcher->can('visitAssign', $visit));
+        $this->assertArrayHasKey($this->technician->id, TicketActions::visitTechnicians($visit));
+        $this->assertArrayNotHasKey($plain->id, TicketActions::visitTechnicians($visit));
+        $visit = $this->workflow->assignVisit($visit, $this->dispatcher, ['technician_id' => $this->technician->id]);
         $texts = fn () => NotificationLog::query()->where('outage_id', $visit->id)->where('event', 'ticket_customer_sms')->count();
         $textsWhenAssigned = $texts();
 

@@ -65,7 +65,7 @@ final class Permissions
             'ticket.approve' => 'Approve / decline refund, credit and billing requests',
             'visit.create' => 'Raise and schedule site visits',
             'visit.dispatch' => 'Dispatch site visits: assign technicians, reschedule, escalate and verify',
-            'visit.dispatch_shifting' => 'Dispatch Shifting / Relocation visits (only dispatchers with this are given them)',
+            'visit.dispatch_shifting' => 'Dispatch Shifting / Relocation visits: assign, reschedule, relocate, verify and close them (the Shifting Dispatch desk gives this too)',
             'visit.work' => 'Technician: travel, arrive, pause and complete site visits',
             'visit.work_shifting' => 'Technician: Shifting / Relocation visits (only technicians with this are given them)',
             'ticket.override' => 'Assign / reassign and override FIFO on customer tickets and site visits',

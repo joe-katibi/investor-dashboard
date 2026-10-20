@@ -13,6 +13,7 @@ use App\Models\OutageType;
 use App\Models\Team;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Models\VisitType;
 use App\Support\Permissions;
 use App\Support\Settings;
 use Carbon\CarbonImmutable;
@@ -211,7 +212,7 @@ class EligibilityEvaluator
 
         // Site visits of a kind kept for some technicians / dispatchers (Shifting / Relocation): only they get them.
         if ($outage && ($needs = self::visitPermission($outage, $entry->queue_type))) {
-            $checks['visit_type'] = $this->check('Visit type', $user->checkPermissionTo($needs), Permissions::label($needs));
+            $checks['visit_type'] = $this->check('Visit type', self::allows($user, $needs), Permissions::label($needs));
         }
 
         // Customer tickets / site visits: people locked to regions only get tickets of those regions.
@@ -278,6 +279,27 @@ class EligibilityEvaluator
         return $permissions;
     }
 
+    /**
+     * What satisfies a kind-of-visit permission: the permission itself, or working the matching Shifting desk
+     * ("Shifting / Relocation Technician" / "… Dispatcher" roles may have the desk without the extra tick).
+     *
+     * @return list<string>
+     */
+    public static function satisfiedBy(string $needs): array
+    {
+        return match ($needs) {
+            VisitType::SHIFTING_PERMISSION => [$needs, self::SHIFTING_TECHNICIAN_DESK],
+            VisitType::SHIFTING_DISPATCH_PERMISSION => [$needs, QueueType::ShiftingDispatch->defaultPermission()],
+            default => [$needs],
+        };
+    }
+
+    /** Whether someone may be given / act on this kind of visit ($needs from visitPermission(); null = anyone at the desk). */
+    public static function allows(User $user, ?string $needs): bool
+    {
+        return $needs === null || collect(self::satisfiedBy($needs))->contains(fn (string $permission) => $user->checkPermissionTo($permission));
+    }
+
     /** The dispatch desk of a site visit: Shifting Dispatch for a visit kept for some dispatchers (Shifting), else Site Visit Dispatch. */
     public static function visitDispatchDesk(Outage $outage): QueueType
     {
@@ -289,7 +311,8 @@ class EligibilityEvaluator
     {
         return match ($desk) {
             QueueType::VisitTechnician => self::visitTechnicianPermission($outage),
-            QueueType::VisitDispatch, QueueType::ShiftingDispatch => self::visitDispatcherPermission($outage),
+            QueueType::VisitDispatch => self::visitDispatcherPermission($outage),
+            // Working the Shifting Dispatch desk is itself the right to dispatch, verify and close shifting visits.
             default => null,
         };
     }
