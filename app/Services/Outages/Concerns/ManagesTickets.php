@@ -36,6 +36,7 @@ use App\Models\Vertical;
 use App\Models\VisitType;
 use App\Services\Fifo\EligibilityEvaluator;
 use App\Services\Geo\PhotoLocation;
+use App\Services\Notifications\NotificationDispatcher;
 use App\Services\Notifications\Sms\PhoneNumber;
 use App\Services\Tickets\OutageLocator;
 use App\Support\AuditContext;
@@ -794,6 +795,37 @@ trait ManagesTickets
     }
 
     // ------------------------------------------------------------------ close / cancel / reopen
+
+    /**
+     * Close an old ticket or visit from a clean-up list (oms:close-historical), wherever it is: its queues, assignments
+     * and SLA timers end as on any close, with the given final reason. A visit counts as confirmed now, so its 72-hour
+     * follow-up call comes due as usual; closing a visit closes the customer ticket it was raised from. Nothing is sent
+     * when run inside NotificationDispatcher::quietly().
+     */
+    public function closeHistorical(Outage $outage, User $by, FinalReason $reason, string $note): Outage
+    {
+        $result = DB::transaction(function () use ($outage, $by, $reason, $note): Outage {
+            $outage = $this->lock($outage);
+
+            if ($outage->is_closed || ! $outage->isTicket()) {
+                return $outage;
+            }
+
+            $ticket = $this->ticketOf($outage);
+            $ticket->forceFill([
+                'final_reason_id' => $reason->id,
+                'resolution_notes' => $note,
+                'customer_confirmed' => true,
+            ] + ($outage->isSiteVisit() ? ['confirmed_at' => now(), 'confirmed_by' => $by->id] : []))->save();
+
+            $this->finishTicket($outage, $ticket, $by, $outage->isSiteVisit() ? StatusCode::VisitClosed : StatusCode::TicketClosed, "{$reason->name}: {$note}");
+            $this->closeFourGVendor($outage);
+
+            return $outage->refresh();
+        });
+
+        return $result->refresh();
+    }
 
     /**
      * Close a ticket at its desk with a final reason (customer tickets; and site visits closed by
@@ -1584,7 +1616,7 @@ trait ManagesTickets
         $settings = app(Settings::class);
         $template = trim((string) $settings->get($templateKey));
 
-        if (! $settings->bool('ticketing.sms_customer') || $template === '') {
+        if (! $settings->bool('ticketing.sms_customer') || $template === '' || NotificationDispatcher::muted()) {
             return 0;
         }
 

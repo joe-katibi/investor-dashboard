@@ -27,7 +27,35 @@ class NotificationDispatcher
 {
     public const RULES_CACHE_KEY = 'oms.notification-rules';
 
+    /** While true, nothing is sent: no e-mail, SMS or in-app notification (a bulk clean-up of old records). */
+    private static bool $muted = false;
+
     public function __construct(private readonly NotificationMessageFactory $messages) {}
+
+    /**
+     * Run without telling anyone (customers, staff, alert lists): for closing old records in bulk.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $callback
+     * @return T
+     */
+    public static function quietly(callable $callback): mixed
+    {
+        $previous = self::$muted;
+        self::$muted = true;
+
+        try {
+            return $callback();
+        } finally {
+            self::$muted = $previous;
+        }
+    }
+
+    public static function muted(): bool
+    {
+        return self::$muted;
+    }
 
     /** Fire configured notification rules for an outage event. */
     public function dispatch(NotificationEvent $event, Outage $outage, array $context = []): void
@@ -72,6 +100,10 @@ class NotificationDispatcher
      */
     private function deliverToAlertList(NotificationEvent $event, Outage $outage, array $context, array &$seen): void
     {
+        if (self::$muted) {
+            return;
+        }
+
         // Tickets of custom workflows have no alert list: their team, the raiser and the notification rules are told.
         if ($outage->isCustomFlow()) {
             return;
@@ -190,7 +222,7 @@ class NotificationDispatcher
     /** @param array<string, bool> $seen channel|address pairs already notified for this event */
     private function deliver(NotificationEvent $event, Outage $outage, array $channels, Collection $recipients, array $context, ?int $ruleId = null, array &$seen = []): void
     {
-        if ($recipients->isEmpty() || $channels === []) {
+        if (self::$muted || $recipients->isEmpty() || $channels === []) {
             return;
         }
 
