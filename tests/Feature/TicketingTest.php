@@ -701,7 +701,7 @@ class TicketingTest extends TestCase
         $billing = $this->makeUser('Billing Agent', 'BILLING');
         app(Settings::class)->set(['ticketing.confirm_closure' => false]);
 
-        $closed = $this->workflow->closeTicket($this->ticket('Wrong bill / double charge'), $billing, ['final_reason_id' => $this->reason('Billing query resolved')]);
+        $this->workflow->closeTicket($this->ticket('Wrong bill / double charge'), $billing, ['final_reason_id' => $this->reason('Billing query resolved')]);
         $this->ticket('Slow Speeds', ['account_number' => 'SF31']);
         $visit = $this->workflow->assignVisit($this->visit(), $dispatcher, ['technician_id' => $technician->id]);
 
@@ -731,10 +731,18 @@ class TicketingTest extends TestCase
         $service = app(ScheduledReportService::class);
         EmailTemplate::query()->where('code', 'ticket_pending_update')->update(['period_hours' => 6]);
         $pending = $service->render(EmailTemplate::query()->where('code', 'ticket_pending_update')->firstOrFail(), now());
-        $this->assertStringContainsString('SLA PER DEPARTMENT', $pending['html']);
-        $this->assertStringContainsString('CX Tier II', $pending['html']);
-        $this->assertStringContainsString($closed->ticket_number, $pending['html']);
-        $this->assertStringNotContainsString('{{', $pending['html']);
+        // Laid out as the executive live page: outages, customer tickets and site visits apart, 4G tickets.
+        $html = $pending['html'];
+        foreach (['FTTH OUTAGES', '4G OUTAGES', 'CUSTOMER TICKETS (FTTH)', 'SITE VISITS', '4G TICKETS', 'Pending — with whom'] as $section) {
+            $this->assertStringContainsString($section, $html);
+        }
+
+        $this->assertLessThan(strpos($html, 'SITE VISITS'), strpos($html, 'CUSTOMER TICKETS (FTTH)'));
+        $this->assertStringContainsString('SLA per department', $html);
+        $this->assertStringContainsString('CX Tier II', $html);
+        $this->assertStringContainsString('in the last 6 hours', $html);
+        $this->assertStringContainsString('Closed today', $html);
+        $this->assertStringNotContainsString('{{', $html);
 
         foreach (['ticket_daily_report', 'ticket_weekly_report', 'ticket_monthly_report'] as $code) {
             $rendered = $service->render(EmailTemplate::query()->where('code', $code)->firstOrFail(), now());

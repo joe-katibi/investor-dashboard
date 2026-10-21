@@ -356,7 +356,7 @@ TXT;
             'body' => self::TICKET_PENDING_BODY,
             'attach_excel' => true,
             'is_active' => false,
-            'description' => 'Every 3 hours, 07:00–19:00: pending tickets by SLA per department, OLT and region, issues per OLT, tickets in customer follow-up and what was closed. Pending list attached.',
+            'description' => 'Every 3 hours, 07:00–19:00: the executive live summary — FTTH and 4G outages, customer tickets and site visits against the SLA (per department, OLT and region, issues per OLT, closed), 4G tickets. Pending list attached.',
         ]);
 
         $this->seedTemplate('ticket_daily_report', [
@@ -399,7 +399,57 @@ TXT;
         ]);
     }
 
+    /** The Pending / SLA update laid out as the executive live page (Customer Care dashboard → Live link for management). */
     public const TICKET_PENDING_BODY = <<<'TXT'
+Hello Team,
+
+Executive summary as at **{{report_time}}, {{report_date}}** — the same figures as the live executive page.
+
+**FTTH OUTAGES** — network, core and system, open now; new and restored since midnight
+{{ex_ftth_tiles_table}}
+**Active outages**
+{{ex_ftth_outages_table}}
+
+**4G OUTAGES** — open now; new and restored since midnight
+{{ex_4g_outage_tiles_table}}
+**Active 4G outages**
+{{ex_4g_outages_table}}
+
+**CUSTOMER TICKETS (FTTH)** — pending against the SLA. SLA clock: {{ct_sla_clock}}
+{{ct_headline_table}}
+**SLA per department** (pending, by how long they have been open)
+{{ct_sla_per_department_table}}
+**SLA per OLT**
+{{ct_sla_per_olt_table}}
+**Issue per OLT**
+{{ct_issue_per_olt_table}}
+**SLA per region**
+{{ct_sla_per_region_table}}
+**Closed:** {{ct_closed}} in the last {{ct_period_hours}} hours ({{ct_closed_sla_pct}} within SLA) · {{ct_closed_today}} today.
+
+**SITE VISITS** — pending against the SLA. SLA clock: {{sv_sla_clock}}
+{{sv_headline_table}}
+**SLA per department** (pending, by how long they have been open)
+{{sv_sla_per_department_table}}
+**SLA per OLT**
+{{sv_sla_per_olt_table}}
+**Issue per OLT**
+{{sv_issue_per_olt_table}}
+**SLA per region**
+{{sv_sla_per_region_table}}
+**Closed:** {{sv_closed}} in the last {{sv_period_hours}} hours ({{sv_closed_sla_pct}} within SLA) · {{sv_closed_today}} today.
+
+**4G TICKETS** — open now; raised and closed since midnight
+{{ex_4g_ticket_tiles_table}}
+**Pending — with whom**
+{{ex_4g_tickets_pending_table}}
+
+Regards,
+Customer Care / Outage Management System
+TXT;
+
+    /** The Pending / SLA update body before it followed the executive live page (kept to recognise an unedited template). */
+    public const TICKET_PENDING_BODY_V1 = <<<'TXT'
 Hello Team,
 
 Ticket status as at **{{report_time}}, {{report_date}}**. SLA clock: {{tk_sla_clock}}.

@@ -26,7 +26,8 @@ class QueueDefinitionSeeder extends Seeder
             [QueueType::ItConfirmation, 'IT Confirmation Queue', 'IT', 15],
             [QueueType::CxNotify, 'CX Customer Notification Queue', 'CX', 30],
         ] as [$type, $name, $departmentCode, $ack]) {
-            QueueDefinition::query()->updateOrCreate(['queue_type' => $type->value, 'name' => $name], [
+            // firstOrCreate: queues are edited on screen (timeouts, mode) and must survive re-seeding on deploy.
+            QueueDefinition::query()->firstOrCreate(['queue_type' => $type->value, 'name' => $name], [
                 'department_id' => $department[$departmentCode] ?? null,
                 'required_permission' => $type->defaultPermission(),
                 'assignment_mode' => 'auto',

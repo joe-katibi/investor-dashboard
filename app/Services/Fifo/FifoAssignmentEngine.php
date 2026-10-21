@@ -435,8 +435,10 @@ class FifoAssignmentEngine
             $user = $assignment->user;
             $reason = match (true) {
                 ! $user || ! $user->is_active => 'User deactivated',
-                $this->settings->bool('fifo.require_availability') && $user->availability_status !== AvailabilityStatus::Available && $user->availability_status !== AvailabilityStatus::Busy => 'User became '.$user->availability_status->getLabel(),
                 $this->settings->bool('fifo.exclude_on_leave') && $user->leaves->isNotEmpty() => 'User is on leave',
+                // Given to them by a person (dispatcher, manager): theirs while away or off shift — it waits in My Work.
+                ! $this->releasedWhenAway($assignment) => null,
+                $this->settings->bool('fifo.require_availability') && $user->availability_status !== AvailabilityStatus::Available && $user->availability_status !== AvailabilityStatus::Busy => 'User became '.$user->availability_status->getLabel(),
                 $this->settings->bool('fifo.respect_shift') && $user->shiftAssignments->isEmpty() => 'User shift ended',
                 default => null,
             };
@@ -723,7 +725,7 @@ class FifoAssignmentEngine
             if (! in_array($status, [AvailabilityStatus::Available, AvailabilityStatus::Busy], true) && $mode !== 'none') {
                 $statuses = $mode === 'all' ? AssignmentStatus::activeValues() : [AssignmentStatus::Assigned->value];
 
-                foreach ($user->assignments()->whereIn('status', $statuses)->get() as $assignment) {
+                foreach ($user->assignments()->whereIn('status', $statuses)->get()->filter(fn (OutageAssignment $a) => $this->releasedWhenAway($a)) as $assignment) {
                     $this->release($assignment, 'User became '.$status->getLabel(), $by);
                 }
             }
@@ -975,8 +977,22 @@ class FifoAssignmentEngine
         ]);
     }
 
+    /**
+     * Whether an assignment goes back to the queue when its holder is away, offline or off shift: only what the FIFO
+     * engine handed out. A ticket a dispatcher or manager gave someone (often a visit for later) stays theirs.
+     */
+    private function releasedWhenAway(OutageAssignment $assignment): bool
+    {
+        return $assignment->assignment_type === AssignmentType::AutoFifo;
+    }
+
     private function ackTimeoutMinutes(OutageQueueEntry $entry, Outage $outage): int
     {
+        // Site visit and Shifting / Relocation technicians: always the time set in FIFO Settings.
+        if ($entry->queue_type === QueueType::VisitTechnician) {
+            return $this->settings->int('fifo.ack_timeout_minutes');
+        }
+
         return (int) ($outage->slaPolicy?->ack_timeout_minutes
             ?? $entry->queueDefinition?->ack_timeout_minutes
             ?? $this->settings->int('fifo.ack_timeout_minutes'));

@@ -113,7 +113,8 @@ class WorkflowConfiguration extends Page
                 Select::make('team_id')->label('Only people of this team (and its sub-teams)')->placeholder('Any team')
                     ->options(fn () => Team::query()->active()->orderBy('name')->pluck('name', 'id'))->searchable(),
                 TextInput::make('ack_timeout_minutes')->label('Time to accept (minutes)')->numeric()->minValue(0)->maxValue(10080)
-                    ->placeholder('Global setting')->helperText('Not accepted in time: the ticket goes to the next person. 0 = no limit; empty = the global setting.'),
+                    ->placeholder('Global setting')->helperText('Not accepted in time: the ticket goes to the next person. 0 = no limit; empty = the global setting. '
+                        .'Site Visit Technician (site visit and Shifting / Relocation technicians) always has the time in FIFO & SLA Settings.'),
                 TextInput::make('escalate_after_attempts')->label('Escalate after this many rejections / time-outs')->numeric()->minValue(0)->maxValue(50)->required(),
                 TextInput::make('target_minutes')->label('Desk SLA target (minutes)')->numeric()->minValue(0)->maxValue(100000)->required()
                     ->helperText('How long a ticket may wait at this step before the step acts on it. 0 = no target.'),

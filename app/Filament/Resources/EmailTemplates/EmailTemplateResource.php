@@ -7,6 +7,7 @@ use App\Filament\Resources\EmailTemplates\Pages\ManageEmailTemplates;
 use App\Filament\Support\AuditFields;
 use App\Jobs\SendScheduledReportJob;
 use App\Models\EmailTemplate;
+use App\Services\Reports\ExecutiveLiveSummary;
 use App\Services\Reports\ProductivityReport;
 use App\Services\Reports\ScheduledReportService;
 use App\Services\Reports\TemplateRenderer;
@@ -99,7 +100,8 @@ class EmailTemplateResource extends Resource
                         '4G power outage, 4G vendor ticket, closed 4G outage) with item keys <code>'.e(implode(', ', TemplateRenderer::MOBILITY_ITEM_KEYS)).'</code>. '.
                         '4G values: <code>'.e(implode(', ', TemplateRenderer::mobilityPlaceholders())).'</code><br>'.
                         '<strong>Customer tickets</strong> (report types “Tickets: …”): <code>'.e(implode(', ', TicketReportData::PLACEHOLDERS)).'</code>. '.
-                        'Everything ending in <code>_table</code> is a ready-made table or chart; “Attach … Excel” attaches the list of pending tickets.<br>'.
+                        'Everything ending in <code>_table</code> is a ready-made table or chart; “Attach … Excel” attaches the list of pending tickets. '.
+                        'The executive live summary in the same e-mail: <code>'.e(implode(', ', ExecutiveLiveSummary::PLACEHOLDERS)).'</code>.<br>'.
                         '<strong>4G tickets</strong> (report types “4G Tickets: …”): <code>'.e(implode(', ', FourGTicketReportData::PLACEHOLDERS)).'</code>. '.
                         '“Attach … Excel” attaches the register of the period.<br>'.
                         '<strong>Staff productivity</strong> (report types “Staff Productivity: …”): <code>'.e(implode(', ', ProductivityReport::PLACEHOLDERS)).'</code>. '.

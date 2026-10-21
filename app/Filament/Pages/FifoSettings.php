@@ -115,7 +115,7 @@ class FifoSettings extends Page
 
             Section::make('Acknowledgement, rejection & timeout')->schema([
                 TextInput::make($key('fifo.ack_timeout_minutes'))->label('Default acknowledgement timeout (minutes)')->numeric()->minValue(0)
-                    ->helperText('Overridden per queue and per SLA policy. 0 = no timeout.'),
+                    ->helperText('Overridden per queue and per SLA policy — except site visit and Shifting / Relocation technicians, who always have this time. 0 = no timeout.'),
                 TextInput::make($key('fifo.escalate_after_attempts'))->label('Escalate after N rejections / timeouts')->numeric()->minValue(0),
                 TextInput::make($key('fifo.reopen_waiting_minutes'))->label('Offer waiting tickets to everyone again after (minutes)')->numeric()->minValue(0)
                     ->helperText('Someone who lets a ticket time out or turns it down is not offered it again — when everyone at the desk has, it waits. After this many minutes it is offered to all of them again. 0 = never.'),

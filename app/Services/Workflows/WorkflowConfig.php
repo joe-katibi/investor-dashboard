@@ -95,7 +95,8 @@ class WorkflowConfig
                 'department' => $definition?->department?->name,
                 'team' => $definition?->team?->name,
                 'mode' => $desk ? ($definition?->isManual() ? 'Manual (a manager assigns)' : 'Automatic FIFO') : null,
-                'ack' => $desk ? ($definition?->ack_timeout_minutes ?? $this->settings->int('fifo.ack_timeout_minutes')) : null,
+                'ack' => $desk ? ($desk === Q::VisitTechnician ? $this->settings->int('fifo.ack_timeout_minutes')
+                    : ($definition?->ack_timeout_minutes ?? $this->settings->int('fifo.ack_timeout_minutes'))) : null,
                 'attempts' => $desk ? ($definition?->escalate_after_attempts ?: $this->settings->int('fifo.escalate_after_attempts')) : null,
                 'target' => $desk ? ($targets[$desk->value] ?? 0) : null,
                 'more_queues' => $desk ? max(0, QueueDefinition::query()->active()->where('queue_type', $desk->value)->count() - 1) : 0,

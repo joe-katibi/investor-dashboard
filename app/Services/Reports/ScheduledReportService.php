@@ -104,6 +104,11 @@ class ScheduledReportService
             default => $this->snapshot->build($this->periodStart($template, $now), $now),
         };
 
+        // The Pending / SLA update laid out as the executive live page: outages, tickets and visits apart, 4G tickets.
+        if (TicketReportData::handles($template->report_type) && ExecutiveLiveSummary::usedIn($template->body)) {
+            $data += app(ExecutiveLiveSummary::class)->placeholders(CarbonImmutable::instance($now), max(1, (int) $template->period_hours));
+        }
+
         return [
             'subject' => Str::limit(trim($this->renderer->renderText($template->subject, $data)), 250),
             'html' => $this->renderer->render($template->body, $data),

@@ -25,14 +25,54 @@ class ExecutiveLiveSummary
         private readonly FourGTicketReportData $fourGTickets,
     ) {}
 
+    /**
+     * The same summary as placeholders of the Pending / SLA e-mail (report type ticket_pending): ex_* the outage and
+     * 4G ticket parts, ct_* customer tickets (FTTH) and sv_* site visits, each as the tk_* values of the ticket e-mail.
+     */
+    public const PLACEHOLDERS = [
+        'ex_ftth_tiles_table', 'ex_ftth_outages_table', 'ex_4g_outage_tiles_table', 'ex_4g_outages_table', 'ex_4g_ticket_tiles_table',
+        'ex_4g_tickets_pending_table', 'ct_sla_clock', 'ct_period_hours', 'ct_closed', 'ct_closed_sla_pct', 'ct_closed_today', 'ct_headline_table',
+        'ct_sla_per_department_table', 'ct_sla_per_olt_table', 'ct_issue_per_olt_table', 'ct_sla_per_region_table', 'sv_… (the same as ct_…)',
+    ];
+
+    /** Whether an e-mail body uses the executive placeholders (they are only worked out then). */
+    public static function usedIn(?string $body): bool
+    {
+        return (bool) preg_match('/\{\{\s*(ex|ct|sv)_/i', (string) $body);
+    }
+
+    /** @return array<string, scalar> the placeholders above, for an e-mail sent at $now covering the last $hours */
+    public function placeholders(?CarbonImmutable $now = null, ?int $hours = null): array
+    {
+        $live = $this->build($now, $hours);
+        $data = [
+            'ex_ftth_tiles_table' => $live['ftth']['tiles'],
+            'ex_ftth_outages_table' => $live['ftth']['table'],
+            'ex_4g_outage_tiles_table' => $live['mobility_tiles'],
+            'ex_4g_outages_table' => $live['mobility_table'],
+            'ex_4g_ticket_tiles_table' => $live['fourg_tiles'],
+            'ex_4g_tickets_pending_table' => $live['fourg_pending'],
+        ];
+
+        foreach (['ct' => 'tickets', 'sv' => 'visits'] as $prefix => $part) {
+            foreach ($live['ticket_parts'][$part] as $key => $value) {
+                if (str_starts_with($key, 'tk_')) {
+                    $data[$prefix.substr($key, 2)] = $value;
+                }
+            }
+        }
+
+        return $data;
+    }
+
     /** @return array<string, mixed> values for resources/views/live/tickets.blade.php */
-    public function build(?CarbonImmutable $now = null): array
+    public function build(?CarbonImmutable $now = null, ?int $hours = null): array
     {
         $now ??= CarbonImmutable::now();
         $today = $now->startOfDay();
 
         // Customer tickets: "Closed in the last N hours" is the period of the e-mail of the same name.
-        $hours = max(1, (int) (EmailTemplate::query()->where('report_type', 'ticket_pending')->orderByDesc('is_active')->value('period_hours') ?: 3));
+        $hours = max(1, $hours ?? (int) (EmailTemplate::query()->where('report_type', 'ticket_pending')->orderByDesc('is_active')->value('period_hours') ?: 3));
         // Customer tickets and site visits each on their own, in the same layout — FTTH: 4G tickets have their own section.
         $ftth = array_filter([Vertical::idFor(Vertical::FTTH)]);
         $part = fn (string $kind) => array_intersect_key($this->tickets->build('ticket_pending', $now, $hours, ['kind' => $kind, 'vertical_ids' => $ftth]), array_flip([
