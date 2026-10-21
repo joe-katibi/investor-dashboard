@@ -103,9 +103,10 @@ class OnuProvisioningTest extends TestCase
         $visit = $this->onSite('Faulty ONU');
         $texts = NotificationLog::query()->where('outage_id', $visit->id)->where('event', 'ticket_customer_sms')->count();
 
-        $this->assertTrue(VisitPhotos::onuChange($visit));
-        $this->assertSame(['geo_photo', 'onu_mac', 'speed_test', 'devices_ok'], array_keys(VisitPhotos::of($visit)));
-        $this->assertSame(['speed_test', 'devices_ok'], VisitPhotos::locked($visit));
+        // An ONU issue asks about the ONU but does not decide it: the technician does.
+        $this->assertTrue(VisitPhotos::asksOnu($visit));
+        $this->assertFalse(VisitPhotos::onuChange($visit));
+        $this->assertSame([], VisitPhotos::locked($visit));
 
         // The MAC address photo is required to ask for provisioning.
         try {
@@ -117,6 +118,10 @@ class OnuProvisioningTest extends TestCase
 
         $visit = $this->workflow->requestProvisioning($visit, $this->technician, 'New ONU HWTC5678', ['onu_mac' => $this->photo('mac.jpg'), 'onu_mac_name' => 'mac.jpg']);
         $this->assertSame(QueueType::TicketNoc, $visit->current_queue);
+        // A new ONU went in: its MAC address and the smart devices are photographed; speed tests after the NOC.
+        $this->assertTrue(VisitPhotos::onuChange($visit));
+        $this->assertSame(['geo_photo', 'onu_mac', 'speed_test', 'devices_ok'], array_keys(VisitPhotos::of($visit)));
+        $this->assertSame(['speed_test', 'devices_ok'], VisitPhotos::locked($visit));
         $this->assertNotNull(VisitPhotos::taken($visit)['onu_mac']);
 
         $visit = $this->workflow->confirmProvisioning($visit, $this->noc, 'ONU provisioned');
@@ -142,10 +147,22 @@ class OnuProvisioningTest extends TestCase
         $this->assertSame(StatusCode::VisitClosed->value, $visit->status->code, 'the NOC step is not an escalation');
     }
 
+    public function test_a_faulty_onu_fixed_with_the_customers_own_onu_completes_without_the_noc(): void
+    {
+        $visit = $this->onSite('Faulty ONU');
+
+        $visit = $this->workflow->completeVisit($visit, $this->technician, ['final_reason_id' => $this->reason('ONU reset / configured'), 'resolution_notes' => 'Reset and reconfigured',
+            'fat_number' => 'FAT-1', 'onu_status' => 'existing', 'geo_photo' => $this->photo('geo.jpg'), 'speed_photo' => $this->photo('speed.jpg')]);
+        $this->assertSame(QueueType::VisitDispatch, $visit->current_queue);
+        $this->assertSame('existing', $this->details($visit)->onu_status);
+        $this->assertNull($this->details($visit)->provisioned_at, 'no NOC step');
+    }
+
     public function test_a_support_visit_with_the_existing_onu_completes_as_before(): void
     {
         $visit = $this->onSite('LOS Flashing Red');
 
+        $this->assertFalse(VisitPhotos::asksOnu($visit), 'not an ONU issue: the ONU question is not asked');
         $this->assertFalse(VisitPhotos::onuChange($visit));
         $this->assertSame(['geo_photo', 'speed_test'], array_keys(VisitPhotos::of($visit)));
 

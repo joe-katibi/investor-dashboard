@@ -1345,9 +1345,9 @@ times, or cron), reporting period, TO, CC, subject, body, optional Excel attachm
 **Live link for management.** *Customer Care → Dashboard → Live link for management* (needs *Manage email
 templates*) switches on an **executive live summary** that refreshes itself every minute and opens without signing in:
 `/live/tickets/{secret}`. FTTH outages (network, core, system: open now with SLA state and customers affected, new and
-restored since midnight, the active list), 4G outages (sites / cells down, vendors, SLA, the active list), customer
-tickets & site visits (the *Tickets – Pending / SLA Update* summary: headline incl. *Closed today*, SLA per department /
-OLT / region, issues per OLT) and 4G tickets (open, raised and closed since midnight, pending with whom). Summaries only
+restored since midnight, the active list), 4G outages (sites / cells down, vendors, SLA, the active list), FTTH customer
+tickets and site visits as two sections in the same layout (the *Tickets – Pending / SLA Update* summary: headline incl.
+*Closed today*, SLA per department / OLT / region, issues per OLT) and 4G tickets (open, raised and closed since midnight, pending with whom). Summaries only
 — never a customer's name or account. "Make a new link" ends the old one at once;
 switched off, the link answers "not found". Built at most once a minute whoever is looking; not indexed by search engines.
 

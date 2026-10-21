@@ -50,7 +50,8 @@ class TicketReportData
     }
 
     /** @return array<string, scalar> */
-    public function build(string $reportType, ?CarbonInterface $now = null, int $periodHours = 3): array
+    /** @param  array{kind?: string, vertical_ids?: list<int>}  $filters  e.g. FTTH customer tickets or site visits only (the executive live page) */
+    public function build(string $reportType, ?CarbonInterface $now = null, int $periodHours = 3, array $filters = []): array
     {
         $now = CarbonImmutable::instance($now ?? now());
         $kind = self::TYPES[$reportType] ?? 'pending';
@@ -66,16 +67,16 @@ class TicketReportData
         ];
 
         return $data + $this->finalReasons($now) + match ($kind) {
-            'pending' => $this->pending($now, $periodHours),
+            'pending' => $this->pending($now, $periodHours, $filters),
             'reasons' => [],
             default => $this->period($kind, $now),
         };
     }
 
     /** @return array<string, scalar> */
-    private function pending(CarbonImmutable $now, int $periodHours): array
+    private function pending(CarbonImmutable $now, int $periodHours, array $filters = []): array
     {
-        $s = $this->metrics->snapshot($now, $periodHours);
+        $s = $this->metrics->snapshot($now, $periodHours, $filters);
         $c = $s['counts'];
         $tones = $this->tierTones();
 

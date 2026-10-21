@@ -4,7 +4,9 @@ namespace Tests\Feature;
 
 use App\Filament\Pages\TicketDashboard;
 use App\Models\TicketSubcategory;
+use App\Models\Vertical;
 use App\Services\Outages\OutageWorkflow;
+use App\Services\Tickets\TicketMetrics;
 use App\Support\Settings;
 use Filament\Actions\Testing\TestAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -50,11 +52,17 @@ class LiveTicketSummaryTest extends TestCase
             // FTTH outages (the open one listed), 4G outages, customer tickets & visits, 4G tickets.
             ->assertSee('FTTH outages')->assertSee($outage->ticket_number)->assertSee('Kira FDT 4 down')
             ->assertSee('4G outages')->assertSee('Sites down')
-            ->assertSee('SLA per department')->assertSee('SLA per region')->assertSee('Closed today')
+            ->assertSeeInOrder(['Customer tickets (FTTH)', 'SLA per department', 'Site visits', 'SLA per department'])
+            ->assertSee('SLA per region')->assertSee('Closed today')
             ->assertSee('4G tickets')->assertSee('Pending — with whom', false)
             ->assertDontSee('Jane Nakato')->assertDontSee('SF2659301')
             ->assertHeader('X-Robots-Tag', 'noindex, nofollow');
         $this->get('/live/tickets/'.str_repeat('x', 48))->assertNotFound();
+
+        // Customer tickets and site visits are counted apart: the one customer ticket is not a visit.
+        $ftth = [Vertical::idFor(Vertical::FTTH)];
+        $this->assertSame(1, app(TicketMetrics::class)->snapshot(now(), 3, ['kind' => 'ticket', 'vertical_ids' => $ftth])['counts']['pending']);
+        $this->assertSame(0, app(TicketMetrics::class)->snapshot(now(), 3, ['kind' => 'visit', 'vertical_ids' => $ftth])['counts']['pending']);
 
         // A new link: the old one stops working.
         $this->actingAs($this->makeUser('Super Admin', 'MGMT'));

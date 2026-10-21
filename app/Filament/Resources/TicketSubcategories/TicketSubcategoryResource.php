@@ -76,8 +76,8 @@ class TicketSubcategoryResource extends Resource
                     ->options(fn () => VisitType::query()->orderBy('sort_order')->pluck('name', 'id')),
                 Toggle::make('check_outage')->label('Check for an ongoing outage')
                     ->helperText('LOS-type issues: when the customer\'s OLT / FDT / slot / port is under an open outage, the agent is told and the ticket is linked to it.'),
-                Toggle::make('needs_onu_provisioning')->label('Needs ONU provisioning (site visit)')
-                    ->helperText('A new ONU goes in (Faulty ONU, ONU Upgrade, ONU Delivery, ONU Swap): the technician sends the visit to the FTTH NOC with a photo of the ONU MAC address before the speed tests.'),
+                Toggle::make('needs_onu_provisioning')->label('Ask about the ONU (site visit)')
+                    ->helperText('ONU issues (Faulty ONU, ONU Upgrade, ONU Delivery, ONU Swap): on completing, the technician says whether the customer kept their ONU or got a new one (optional). A new ONU is first sent to the FTTH NOC for provisioning, with a photo of its MAC address.'),
                 Select::make('priority_id')->label('Priority')->placeholder('None')
                     ->options(fn () => Priority::query()->active()->where('vertical_id', Vertical::query()->where('code', Vertical::FTTH)->value('id'))->orderBy('queue_rank')->pluck('name', 'id'))
                     ->helperText('Higher priorities are served first within a desk.'),
@@ -104,7 +104,7 @@ class TicketSubcategoryResource extends Resource
                 TextColumn::make('fulfilment_desk')->label('Carried out by')->badge()->placeholder('—')->visibleFrom('lg'),
                 TextColumn::make('visitType.name')->label('Visit type')->placeholder('—')->visibleFrom('md'),
                 IconColumn::make('check_outage')->label('Outage check')->boolean()->visibleFrom('lg'),
-                IconColumn::make('needs_onu_provisioning')->label('ONU provisioning')->boolean()->visibleFrom('lg'),
+                IconColumn::make('needs_onu_provisioning')->label('Asks about the ONU')->boolean()->visibleFrom('lg'),
                 TextColumn::make('priority.name')->label('Priority')->badge()->color(fn (TicketSubcategory $record) => $record->priority?->color ?? 'gray')->placeholder('—')->visibleFrom('xl'),
                 TextColumn::make('sla_minutes')->label('SLA (min)')->placeholder('Default')->visibleFrom('xl'),
                 AuditFields::activeColumn(),

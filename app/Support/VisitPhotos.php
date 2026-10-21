@@ -93,13 +93,21 @@ final class VisitPhotos
     }
 
     /**
-     * A new ONU goes in on this visit: an ONU issue (Faulty ONU, ONU Upgrade, ONU Delivery, ONU Swap —
-     * Subcategories → "Needs ONU provisioning"), or the technician replaced the ONU on any other visit.
+     * A new ONU went in on this visit: the technician said so ("ONU replaced — send to NOC for provisioning"). An ONU
+     * issue no longer means it on its own — a Faulty ONU is sometimes fixed with the customer's own ONU.
      */
     public static function onuChange(?Outage $visit): bool
     {
-        return (bool) ($visit?->isSiteVisit() && ! self::isRelocation($visit)
-            && ($visit->ticket?->onu_status === self::ONU_REPLACED || $visit->ticket?->subcategory?->needs_onu_provisioning));
+        return (bool) ($visit?->isSiteVisit() && ! self::isRelocation($visit) && $visit->ticket?->onu_status === self::ONU_REPLACED);
+    }
+
+    /**
+     * The technician is asked on completing whether the customer kept their ONU or got a new one: ONU issues (Faulty
+     * ONU, ONU Upgrade, ONU Delivery, ONU Swap — Subcategories → "Ask about the ONU"). Optional; other visits do not ask.
+     */
+    public static function asksOnu(?Outage $visit): bool
+    {
+        return (bool) ($visit?->isSiteVisit() && ! self::isRelocation($visit) && $visit->ticket?->subcategory?->needs_onu_provisioning);
     }
 
     /** The FTTH NOC provisions the service before the speed tests: relocations and new ONUs. */

@@ -460,9 +460,10 @@ class TicketingTest extends TestCase
 
         $this->assertSame('SUP-1', $this->visit()->ticket_number);
         $this->assertSame('SUP-2', $this->visit(['account_number' => 'SF1'])->ticket_number);
-        $this->assertSame('INS-1', $this->visit(['visit_type_id' => $type('INS'), 'account_number' => 'SF2'])->ticket_number);
-        $this->assertSame('WiE-1', $this->visit(['visit_type_id' => $type('WiE'), 'account_number' => 'SF3'])->ticket_number);
-        $this->assertSame('SHI-1', $this->visit(['visit_type_id' => $type('SHI'), 'account_number' => 'SF4'])->ticket_number);
+        // The issue decides the kind of visit: each with an issue of its kind.
+        $this->assertSame('INS-1', $this->visit(['visit_type_id' => $type('INS'), 'subcategory_id' => $this->sub('New Installation'), 'account_number' => 'SF2'])->ticket_number);
+        $this->assertSame('WiE-1', $this->visit(['visit_type_id' => $type('WiE'), 'subcategory_id' => $this->sub('Extender Delivery'), 'account_number' => 'SF3'])->ticket_number);
+        $this->assertSame('SHI-1', $this->visit(['visit_type_id' => $type('SHI'), 'subcategory_id' => $this->sub('Shifting'), 'account_number' => 'SF4'])->ticket_number);
 
         // Shifting has its own (72-hour) target.
         $shifting = Outage::query()->where('ticket_number', 'SHI-1')->firstOrFail();

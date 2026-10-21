@@ -6,6 +6,7 @@ use App\Enums\SlaState;
 use App\Models\EmailTemplate;
 use App\Models\Outage;
 use App\Models\Priority;
+use App\Models\Vertical;
 use App\Services\Tickets\FourGTicketReportData;
 use App\Services\Tickets\TicketReportData;
 use App\Services\Tickets\TicketTables;
@@ -32,7 +33,9 @@ class ExecutiveLiveSummary
 
         // Customer tickets: "Closed in the last N hours" is the period of the e-mail of the same name.
         $hours = max(1, (int) (EmailTemplate::query()->where('report_type', 'ticket_pending')->orderByDesc('is_active')->value('period_hours') ?: 3));
-        $tickets = array_intersect_key($this->tickets->build('ticket_pending', $now, $hours), array_flip([
+        // Customer tickets and site visits each on their own, in the same layout — FTTH: 4G tickets have their own section.
+        $ftth = array_filter([Vertical::idFor(Vertical::FTTH)]);
+        $part = fn (string $kind) => array_intersect_key($this->tickets->build('ticket_pending', $now, $hours, ['kind' => $kind, 'vertical_ids' => $ftth]), array_flip([
             'tk_sla_clock', 'tk_period_hours', 'tk_closed', 'tk_closed_sla_pct', 'tk_closed_today', 'tk_headline_table',
             'tk_sla_per_department_table', 'tk_sla_per_olt_table', 'tk_issue_per_olt_table', 'tk_sla_per_region_table',
         ]));
@@ -57,7 +60,11 @@ class ExecutiveLiveSummary
             'mobility_table' => $mobility['g4_active_table'],
             'fourg_tiles' => $fourG['t4_headline_table'],
             'fourg_pending' => $fourG['t4_pending_table'],
-        ] + $tickets;
+            'ticket_parts' => [
+                'tickets' => ['title' => 'Customer tickets (FTTH)'] + $part('ticket'),
+                'visits' => ['title' => 'Site visits'] + $part('visit'),
+            ],
+        ];
     }
 
     /** @return array{tiles: string, table: string} FTTH, core and system outages open now, and since midnight */

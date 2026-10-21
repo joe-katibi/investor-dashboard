@@ -347,12 +347,12 @@ final class TicketActions
                             ->required(self::needsEvidence($record) && ! $record->attachments()->where('kind', $kind)->exists()))
                         ->values()->all()),
                 ]),
-                // Support and other visits: did the customer keep their ONU? A new one is provisioned by the NOC first.
-                Radio::make('onu_status')->label('ONU')->inline()->required()->options(VisitPhotos::ONU_STATUSES)
+                // ONU issues (Faulty ONU…): did the customer keep their ONU? Optional. A new one is provisioned by the NOC first.
+                Radio::make('onu_status')->label('ONU')->inline()->options(VisitPhotos::ONU_STATUSES)
                     ->default(fn () => VisitPhotos::onuChange($record) ? VisitPhotos::ONU_REPLACED : VisitPhotos::ONU_EXISTING)
                     ->disableOptionWhen(fn (string $value) => VisitPhotos::onuChange($record) && $value === VisitPhotos::ONU_EXISTING)
                     ->helperText(VisitPhotos::onuChange($record) ? 'A new ONU: provisioned by the NOC.' : 'ONU replaced? Use “ONU replaced — send to NOC for provisioning” first.')
-                    ->visible(! VisitPhotos::isRelocation($record)),
+                    ->visible(VisitPhotos::asksOnu($record) || VisitPhotos::onuChange($record)),
                 Textarea::make('resolution_notes')->label('Work done')->required()->rows(3)->maxLength(5000),
                 Grid::make(['default' => 2, 'sm' => 3])->schema([
                     TextInput::make('onu_type')->label('ONU type used')->maxLength(60),

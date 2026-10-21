@@ -369,6 +369,7 @@ class TicketMetrics
         return $query
             ->when(($filters['kind'] ?? null) === 'ticket', fn (Builder $q) => $q->where('o.workflow', OutageType::WORKFLOW_CX_TICKET))
             ->when(($filters['kind'] ?? null) === 'visit', fn (Builder $q) => $q->where('o.workflow', OutageType::WORKFLOW_SITE_VISIT))
+            ->when($ids('vertical_ids'), fn (Builder $q, array $v) => $q->whereIn('o.vertical_id', $v))
             ->when($ids('region_ids'), fn (Builder $q, array $v) => $q->whereIn('t.region_id', $v))
             ->when($ids('olt_ids'), fn (Builder $q, array $v) => $q->whereIn('t.olt_id', $v))
             ->when($ids('visit_type_ids'), fn (Builder $q, array $v) => $q->whereIn('t.visit_type_id', $v))

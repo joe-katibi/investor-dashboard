@@ -668,8 +668,8 @@ final class MobileActions
                     return [
                         $this->select('final_reason_id', 'Final reason', $this->options(TicketActions::finalReasons('visit', $outage->current_queue, $outage->vertical_id)), required: true),
                         $this->text('fat_number', 'FAT number', required: $evidence, max: 60, default: $ticket?->fat_number),
-                        // Support and other visits: did the customer keep their ONU? A new one is provisioned by the NOC first.
-                        ...(VisitPhotos::isRelocation($outage) ? [] : [$this->select('onu_status', 'ONU', VisitPhotos::onuChange($outage)
+                        // ONU issues (Faulty ONU…): did the customer keep their ONU? Optional. A new one is provisioned by the NOC first.
+                        ...(! VisitPhotos::asksOnu($outage) && ! VisitPhotos::onuChange($outage) ? [] : [$this->select('onu_status', 'ONU', VisitPhotos::onuChange($outage)
                             ? [['value' => VisitPhotos::ONU_REPLACED, 'label' => VisitPhotos::ONU_STATUSES[VisitPhotos::ONU_REPLACED]]]
                             : array_map(fn (string $value, string $label) => ['value' => $value, 'label' => $label], array_keys(VisitPhotos::ONU_STATUSES), VisitPhotos::ONU_STATUSES),
                             // Pre-filled, not required: an app that leaves it out sends "existing ONU" (the usual support visit).

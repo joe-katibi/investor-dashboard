@@ -31,7 +31,7 @@
         <span class="muted"><span class="live"></span>Live · as at {{ $report_time }}, {{ $report_date }} · refreshes every minute</span>
     </div>
     <nav>
-        <a href="#ftth">FTTH outages</a><a href="#mobility">4G outages</a><a href="#tickets">Customer tickets &amp; site visits</a><a href="#fourg">4G tickets</a>
+        <a href="#ftth">FTTH outages</a><a href="#mobility">4G outages</a><a href="#tickets">Customer tickets</a><a href="#visits">Site visits</a><a href="#fourg">4G tickets</a>
     </nav>
 </div>
 
@@ -53,27 +53,29 @@
     </div>
 </div>
 
-<div class="card" id="tickets">
+@foreach ($ticket_parts as $id => $part)
+<div class="card" id="{{ $id }}">
     <div class="body">
-        <h2>Customer tickets &amp; site visits <span class="muted">— pending against the SLA · SLA clock: {{ $tk_sla_clock }}</span></h2>
-        <div class="scroll">{!! $tk_headline_table !!}</div>
+        <h2>{{ $part['title'] }} <span class="muted">— pending against the SLA · SLA clock: {{ $part['tk_sla_clock'] }}</span></h2>
+        <div class="scroll">{!! $part['tk_headline_table'] !!}</div>
 
-        <h3>SLA per department <span class="muted">(pending tickets by how long they have been open)</span></h3>
-        <div class="scroll">{!! $tk_sla_per_department_table !!}</div>
+        <h3>SLA per department <span class="muted">(pending, by how long they have been open)</span></h3>
+        <div class="scroll">{!! $part['tk_sla_per_department_table'] !!}</div>
 
         <h3>SLA per OLT</h3>
-        <div class="scroll">{!! $tk_sla_per_olt_table !!}</div>
+        <div class="scroll">{!! $part['tk_sla_per_olt_table'] !!}</div>
 
         <h3>Issue per OLT</h3>
-        <div class="scroll">{!! $tk_issue_per_olt_table !!}</div>
+        <div class="scroll">{!! $part['tk_issue_per_olt_table'] !!}</div>
 
         <h3>SLA per region</h3>
-        <div class="scroll">{!! $tk_sla_per_region_table !!}</div>
+        <div class="scroll">{!! $part['tk_sla_per_region_table'] !!}</div>
 
         <h3>Closed</h3>
-        <p>{{ $tk_closed }} in the last {{ $tk_period_hours }} hours ({{ $tk_closed_sla_pct }} within SLA) · {{ $tk_closed_today }} today.</p>
+        <p>{{ $part['tk_closed'] }} in the last {{ $part['tk_period_hours'] }} hours ({{ $part['tk_closed_sla_pct'] }} within SLA) · {{ $part['tk_closed_today'] }} today.</p>
     </div>
 </div>
+@endforeach
 
 <div class="card" id="fourg">
     <div class="body">
