@@ -880,6 +880,31 @@ trait ManagesTickets
     }
 
     /**
+     * A customer ticket waiting for its site visit is handed to CX Field Support to take up with the customer
+     * (oms:waiting-to-field-support). It stays linked to the visit: it still closes when the visit is completed.
+     */
+    public function sendWaitingToFieldSupport(Outage $outage, ?User $by, string $note): bool
+    {
+        return DB::transaction(function () use ($outage, $by, $note): bool {
+            $outage = $this->lock($outage);
+
+            if ($outage->is_closed || ! $outage->isCxTicket() || ! $this->statusIs($outage, StatusCode::TicketSiteVisit)) {
+                return false;
+            }
+
+            $ticket = $this->ticketOf($outage);
+
+            if ($ticket->desk) {
+                return false;
+            }
+
+            $this->moveTicket($outage, $ticket, QueueType::CxFieldSupport, $by, 'route', $note);
+
+            return true;
+        });
+    }
+
+    /**
      * Close a ticket at its desk with a final reason (customer tickets; and site visits closed by
      * the dispatcher or CX Field Support without field work — "client confirmed uptime on call").
      *
@@ -1764,7 +1789,10 @@ trait ManagesTickets
         $parent = Outage::query()->with(['status', 'priority'])->lockForUpdate()->find($ticket->parent_outage_id);
         $parentTicket = $parent ? Ticket::query()->where('outage_id', $parent->id)->first() : null;
 
-        if (! $parent || ! $parentTicket || $parent->is_closed || ! $this->statusIs($parent, StatusCode::TicketSiteVisit)) {
+        // Waiting for the visit, or handed to CX Field Support while waiting (oms:waiting-to-field-support).
+        $waiting = $parent && ($this->statusIs($parent, StatusCode::TicketSiteVisit) || $parentTicket?->desk === QueueType::CxFieldSupport);
+
+        if (! $parent || ! $parentTicket || $parent->is_closed || ! $waiting) {
             return;
         }
 
