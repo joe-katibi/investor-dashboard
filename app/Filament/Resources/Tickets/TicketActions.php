@@ -210,7 +210,10 @@ final class TicketActions
             ])
             ->schema([
                 Grid::make(['default' => 1, 'sm' => 2])->schema([
-                    Select::make('visit_type_id')->label('Visit type')->required()->options(fn () => self::visitTypes()),
+                    // Set by the ticket's issue when the issue has a kind of visit (Inhouse Shifting → Support).
+                    Select::make('visit_type_id')->label('Visit type')->required()->options(fn () => self::visitTypes())
+                        ->disabled(fn (Outage $record) => (bool) $record->ticket?->subcategory?->visit_type_id)->dehydrated()
+                        ->helperText(fn (Outage $record) => $record->ticket?->subcategory?->visit_type_id ? 'Set by the issue reported on the ticket.' : null),
                     DateTimePicker::make('scheduled_at')->label('Date / time agreed with the customer')->seconds(false)->minDate(fn () => now()->startOfMinute()),
                     TextInput::make('preferred_time')->label('Customer availability')->maxLength(120)->placeholder('e.g. available today after 2pm'),
                     TextInput::make('calling_number')->label('Contact number confirmed')->maxLength(40),

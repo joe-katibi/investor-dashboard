@@ -228,8 +228,10 @@ final class MobileActions
         // Custom workflow: the flow, its steps and the one the ticket is at.
         $custom = $outage->isCustomFlow() ? $outage->customTicket : null;
         $ticket = $outage->isTicket() ? $outage->ticket : null;
-        // Desks to hand over to; Infrastructure Support has its own action in the app (a geotagged photo is required).
-        $routes = $ticket ? array_diff_key(TicketActions::routeOptions($outage), [QueueType::InfraSupportDispatch->value => true]) : [];
+        // Desks to hand over to. Two have their own action in the app: escalating to Infrastructure Support (a geotagged
+        // photo is required) and, at Infrastructure Support dispatch, giving the work to its technician (by name or FIFO).
+        $allRoutes = $ticket ? TicketActions::routeOptions($outage) : [];
+        $routes = array_diff_key($allRoutes, [QueueType::InfraSupportDispatch->value => true, QueueType::InfraSupportTechnician->value => true]);
         $approvalSlot = $can('approvePreventive') ? MaintenanceApproval::openSlotFor($outage, $user) : null;
         // Emergency / Regular outage worked by a field team: position => photo on the ticket (or null).
         $sitePhotos = $outage->offersSitePhotos() ? $outage->sitePhotos() : null;
@@ -736,14 +738,35 @@ final class MobileActions
                     $desk = QueueType::tryFrom((string) $data['desk']);
 
                     if (! $desk || ! array_key_exists($desk->value, $routes)) {
-                        throw ValidationException::withMessages(['desk' => $desk === QueueType::InfraSupportDispatch
-                            ? 'Use “Escalate to Infrastructure Support”: it needs a geotagged photo of the site.'
-                            : 'Choose one of the desks this ticket can go to.']);
+                        throw ValidationException::withMessages(['desk' => match ($desk) {
+                            QueueType::InfraSupportDispatch => 'Use “Escalate to Infrastructure Support”: it needs a geotagged photo of the site.',
+                            QueueType::InfraSupportTechnician => 'Use “Assign technician”.',
+                            default => 'Choose one of the desks this ticket can go to.',
+                        }]);
                     }
 
                     $this->workflow->routeTicket($outage, $user, $desk, $data['note'], $this->id($data['delay_reason_id'] ?? null));
 
                     return 'Ticket handed over';
+                },
+            ],
+            // Infrastructure Support dispatch: give the work to an Infrastructure Support technician — named, or the next free one.
+            'infra_assign' => [
+                'visible' => $can('ticketRoute') && $holding && array_key_exists(QueueType::InfraSupportTechnician->value, $allRoutes),
+                'label' => 'Assign technician',
+                'style' => 'warning',
+                'primary' => true,
+                'description' => 'Pick an Infrastructure Support technician, or leave it on automatic: the next available one gets it (FIFO).',
+                'fields' => fn () => [
+                    $this->select('technician_id', 'Technician', $this->options(OutageActions::queueUserOptions(QueueType::InfraSupportTechnician, null, $outage)),
+                        placeholder: 'Automatic — next available technician (FIFO)', search: true),
+                    $this->textarea('note', 'What the technician has to do', required: true, max: 2000),
+                ],
+                'handle' => function (array $data) use ($outage, $user): string {
+                    $technician = $this->id($data['technician_id'] ?? null);
+                    $this->workflow->routeTicket($outage, $user, QueueType::InfraSupportTechnician, $data['note'], null, $technician);
+
+                    return $technician ? 'Technician assigned' : 'Placed in the technician queue (FIFO)';
                 },
             ],
             // Infrastructure Support only with a geotagged photo of the site (where, and what has to be fixed).

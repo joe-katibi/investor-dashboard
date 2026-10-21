@@ -90,12 +90,15 @@ final class TicketForm
             Section::make('Visit')
                 ->icon('heroicon-o-map-pin')
                 ->schema([
+                    // Set by the issue when the issue has a kind of visit (Inhouse Shifting → Support): not changed by hand.
                     Select::make('visit_type_id')->label('Visit type')->required()->options(fn () => TicketActions::visitTypes())
-                        ->helperText('Numbers the visit: INS-1, WiE-1, SUP-1, SHI-1…'),
+                        ->disabled(fn (Get $get) => (bool) self::subcategory($get('subcategory_id'))?->visit_type_id)->dehydrated()
+                        ->helperText(fn (Get $get) => self::subcategory($get('subcategory_id'))?->visit_type_id
+                            ? 'Set by the issue reported.' : 'Numbers the visit: INS-1, WiE-1, SUP-1, SHI-1…'),
                     Select::make('subcategory_id')->label('Issue reported')->required()->searchable()->live()
                         ->options(fn () => self::subcategoryOptions(null, visitsOnly: true, verticalId: Vertical::idFor(Vertical::FTTH)))
-                        ->afterStateUpdated(function (Get $get, Set $set, mixed $state): void {
-                            if (blank($get('visit_type_id')) && ($type = self::subcategory($state)?->visit_type_id)) {
+                        ->afterStateUpdated(function (Set $set, mixed $state): void {
+                            if ($type = self::subcategory($state)?->visit_type_id) {
                                 $set('visit_type_id', $type);
                             }
                         }),

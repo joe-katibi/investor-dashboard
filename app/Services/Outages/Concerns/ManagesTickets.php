@@ -143,9 +143,12 @@ trait ManagesTickets
     {
         Gate::forUser($by)->authorize('createVisit', Outage::class);
 
-        $visitType = VisitType::query()->active()->find($data['visit_type_id'] ?? 0)
-            ?? throw ValidationException::withMessages(['visit_type_id' => 'Select the type of site visit.']);
         $subcategory = filled($data['subcategory_id'] ?? null) ? TicketSubcategory::query()->with('category')->find($data['subcategory_id']) : null;
+        // The issue decides the kind of visit when it has one (Inhouse Shifting → Support, Shifting → Shifting): the
+        // visit then goes to the right dispatch desk and technicians, whatever type was picked.
+        $visitType = VisitType::query()->active()->find($subcategory?->visit_type_id ?: ($data['visit_type_id'] ?? 0))
+            ?? VisitType::query()->active()->find($data['visit_type_id'] ?? 0)
+            ?? throw ValidationException::withMessages(['visit_type_id' => 'Select the type of site visit.']);
 
         $this->requireText($data['calling_number'] ?? ($data['primary_number'] ?? null), 'calling_number', 'A contact number for the customer is required to book a visit.');
         $scheduled = $this->visitMoment($data['scheduled_at'] ?? null);
@@ -795,6 +798,55 @@ trait ManagesTickets
     }
 
     // ------------------------------------------------------------------ close / cancel / reopen
+
+    /**
+     * An open visit booked with another kind than its issue's (Inhouse Shifting booked as Shifting…): it takes the issue's
+     * kind and, when that changes where it belongs, moves — to the right dispatch desk, or back from a technician who does
+     * not do this kind to that desk for a new technician. A technician already at the customer keeps it. Returns what
+     * was done, for oms:fix-visit-types.
+     */
+    public function correctVisitType(Outage $outage, ?User $by): string
+    {
+        return DB::transaction(function () use ($outage, $by): string {
+            $outage = $this->lock($outage);
+            $ticket = $this->ticketOf($outage);
+            $type = $ticket->subcategory?->visit_type_id ? VisitType::query()->find($ticket->subcategory->visit_type_id) : null;
+
+            if ($outage->is_closed || ! $outage->isSiteVisit() || ! $type || (int) $ticket->visit_type_id === (int) $type->id) {
+                return 'nothing to change';
+            }
+
+            $before = $ticket->visitType?->name ?? '—';
+            $ticket->forceFill(['visit_type_id' => $type->id])->save();
+            $outage->unsetRelation('ticket');
+            $note = "Visit type corrected: {$before} → {$type->name} (the issue reported is “{$ticket->subcategory->name}”).";
+            $this->ticketUpdate($outage, $note, $by, 'system', 'note');
+            $desk = $ticket->desk;
+            $holder = $outage->currentAssignee;
+
+            // At a dispatch desk: the one of its kind (Site Visit Dispatch / Shifting Dispatch).
+            if ($desk?->isVisitDispatch() && $desk !== EligibilityEvaluator::visitDispatchDesk($outage)) {
+                $this->moveTicket($outage, $ticket, QueueType::VisitDispatch, $by, 'retype', $note, announce: false);
+
+                return 'moved to '.$outage->refresh()->current_queue?->getLabel();
+            }
+
+            // With a technician who does not do this kind of visit, not yet at the customer: back to dispatch.
+            $mayDo = $holder
+                && collect(EligibilityEvaluator::deskPermissions(QueueType::VisitTechnician, $outage))->contains(fn (string $permission) => $holder->can($permission))
+                && EligibilityEvaluator::allows($holder, EligibilityEvaluator::visitTechnicianPermission($outage));
+
+            if ($desk === QueueType::VisitTechnician && $holder && $ticket->arrived_at === null && ! $mayDo) {
+                $this->moveTicket($outage, $ticket, QueueType::VisitDispatch, $by, 'retype', "{$note} {$holder->name} does not do this kind of visit: assign a technician.", announce: false);
+
+                return "back from {$holder->name} to ".$outage->refresh()->current_queue?->getLabel();
+            }
+
+            return $desk === QueueType::VisitTechnician && $holder && $ticket->arrived_at !== null
+                ? "type corrected; left with {$holder->name} (at the customer)"
+                : 'type corrected';
+        });
+    }
 
     /**
      * Close an old ticket or visit from a clean-up list (oms:close-historical), wherever it is: its queues, assignments

@@ -813,6 +813,13 @@ shifting get only shifting, and Site Visit Dispatchers no longer receive it. The
 Dispatcher* works that desk (when it arrived, it was taken off Site Visit Dispatch); give a person both desks to
 handle both. *Inhouse Shifting* is a Technical Support case, raised as a Support visit (Site Visit Dispatch).
 
+**The issue decides the kind of visit.** When the issue reported has a visit type (*Ticket Subcategories*), a visit is
+booked with it — the visit type field is set and locked on the forms, and the server applies it whatever is sent:
+*Inhouse Shifting* → Support (Site Visit Dispatch and technicians), *Shifting* / *External Shifting* → Shifting.
+`php artisan oms:fix-visit-types [--apply]` corrects open visits booked with another kind: at a dispatch desk they move
+to the right one; with a technician who does not do that kind and is not yet at the customer, back to dispatch; a
+technician already at the customer keeps it. The visit keeps its number (SHI-12).
+
 **Shifting technicians.** *Desk: Shifting technician* (`queue.work_shifting_technician`) qualifies for Shifting /
 Relocation visits only. The role *Shifting / Relocation Technician* works it instead of the Site Visit Technician desk,
 so its people receive only shifting — by name, in the lists and through the technician queue. Someone who also has

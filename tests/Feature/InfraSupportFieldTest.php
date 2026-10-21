@@ -11,6 +11,7 @@ use App\Services\Fifo\FifoAssignmentEngine;
 use App\Services\Mobile\MobileActions;
 use App\Services\Outages\OutageWorkflow;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
@@ -51,7 +52,16 @@ class InfraSupportFieldTest extends TestCase
     /** From the Infrastructure Support dispatcher to the technician, and the trip in the app. */
     private function fieldTrip(Outage $outage): Outage
     {
-        $outage = $this->workflow->routeTicket($outage, $this->infraDispatcher, QueueType::InfraSupportTechnician, 'Fix the drop cable at the pole');
+        // The dispatcher assigns the technician in the app, by name (another one is free and next in line).
+        $this->makeUser('Infra Support Technician', 'INFRA');
+        $dispatcherActions = app(MobileActions::class)->for($this->infraDispatcher, $outage->refresh());
+        $assign = collect($dispatcherActions)->firstWhere('key', 'infra_assign');
+        $this->assertNotNull($assign, 'Assign technician in the app');
+        $this->assertContains((string) $this->infraTech->id, array_column(collect($assign['fields'])->firstWhere('name', 'technician_id')['options'], 'value'));
+        app(MobileActions::class)->run($this->infraDispatcher, $outage, 'infra_assign',
+            Request::create('/', 'POST', ['technician_id' => (string) $this->infraTech->id, 'note' => 'Fix the drop cable at the pole']));
+        $outage->refresh();
+        $this->assertSame(QueueType::InfraSupportTechnician, $outage->current_queue);
         $this->assertSame($this->infraTech->id, $outage->current_assignee_id);
         $this->assertContains('accept', $this->appActions($outage));
 
