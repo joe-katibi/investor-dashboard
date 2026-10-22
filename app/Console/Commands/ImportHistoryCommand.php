@@ -10,7 +10,8 @@ use Illuminate\Console\Command;
 #[Signature('oms:import-history
     {--incidents= : The incident log (.xlsx), e.g. "INCIDENTS JAN TO SEPT 2026.xlsx"}
     {--tickets= : The ticketing workbook (.xlsx) with its "Ticket Tracker" tab}
-    {--technicians=* : Technician list(s) (.xlsx): NAMES, Username, Role, Department, Team, CONTACT, Mail, Type}')]
+    {--technicians=* : Technician list(s) (.xlsx): NAMES, Username, Role, Department, Team, CONTACT, Mail, Type}
+    {--rescore : Only score the imported rows again against the SLA as configured now (after changing the SLA)}')]
 #[Description('Load the real history: incidents as outages, tracker tickets as site visits, technicians as accounts (safe to re-run: rows of the same source are replaced)')]
 class ImportHistoryCommand extends Command
 {
@@ -34,6 +35,16 @@ class ImportHistoryCommand extends Command
             $this->line('Reading the ticket tracker (a large file — a minute or two)…');
             $r = $importer->tickets($file);
             $this->info("Tickets: {$r['imported']} site visits imported ({$r['open']} open), {$r['duplicates']} duplicates left out, {$r['unmeasured']} without usable times (not counted in SLA figures).");
+        }
+
+        if ($this->option('incidents') || $this->option('tickets') || $this->option('rescore')) {
+            $r = $importer->rescore();
+            foreach ($r as $kind => $states) {
+                $met = $states['met'] ?? 0;
+                $measured = $met + ($states['missed'] ?? 0) + ($states['breached'] ?? 0);
+                $this->info(sprintf('SLA %s: %s of %s within SLA (%s%%), %s not measured.', $kind === 'outages' ? 'outages' : 'site visits',
+                    number_format($met), number_format($measured), $measured ? number_format(100 * $met / $measured, 1) : '—', number_format($states['not_applicable'] ?? 0)));
+            }
         }
 
         return self::SUCCESS;

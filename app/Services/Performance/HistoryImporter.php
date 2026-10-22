@@ -12,6 +12,7 @@ use App\Enums\TechnicianRole;
 use App\Models\Department;
 use App\Models\MajorOutageType;
 use App\Models\Olt;
+use App\Models\Outage;
 use App\Models\OutageStatus;
 use App\Models\OutageType;
 use App\Models\Team;
@@ -19,6 +20,8 @@ use App\Models\TicketSubcategory;
 use App\Models\User;
 use App\Models\Vertical;
 use App\Models\VisitType;
+use App\Services\Sla\SlaService;
+use App\Services\Tickets\BusinessClock;
 use App\Support\Settings;
 use DateTimeInterface;
 use Illuminate\Support\Carbon;
@@ -33,15 +36,15 @@ use XMLReader;
  * Loads the real history into the system, as closed (or still open) outages and site visits:
  *
  *   incidents()   "INCIDENTS JAN TO SEPT 2026.xlsx" — one network outage per incident. Restoration time =
- *                 fault clearance − fault occurrence; the SLA status is the one recorded in the log (4-hour
- *                 rule when the log has none).
+ *                 fault clearance − fault occurrence.
  *   tickets()     the hidden "Ticket Tracker" tab of "SFL Ticketing System with Dashboard.xlsx" — one site
- *                 visit per ticket, with the tracker's own business-hours SLA clock and SLA status. Duplicates
+ *                 visit per ticket, with the time to complete on the tracker's business-hours clock. Duplicates
  *                 are left out; tickets whose times do not add up ("CHECK TIMES") come in unmeasured.
  *   technicians() the technician lists — accounts with a random password, role, team and in-house / outsourced.
+ *   rescore()     the SLA result of every imported row under the system's current SLA (policies / visit
+ *                 types): run after each import, and again whenever the SLA is changed.
  *
- * Nothing here is altered to look better: every figure is the spreadsheet's. Re-running replaces the rows of
- * the same source.
+ * The times are the spreadsheets' and are never altered. Re-running replaces the rows of the same source.
  */
 class HistoryImporter
 {
@@ -405,6 +408,83 @@ class HistoryImporter
             $p['role'] ? $user->syncRoles([$p['role']->value]) : $counts['unknown_role']++;
             $p['company'] ? $user->teams()->syncWithoutDetaching([$teams[$p['company']->value]]) : $counts['unknown_team']++;
         }
+
+        return $counts;
+    }
+
+    // ------------------------------------------------------------------ SLA
+
+    /**
+     * Scores the imported rows against the system's SLA as it is configured now — the same rules a new
+     * outage / site visit gets: outages by SlaService::resolvePolicy() on the wall clock, site visits by the
+     * subcategory / visit type target on the ticket business clock. Within = the recorded time to restore /
+     * complete is inside the target. Rows without a valid time stay unmeasured.
+     *
+     * @return array{outages: array<string, int>, visits: array<string, int>}
+     */
+    public function rescore(): array
+    {
+        return ['outages' => $this->rescoreOutages(), 'visits' => $this->rescoreVisits()];
+    }
+
+    /** @return array<string, int> */
+    private function rescoreOutages(): array
+    {
+        $sla = app(SlaService::class);
+        $default = app(Settings::class)->int('sla.default_resolution_minutes');
+        $counts = [];
+
+        Outage::query()->where('data_source', DataSource::IncidentLog->value)
+            ->chunkById(self::CHUNK, function ($outages) use ($sla, $default, &$counts): void {
+                foreach ($outages as $outage) {
+                    $policy = $sla->resolvePolicy($outage);
+                    $minutes = $policy?->resolution_minutes ?? $default;
+                    $state = $outage->elapsed_hours === null ? SlaState::NotApplicable
+                        : ((float) $outage->elapsed_hours * 60 <= $minutes ? SlaState::Met : SlaState::Missed);
+
+                    DB::table('outages')->where('id', $outage->id)->update([
+                        'sla_policy_id' => $policy?->id,
+                        'sla_due_at' => $outage->start_time->copy()->addMinutes($minutes),
+                        'sla_pre_breach_at' => $outage->start_time->copy()->addMinutes($minutes - min($policy?->pre_breach_minutes ?? 60, $minutes)),
+                        'sla_state' => $state->value,
+                    ]);
+                    $counts[$state->value] = ($counts[$state->value] ?? 0) + 1;
+                }
+            });
+
+        return $counts;
+    }
+
+    /** @return array<string, int> */
+    private function rescoreVisits(): array
+    {
+        $clock = app(BusinessClock::class);
+        $fallback = app(Settings::class)->int('ticketing.sla_minutes');
+        $visitTypes = VisitType::query()->pluck('default_sla_minutes', 'id');
+        $subcategories = TicketSubcategory::query()->pluck('sla_minutes', 'id');
+        $counts = [];
+
+        DB::table('outages')->join('tickets', 'tickets.outage_id', '=', 'outages.id')
+            ->where('outages.data_source', DataSource::TicketTracker->value)
+            ->select(['outages.id', 'outages.start_time', 'outages.is_closed', 'outages.elapsed_hours', 'tickets.visit_type_id', 'tickets.subcategory_id'])
+            ->chunkById(self::CHUNK, function ($rows) use ($clock, $fallback, $visitTypes, $subcategories, &$counts): void {
+                foreach ($rows as $row) {
+                    $minutes = max(1, (int) (($subcategories[$row->subcategory_id] ?? null) ?: ($visitTypes[$row->visit_type_id] ?? null) ?: $fallback));
+                    $start = Carbon::parse($row->start_time);
+                    $state = match (true) {
+                        $row->elapsed_hours === null => SlaState::NotApplicable,
+                        (float) $row->elapsed_hours * 60 <= $minutes => SlaState::Met,
+                        (bool) $row->is_closed => SlaState::Missed,
+                        default => SlaState::Breached,
+                    };
+
+                    DB::table('outages')->where('id', $row->id)->update([
+                        'sla_due_at' => $clock->add($start, $minutes),
+                        'sla_state' => $state->value,
+                    ]);
+                    $counts[$state->value] = ($counts[$state->value] ?? 0) + 1;
+                }
+            }, 'outages.id', 'id');
 
         return $counts;
     }

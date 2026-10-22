@@ -38,7 +38,7 @@ class Settings
 
         // SLA
         'sla.pause_enabled' => true,
-        'sla.default_resolution_minutes' => 240,
+        'sla.default_resolution_minutes' => 1440,
         'sla.default_pre_breach_minutes' => 30,
 
         // SLA per desk (Configuration → FIFO & SLA Settings): how long a ticket may wait at a desk, and
