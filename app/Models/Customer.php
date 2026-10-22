@@ -20,6 +20,7 @@ use Illuminate\Support\Str;
 #[Fillable([
     'account_number', 'name', 'primary_phone', 'alt_phone_1', 'alt_phone_2', 'email', 'address', 'landmark',
     'region_id', 'olt_id', 'fdt_id', 'slot_id', 'port_id', 'bandwidth', 'source', 'verified_at', 'notes', 'vertical_id', 'is_active',
+    'onu_type', 'onu_physical_address', 'onu_created_at', 'onu_olt_name', 'onu_slot', 'onu_port',
 ])]
 class Customer extends Model
 {
@@ -29,9 +30,12 @@ class Customer extends Model
 
     public const SOURCE_IMPORT = 'import';
 
+    /** Added by oms:sync-onu-export: on the network, not yet in the customer file. */
+    public const SOURCE_ONU_EXPORT = 'onu_export';
+
     protected function casts(): array
     {
-        return ['is_active' => 'boolean', 'verified_at' => 'datetime'];
+        return ['is_active' => 'boolean', 'verified_at' => 'datetime', 'onu_created_at' => 'datetime'];
     }
 
     protected static function booted(): void
@@ -80,6 +84,12 @@ class Customer extends Model
     public function tickets(): HasMany
     {
         return $this->hasMany(Ticket::class);
+    }
+
+    /** What the ONU export syncs changed on this customer, newest first. */
+    public function onuChanges(): HasMany
+    {
+        return $this->hasMany(CustomerOnuChange::class)->latest('id');
     }
 
     public function scopeActive(Builder $query): void

@@ -120,6 +120,39 @@ return [
         'user_agent' => env('OMS_GEO_USER_AGENT', 'SavannaFibre-OMS/1.0 (+https://oms.savannafibre.co.ug)'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | ONU exports (customer database sync)
+    |--------------------------------------------------------------------------
+    | The network management system dumps every ONU to a CSV file a few times a
+    | day (CS-Reports_HH_MM_SS_YYYYMMDD_HHMMSS_pN.csv). oms:sync-onu-export reads
+    | the newest dump of a source and brings the customers up to date (OLT, slot,
+    | port, ONU type and physical address), keeping a history of every change.
+    | path: the folder of the dumps. By default the folder the dumps are sent to
+    | (POST /api/integrations/onu-export/{source}, scripts/onu_export_uploader.py
+    | on a server that can reach the share); or the share mounted read-only.
+    | only_olts: OLT names (as in OMS) the source may change; empty = every OLT.
+    */
+    'onu_exports' => [
+        'fiberhome' => [
+            'label' => 'FiberHome ONU export',
+            'path' => env('OMS_ONU_EXPORT_FIBERHOME_PATH') ?: storage_path('app/private/onu-exports/fiberhome'),
+            'only_olts' => array_filter(explode(',', (string) env('OMS_ONU_EXPORT_FIBERHOME_OLTS', ''))),
+        ],
+    ],
+
+    // Sending the dumps in: a long random secret shared with the uploader (empty = the address is off),
+    // and optionally the addresses it may come from (comma-separated IPs / CIDRs, e.g. 10.32.28.32).
+    'onu_export_upload' => [
+        'token' => env('OMS_ONU_EXPORT_TOKEN', ''),
+        'allowed_ips' => array_values(array_filter(array_map('trim', explode(',', (string) env('OMS_ONU_EXPORT_ALLOWED_IPS', ''))))),
+        // Days a received dump is kept in the folder.
+        'keep_days' => (int) env('OMS_ONU_EXPORT_KEEP_DAYS', 14),
+        // Off until a first dump has been previewed and applied by hand (oms:sync-onu-export -v, then --apply):
+        // dumps are only kept. On: each dump is read as it arrives, and the schedule reads the folder as a backup.
+        'auto_apply' => (bool) env('OMS_ONU_EXPORT_AUTO_APPLY', false),
+    ],
+
     // Rows rendered on-screen in the reports page; exports always include every row.
     'report_screen_limit' => (int) env('OMS_REPORT_SCREEN_LIMIT', 500),
 ];

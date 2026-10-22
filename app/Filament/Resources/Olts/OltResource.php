@@ -11,6 +11,7 @@ use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TagsInput;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
@@ -48,6 +49,8 @@ class OltResource extends Resource
             TextInput::make('name')->label('Name / identifier')->required()->maxLength(120)->unique(ignoreRecord: true),
             TextInput::make('code')->maxLength(60),
             TextInput::make('location')->maxLength(255),
+            TagsInput::make('aliases')->label('Also known as')->placeholder('Add a name')->columnSpanFull()
+                ->helperText('Other names of this OLT in files and exports, e.g. “Kabowa-OLT” in the ONU export for KABOWA FH. The OLT keeps its own name; case, spaces, punctuation and the word “OLT” do not matter.'),
             Select::make('vertical_id')->relationship('vertical', 'name')->preload(),
             Select::make('region_id')->label('Region')->relationship('region', 'name')->preload()
                 ->helperText('Customers and customer tickets on this OLT take this region.'),
@@ -64,6 +67,7 @@ class OltResource extends Resource
             ->columns([
                 TextColumn::make('name')->searchable()->sortable(),
                 TextColumn::make('code')->searchable()->placeholder('—'),
+                TextColumn::make('aliases')->label('Also known as')->badge()->color('gray')->placeholder('—')->toggleable(),
                 TextColumn::make('location')->searchable()->placeholder('—'),
                 TextColumn::make('region.name')->label('Region')->placeholder('—')->toggleable(),
                 TextColumn::make('fdts_count')->counts('fdts')->label('FDTs'),

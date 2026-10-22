@@ -27,6 +27,16 @@ Schedule::command('oms:ticket-tick')->everyFiveMinutes()->onOneServer()->without
 // 4G customer tickets: an update is due at every step; silent vendors are reminded.
 Schedule::command('oms:ticket-progress')->everyMinute()->onOneServer()->withoutOverlapping(5);
 
+// Customers from the ONU exports (dumped at 08:00, 12:00, 17:00 and 21:00). The uploader on the UAT server sends each
+// dump at :30 and it is read as it arrives; at :45 the folder is read as a backup (a dump is read once). Only once
+// OMS_ONU_EXPORT_AUTO_APPLY is on — until then dumps are applied by hand.
+foreach (config('oms.onu_export_upload.auto_apply') ? array_keys((array) config('oms.onu_exports')) : [] as $source) {
+    foreach (['08:45', '12:45', '17:45', '21:45'] as $time) {
+        Schedule::command("oms:sync-onu-export --source={$source} --apply")->dailyAt($time)
+            ->name("oms:sync-onu-export:{$source}:".str_replace(':', '', $time))->onOneServer()->withoutOverlapping(120);
+    }
+}
+
 // Report exports are kept six hours: the file and its row then go; a run whose worker died is closed.
 Schedule::command('oms:prune-report-exports')->everyTenMinutes()->onOneServer()->withoutOverlapping(10);
 

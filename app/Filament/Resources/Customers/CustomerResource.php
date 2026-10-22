@@ -115,8 +115,16 @@ class CustomerResource extends Resource
                     ->state(fn (Customer $record) => $record->topologyPath() ?: null),
                 TextColumn::make('region.name')->label('Region')->placeholder('—')->visibleFrom('lg'),
                 TextColumn::make('bandwidth')->placeholder('—')->visibleFrom('xl'),
+                TextColumn::make('onu_type')->label('ONU type')->placeholder('—')->searchable()->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('onu_physical_address')->label('ONU physical address')->placeholder('—')->searchable()->copyable()->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('onu_created_at')->label('ONU created')->dateTime('d M Y H:i')->placeholder('—')->sortable()->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('source')->badge()->visibleFrom('lg')
-                    ->formatStateUsing(fn (Customer $record) => $record->isProvisional() ? 'Captured by hand' : ($record->source === Customer::SOURCE_IMPORT ? 'Customer file' : 'Manual'))
+                    ->formatStateUsing(fn (Customer $record) => match (true) {
+                        $record->isProvisional() => 'Captured by hand',
+                        $record->source === Customer::SOURCE_IMPORT => 'Customer file',
+                        $record->source === Customer::SOURCE_ONU_EXPORT => 'ONU export',
+                        default => 'Manual',
+                    })
                     ->color(fn (Customer $record) => $record->isProvisional() ? 'warning' : 'success'),
                 // The number opens the customer's tickets (the "Tickets" action of the row).
                 TextColumn::make('tickets_count')->label('Tickets')->sortable()->badge()
@@ -129,10 +137,32 @@ class CustomerResource extends Resource
                 VerticalFields::filter(),
                 SelectFilter::make('olt_id')->label('OLT')->relationship('olt', 'name')->searchable()->preload(),
                 SelectFilter::make('region_id')->label('Region')->relationship('region', 'name'),
-                SelectFilter::make('source')->label('Record')->options(['manual' => 'Captured by hand / manual', 'import' => 'From the customer file']),
+                SelectFilter::make('source')->label('Record')->options(['manual' => 'Captured by hand / manual', 'import' => 'From the customer file', Customer::SOURCE_ONU_EXPORT => 'Added from the ONU export']),
                 AuditFields::activeFilter(),
             ])
-            ->recordActions([self::ticketsAction(), EditAction::make()]);
+            ->recordActions([self::ticketsAction(), self::onuHistoryAction(), EditAction::make()]);
+    }
+
+    /** What the ONU export syncs changed on the customer (oms:sync-onu-export), newest first. */
+    public static function onuHistoryAction(): Action
+    {
+        return Action::make('onuHistory')
+            ->label('ONU history')
+            ->icon(Heroicon::OutlinedClock)
+            ->color('gray')
+            ->modalHeading(fn (Customer $record) => 'ONU history of '.$record->account_number)
+            ->modalDescription(fn (Customer $record) => collect([
+                $record->onu_type ? 'ONU '.$record->onu_type : null,
+                $record->onu_physical_address,
+                $record->onu_created_at ? 'created '.$record->onu_created_at->format('d M Y H:i') : null,
+                $record->onu_olt_name ? "in the export: {$record->onu_olt_name}, slot {$record->onu_slot}, port {$record->onu_port}" : null,
+            ])->filter()->implode(' · ') ?: 'Not in an ONU export yet.')
+            ->modalWidth(Width::FourExtraLarge)
+            ->modalSubmitAction(false)
+            ->modalCancelActionLabel('Close')
+            ->modalContent(fn (Customer $record) => view('filament.customer-onu-history', [
+                'changes' => $record->onuChanges()->with('run:id,file,dumped_at')->limit(200)->get(),
+            ]));
     }
 
     /**

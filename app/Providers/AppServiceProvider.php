@@ -93,6 +93,8 @@ class AppServiceProvider extends ServiceProvider
 
         RateLimiter::for('api', fn (Request $request) => Limit::perMinute(60)->by($request->user()?->id ?: $request->ip()));
         RateLimiter::for('exports', fn (Request $request) => Limit::perMinute(10)->by($request->user()?->id ?: $request->ip()));
+        // ONU export uploads: a few dumps a day, a few retries — anything more is not the uploader.
+        RateLimiter::for('onu-export-upload', fn (Request $request) => Limit::perHour(30)->by('onu-export|'.$request->ip()));
 
         // Mobile app: sign-in attempts per account + address, then reads and writes per person.
         RateLimiter::for('mobile-login', fn (Request $request) => [

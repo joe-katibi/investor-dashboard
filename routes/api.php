@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\OnuExportUploadController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\DeviceController;
 use App\Http\Controllers\Api\V1\GeoController;
@@ -58,3 +59,7 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
         Route::post('broadcasting/auth', [MeController::class, 'broadcastAuth'])->name('broadcasting.auth');
     });
 });
+
+// ONU export dumps sent in by scripts/onu_export_uploader.py (a shared secret, not a user): see the controller.
+Route::post('integrations/onu-export/{source}', OnuExportUploadController::class)
+    ->where('source', '[a-z0-9_]+')->middleware('throttle:onu-export-upload')->name('api.integrations.onu-export');
