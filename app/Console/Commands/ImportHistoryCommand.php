@@ -11,12 +11,26 @@ use Illuminate\Console\Command;
     {--incidents= : The incident log (.xlsx), e.g. "INCIDENTS JAN TO SEPT 2026.xlsx"}
     {--tickets= : The ticketing workbook (.xlsx) with its "Ticket Tracker" tab}
     {--technicians=* : Technician list(s) (.xlsx): NAMES, Username, Role, Department, Team, CONTACT, Mail, Type}
-    {--rescore : Only score the imported rows again against the SLA as configured now (after changing the SLA)}')]
+    {--rescore : Only score the imported rows again against the SLA as configured now (after changing the SLA)}
+    {--folder= : Import everything from one folder: incidents.xlsx, tickets.xlsx and technicians*.xlsx (e.g. storage/app/imports)}')]
 #[Description('Load the real history: incidents as outages, tracker tickets as site visits, technicians as accounts (safe to re-run: rows of the same source are replaced)')]
 class ImportHistoryCommand extends Command
 {
     public function handle(HistoryImporter $importer): int
     {
+        if ($folder = $this->option('folder')) {
+            $folder = rtrim(str_replace('\\', '/', $folder), '/');
+            if (! is_dir($folder)) {
+                $this->error("No folder {$folder}.");
+
+                return self::FAILURE;
+            }
+
+            $this->input->setOption('incidents', $this->option('incidents') ?: (is_file("{$folder}/incidents.xlsx") ? "{$folder}/incidents.xlsx" : null));
+            $this->input->setOption('tickets', $this->option('tickets') ?: (is_file("{$folder}/tickets.xlsx") ? "{$folder}/tickets.xlsx" : null));
+            $this->input->setOption('technicians', $this->option('technicians') ?: (glob("{$folder}/technicians*.xlsx") ?: []));
+        }
+
         if ($files = (array) $this->option('technicians')) {
             $r = $importer->technicians(...$files);
             $this->info("Technicians: {$r['people']} people — {$r['created']} accounts created, {$r['updated']} updated.");
