@@ -83,3 +83,12 @@ a.oms-stat:hover { border-color: rgb(217 119 6); }
 .oms-brand-stacked { flex-direction: column; justify-content: center; gap: .5rem; font-size: 1.2rem; white-space: normal; text-align: center; }
 .oms-brand-stacked .oms-brand-icon { height: calc(100% - 1.9rem); }
 @media (max-width: 639px) { .oms-brand:not(.oms-brand-stacked) { font-size: .9rem; } }
+
+/* Investor dashboard: demo data is always marked. */
+.oms-chip-demo { border-radius: .375rem; padding: .1rem .45rem; font-size: .7rem; font-weight: 700; letter-spacing: .03em; background: rgb(254 243 199); color: rgb(146 64 14); border: 1px solid rgb(252 211 77); white-space: nowrap; }
+.dark .oms-chip-demo { background: rgb(217 119 6 / .15); color: rgb(252 211 77); border-color: rgb(217 119 6 / .5); }
+.oms-box-demo { border-radius: .5rem; padding: .75rem 1rem; border: 1px solid rgb(252 211 77); background: rgb(255 251 235); color: rgb(120 53 15); font-size: .875rem; }
+.dark .oms-box-demo { background: rgb(217 119 6 / .1); color: rgb(253 230 138); border-color: rgb(217 119 6 / .4); }
+.oms-row-demo td { background: rgb(255 251 235); }
+.dark .oms-row-demo td { background: rgb(217 119 6 / .08); }
+.oms-target { font-size: .75rem; color: rgb(107 114 128); }
