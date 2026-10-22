@@ -19,6 +19,7 @@ use App\Models\TicketSubcategory;
 use App\Models\User;
 use App\Models\Vertical;
 use App\Models\VisitType;
+use App\Support\Settings;
 use DateTimeInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -220,6 +221,14 @@ class HistoryImporter
         $this->insertVisits($outages, $tickets);
         $counts['imported'] = count($outages);
 
+        // The 72-hour follow-up call is for visits confirmed from now on: without this, a system with no
+        // start date set would queue every imported closed visit for a call at the next scheduler run.
+        $settings = app(Settings::class);
+        $since = $settings->get('ticketing.aftercare_since');
+        if (blank($since) || Carbon::parse($since)->lt(now())) {
+            $settings->set(['ticketing.aftercare_since' => now()->toDateTimeString()]);
+        }
+
         return $counts;
     }
 
@@ -304,7 +313,7 @@ class HistoryImporter
      * @param  list<array<string, mixed>>  $outages
      * @param  array<string, array<string, mixed>>  $tickets  by ticket number
      */
-    public function insertVisits(array $outages, array $tickets): void
+    private function insertVisits(array $outages, array $tickets): void
     {
         foreach (array_chunk($outages, self::CHUNK) as $chunk) {
             DB::transaction(function () use ($chunk, $tickets): void {

@@ -2,38 +2,19 @@
 
 namespace App\Enums;
 
-use Filament\Support\Contracts\HasColor;
 use Filament\Support\Contracts\HasLabel;
 
-/**
- * Where an outage / ticket row came from. Rows raised in the system itself have no source (null).
- * Demo rows are generated to fill months with no real data and are always shown as such.
- */
-enum DataSource: string implements HasColor, HasLabel
+/** Where an outage / site visit row came from: imported history. Rows raised in the system have no source (null). */
+enum DataSource: string implements HasLabel
 {
     case IncidentLog = 'incident_log';
     case TicketTracker = 'ticket_tracker';
-    case Demo = 'demo';
 
     public function getLabel(): string
     {
         return match ($this) {
-            self::IncidentLog => 'Incident log (real)',
-            self::TicketTracker => 'Ticket tracker (real)',
-            self::Demo => 'Demo data',
+            self::IncidentLog => 'Incident log',
+            self::TicketTracker => 'Ticket tracker',
         };
-    }
-
-    public function getColor(): string
-    {
-        return match ($this) {
-            self::IncidentLog, self::TicketTracker => 'success',
-            self::Demo => 'warning',
-        };
-    }
-
-    public function isReal(): bool
-    {
-        return $this !== self::Demo;
     }
 }
