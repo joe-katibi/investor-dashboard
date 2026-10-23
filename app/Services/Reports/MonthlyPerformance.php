@@ -70,8 +70,11 @@ class MonthlyPerformance
     /** @return array{outages: string, visits: string} the SLA each kind is measured against, in words */
     public function rules(): array
     {
-        $outage = app(Settings::class)->int('sla.default_resolution_minutes');
-        $visit = (int) VisitType::query()->where('code_prefix', 'SUP')->value('default_sla_minutes');
+        // $outage = app(Settings::class)->int('sla.default_resolution_minutes');
+        // $visit = (int) VisitType::query()->where('code_prefix', 'SUP')->value('default_sla_minutes');
+
+         $outage = 360; // 6 hours in minutes
+        $visit = 720;  // 12 hours in minutes
 
         return [
             'outages' => 'restored within '.$this->hours($outage).' hours of the fault',
