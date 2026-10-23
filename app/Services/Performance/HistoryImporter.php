@@ -40,6 +40,8 @@ use XMLReader;
  *   tickets()     the hidden "Ticket Tracker" tab of "SFL Ticketing System with Dashboard.xlsx" — one site
  *                 visit per ticket, with the time to complete on the tracker's business-hours clock. Duplicates
  *                 are left out; tickets whose times do not add up ("CHECK TIMES") come in unmeasured.
+ *   serviceDelivery() the "Support SLA Data" tab of the Service Delivery workbook (SD_UG_<year>_YTD.xlsx) — support
+ *                 site visits from 1 January up to where the ticket tracker takes over (run it after tickets()).
  *   technicians() the technician lists — accounts with a random password, role, team and in-house / outsourced.
  *   rescore()     the SLA result of every imported row under the system's current SLA (policies / visit
  *                 types): run after each import, and again whenever the SLA is changed.
@@ -164,45 +166,14 @@ class HistoryImporter
     /** @return array<string, int> */
     public function tickets(string $file): array
     {
-        // The shared-strings table of this workbook alone is several hundred thousand strings.
-        ini_set('memory_limit', '2G');
-        $file = str_replace('\\', '/', $file);
-        $sheet = $this->sheetPath($file, 'Ticket Tracker');
-        $shared = $this->sharedStrings($file);
-
-        $x = new XMLReader;
-        if (! $x->open("zip://{$file}#{$sheet}")) {
-            throw new RuntimeException("Cannot open the Ticket Tracker tab of {$file}.");
-        }
-
-        $rows = [];
-        while ($x->read()) {
-            if ($x->nodeType !== XMLReader::ELEMENT || $x->name !== 'row') {
-                continue;
-            }
-            $row = new SimpleXMLElement($x->readOuterXml());
-            $x->next();
-            $v = [];
-            foreach ($row->c as $c) {
-                $value = isset($c->v) ? (string) $c->v : (isset($c->is) ? (string) $c->is->t : null);
-                if ((string) $c['t'] === 's' && $value !== null) {
-                    $value = $shared[(int) $value] ?? $value;
-                }
-                $v[preg_replace('/\d/', '', (string) $c['r'])] = $value;
-            }
-
-            $number = trim((string) ($v['A'] ?? ''));
-            if ($number !== '' && str_contains($number, '-') && is_numeric($v['J'] ?? null)) {
-                // Only the columns used (the tracker has 40-odd).
-                $rows[] = array_intersect_key($v, array_flip(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'V', 'W', 'X']));
-            }
-        }
-        $x->close();
+        $rows = $this->tabRows($file, 'Ticket Tracker', ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'V', 'W', 'X'],
+            fn (array $v) => str_contains(trim((string) ($v['A'] ?? '')), '-') && is_numeric($v['J'] ?? null));
 
         DB::table('outages')->where('data_source', DataSource::TicketTracker->value)->delete();
 
         $counts = ['rows' => count($rows), 'imported' => 0, 'duplicates' => 0, 'unmeasured' => 0, 'open' => 0];
-        $numbers = [];
+        // Numbers already used by other rows (the Service Delivery workbook reuses Sup- numbers).
+        $numbers = DB::table('outages')->pluck('ticket_number')->mapWithKeys(fn ($n) => [strtolower((string) $n) => true])->all();
         $outages = [];
         $tickets = [];
 
@@ -223,16 +194,115 @@ class HistoryImporter
 
         $this->insertVisits($outages, $tickets);
         $counts['imported'] = count($outages);
+        $this->startAftercareNow();
 
-        // The 72-hour follow-up call is for visits confirmed from now on: without this, a system with no
-        // start date set would queue every imported closed visit for a call at the next scheduler run.
+        return $counts;
+    }
+
+    /**
+     * The "Support SLA Data" tab of the Service Delivery workbook (SD_UG_<year>_YTD.xlsx): support site visits
+     * from 1 January of this year. Left out: visits the ticket tracker already holds — every visit from the
+     * tracker's first full day on (the tracker is complete from there; the workbook is not), and any earlier
+     * one with the same account and time reported — rows marked Duplicate, and exact repeats (same ticket
+     * number, account and time reported). Time to complete = the workbook's elapsed business hours.
+     *
+     * @return array<string, int>
+     */
+    public function serviceDelivery(string $file): array
+    {
+        $rows = $this->tabRows($file, 'Support SLA Data', ['A', 'C', 'D', 'F', 'H', 'L', 'M', 'O', 'P', 'Q', 'R', 'S', 'AA', 'AB'],
+            fn (array $v) => trim((string) ($v['C'] ?? '')) !== '' && is_numeric($v['M'] ?? null));
+
+        DB::table('outages')->where('data_source', DataSource::ServiceDelivery->value)->delete();
+
+        $from = now()->startOfYear();
+        $until = $this->trackerStart();
+        $tracker = DB::table('outages')->join('tickets', 'tickets.outage_id', '=', 'outages.id')
+            ->where('outages.data_source', DataSource::TicketTracker->value)
+            ->get(['tickets.account_number', 'outages.start_time'])
+            ->mapWithKeys(fn ($r) => [strtolower((string) $r->account_number).'|'.Carbon::parse($r->start_time)->format('Y-m-d H:i') => true])->all();
+        // Numbers already used by other rows: a reused Sup- number gets a suffix instead of failing.
+        $numbers = DB::table('outages')->pluck('ticket_number')->mapWithKeys(fn ($n) => [strtolower((string) $n) => true])->all();
+
+        $counts = ['rows' => count($rows), 'imported' => 0, 'before_year' => 0, 'in_tracker' => 0, 'duplicates' => 0, 'repeats' => 0, 'unmeasured' => 0, 'open' => 0];
+        $seen = [];
+        $outages = [];
+        $tickets = [];
+
+        foreach ($rows as $v) {
+            $reported = $this->serialDate($v['M']);
+            $account = strtolower(trim((string) ($v['A'] ?? '')));
+            $status = strtolower(trim((string) ($v['R'] ?? '')));
+
+            if ($reported === null || $reported->lt($from)) {
+                $counts['before_year']++;
+
+                continue;
+            }
+            if (($until && $reported->gte($until)) || isset($tracker[$account.'|'.$reported->format('Y-m-d H:i')])) {
+                $counts['in_tracker']++;
+
+                continue;
+            }
+            if ($status === 'duplicate') {
+                $counts['duplicates']++;
+
+                continue;
+            }
+            $key = strtolower(trim((string) $v['C'])).'|'.$account.'|'.$v['M'];
+            if (isset($seen[$key])) {
+                $counts['repeats']++;
+
+                continue;
+            }
+            $seen[$key] = true;
+
+            // In the tracker's columns: A number, B account, D OLT, E issue, F type, G department, H crew,
+            // I open/closed, J reported, K assigned, L closed, V elapsed business hours, W target, X status.
+            $measured = is_numeric($v['AA'] ?? null) && (float) $v['AA'] >= 0;
+            $visit = $this->visitRow([
+                'A' => trim((string) $v['C']), 'B' => $v['A'] ?? null, 'C' => null, 'D' => $v['D'] ?? null, 'E' => $v['F'] ?? null,
+                'F' => $v['H'] ?? null, 'G' => $v['L'] ?? null, 'H' => $v['O'] ?? null, 'I' => str_starts_with($status, 'closed') ? 'Closed' : 'Open',
+                'J' => $v['M'], 'K' => $v['P'] ?? null, 'L' => $v['S'] ?? null, 'V' => $v['AA'] ?? null, 'W' => $v['AB'] ?? null,
+                // Placeholder: the SLA result is set by rescore() against the system's SLA.
+                'X' => $measured ? 'Met' : '',
+            ], $measured ? 'Met' : '', $numbers, DataSource::ServiceDelivery);
+
+            $visit['ticket']['resolution_notes'] = filled($v['Q'] ?? null) ? Str::limit(trim((string) $v['Q']), 1000, '') : null;
+            $counts['open'] += $visit['outage']['is_closed'] ? 0 : 1;
+            $counts['unmeasured'] += $visit['outage']['elapsed_hours'] === null ? 1 : 0;
+            $outages[] = $visit['outage'];
+            $tickets[$visit['outage']['ticket_number']] = $visit['ticket'];
+        }
+
+        $this->insertVisits($outages, $tickets);
+        $counts['imported'] = count($outages);
+        $this->startAftercareNow();
+
+        return $counts;
+    }
+
+    /** The first full day of the ticket tracker (a day with at least 50 tickets); null when it has none. */
+    private function trackerStart(): ?Carbon
+    {
+        $day = DB::table('outages')->where('data_source', DataSource::TicketTracker->value)
+            ->selectRaw('DATE(start_time) as day, COUNT(*) as n')->groupByRaw('DATE(start_time)')
+            ->havingRaw('COUNT(*) >= 50')->orderBy('day')->value('day');
+
+        return $day ? Carbon::parse($day, config('app.timezone'))->startOfDay() : null;
+    }
+
+    /**
+     * The 72-hour follow-up call is for visits confirmed from now on: without this, a system with no start date
+     * set would queue every imported closed visit for a call at the next scheduler run.
+     */
+    private function startAftercareNow(): void
+    {
         $settings = app(Settings::class);
         $since = $settings->get('ticketing.aftercare_since');
         if (blank($since) || Carbon::parse($since)->lt(now())) {
             $settings->set(['ticketing.aftercare_since' => now()->toDateTimeString()]);
         }
-
-        return $counts;
     }
 
     /**
@@ -242,7 +312,7 @@ class HistoryImporter
      * @param  array<string, true>  $numbers
      * @return array{outage: array<string, mixed>, ticket: array<string, mixed>}
      */
-    private function visitRow(array $v, string $status, array &$numbers): array
+    private function visitRow(array $v, string $status, array &$numbers, DataSource $source = DataSource::TicketTracker): array
     {
         $lookup = $this->lookups();
         $reported = $this->serialDate($v['J']);
@@ -274,8 +344,8 @@ class HistoryImporter
                 'status_id' => $closed ? $lookup['closed'] : $lookup['open'],
                 'is_closed' => $closed,
                 'customers_affected' => 1,
-                'location' => trim((string) ($v['D'] ?? '')) ?: null,
-                'team_id' => $this->crew(trim((string) ($v['H'] ?? ''))),
+                'location' => Str::limit(trim((string) ($v['D'] ?? '')), 250, '') ?: null,
+                'team_id' => $this->crew(Str::limit(trim((string) ($v['H'] ?? '')), 100, '')),
                 'start_time' => $start,
                 'detected_at' => $start,
                 'dispatched_at' => $assigned,
@@ -289,7 +359,7 @@ class HistoryImporter
                     default => SlaState::Breached->value,
                 },
                 'elapsed_hours' => $measured ? round((float) $v['V'], 2) : null,
-                'data_source' => DataSource::TicketTracker->value,
+                'data_source' => $source->value,
                 'created_at' => $start,
                 'updated_at' => $end ?? $start,
             ],
@@ -308,6 +378,7 @@ class HistoryImporter
                 'assigned_at' => $assigned,
                 'completed_at' => $end,
                 'confirmed_at' => $end,
+                'resolution_notes' => null,
             ],
         ];
     }
@@ -465,7 +536,7 @@ class HistoryImporter
         $counts = [];
 
         DB::table('outages')->join('tickets', 'tickets.outage_id', '=', 'outages.id')
-            ->where('outages.data_source', DataSource::TicketTracker->value)
+            ->whereIn('outages.data_source', DataSource::visitSources())
             ->select(['outages.id', 'outages.start_time', 'outages.is_closed', 'outages.elapsed_hours', 'tickets.visit_type_id', 'tickets.subcategory_id'])
             ->chunkById(self::CHUNK, function ($rows) use ($clock, $fallback, $visitTypes, $subcategories, &$counts): void {
                 foreach ($rows as $row) {
@@ -618,6 +689,57 @@ class HistoryImporter
         $x->close();
 
         return $shared;
+    }
+
+    /**
+     * The rows of one tab, streamed (these workbooks are 50–100 MB): only the given columns, as letter => value
+     * with shared strings resolved, and only the rows $keep accepts.
+     *
+     * @param  list<string>  $columns
+     * @param  callable(array<string, ?string>): bool  $keep
+     * @return list<array<string, ?string>>
+     */
+    private function tabRows(string $file, string $tab, array $columns, callable $keep): array
+    {
+        // The shared-strings table of these workbooks alone is several hundred thousand strings.
+        ini_set('memory_limit', '2G');
+        $file = str_replace('\\', '/', $file);
+        $sheet = $this->sheetPath($file, $tab);
+        $shared = $this->sharedStrings($file);
+        $wanted = array_flip($columns);
+
+        $x = new XMLReader;
+        if (! $x->open("zip://{$file}#{$sheet}")) {
+            throw new RuntimeException("Cannot open the “{$tab}” tab of {$file}.");
+        }
+
+        $rows = [];
+        while ($x->read()) {
+            if ($x->nodeType !== XMLReader::ELEMENT || $x->name !== 'row') {
+                continue;
+            }
+            $row = new SimpleXMLElement($x->readOuterXml());
+            $x->next();
+            $v = [];
+            foreach ($row->c as $c) {
+                $column = preg_replace('/\d/', '', (string) $c['r']);
+                if (! isset($wanted[$column])) {
+                    continue;
+                }
+                $value = isset($c->v) ? (string) $c->v : (isset($c->is) ? (string) $c->is->t : null);
+                if ((string) $c['t'] === 's' && $value !== null) {
+                    $value = $shared[(int) $value] ?? $value;
+                }
+                $v[$column] = $value;
+            }
+
+            if ($keep($v)) {
+                $rows[] = $v;
+            }
+        }
+        $x->close();
+
+        return $rows;
     }
 
     /** The zip path of a tab, found by name through the workbook and its relationships. */
