@@ -78,7 +78,7 @@ class MonthlyPerformance
 
         return [
             'outages' => 'restored within '.$this->hours($outage).' hours of the fault',
-            'visits' => 'completed within '.$this->hours($visit).' business hours (07:00–18:00)',
+            'visits' => 'completed within '.$this->hours($visit).' working hours (07:00–18:00)',
         ];
     }
 
