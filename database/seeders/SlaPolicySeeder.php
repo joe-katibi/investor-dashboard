@@ -16,12 +16,12 @@ class SlaPolicySeeder extends Seeder
         $priority = Priority::query()->pluck('id', 'code');
 
         // [name, priority, resolution min, pre-breach min, ack timeout min, escalate after min]
-        // The agreed FTTH service level: restored within 24 hours, whatever the priority.
+        // The agreed FTTH service level: restored within 22 hours, whatever the priority.
         foreach ([
-            ['Critical – 24h', 'critical', 1440, 60, 10, 120],
-            ['High – 24h', 'high', 1440, 60, 15, 240],
-            ['Medium – 24h', 'medium', 1440, 120, 20, null],
-            ['Low – 24h', 'low', 1440, 180, 30, null],
+            ['Critical – 22h', 'critical', 1320, 60, 10, 120],
+            ['High – 22h', 'high', 1320, 60, 15, 240],
+            ['Medium – 22h', 'medium', 1320, 120, 20, null],
+            ['Low – 22h', 'low', 1320, 180, 30, null],
         ] as [$name, $code, $resolution, $preBreach, $ack, $escalation]) {
             // firstOrCreate: policies are edited under SLA Policies and must survive re-seeding on deploy.
             SlaPolicy::query()->firstOrCreate(['name' => $name], [

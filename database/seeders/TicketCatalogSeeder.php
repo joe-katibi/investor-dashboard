@@ -139,11 +139,11 @@ class TicketCatalogSeeder extends Seeder
 
         // [prefix, name, default SLA minutes (null = the ticket setting), description]
         foreach ([
-            // The agreed service level: every visit completed within 24 business hours.
-            ['INS', 'Installation', 1440, 'New customer installation.'],
-            ['WiE', 'Wi-Fi Extender', 1440, 'Extender delivery, survey and configuration.'],
-            ['SUP', 'Support', 1440, 'Fault repair at the customer premises (LOS, bad optical power, faulty ONU, drop cable…).'],
-            ['SHI', 'Shifting', 1440, 'Relocation of the service: in-house or to another address.'],
+            // The agreed service level: every visit completed within 21 business hours.
+            ['INS', 'Installation', 1260, 'New customer installation.'],
+            ['WiE', 'Wi-Fi Extender', 1260, 'Extender delivery, survey and configuration.'],
+            ['SUP', 'Support', 1260, 'Fault repair at the customer premises (LOS, bad optical power, faulty ONU, drop cable…).'],
+            ['SHI', 'Shifting', 1260, 'Relocation of the service: in-house or to another address.'],
         ] as $i => [$prefix, $name, $sla, $description]) {
             VisitType::query()->firstOrCreate(['code_prefix' => $prefix], [
                 'name' => $name, 'default_sla_minutes' => $sla, 'description' => $description, 'requires_evidence' => true, 'sort_order' => $i + 1, 'is_active' => true,
