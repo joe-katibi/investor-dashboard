@@ -10,6 +10,7 @@ enum DataSource: string implements HasLabel
     case IncidentLog = 'incident_log';
     case TicketTracker = 'ticket_tracker';
     case ServiceDelivery = 'service_delivery';
+    case OmsExport = 'oms_export';
 
     public function getLabel(): string
     {
@@ -17,7 +18,14 @@ enum DataSource: string implements HasLabel
             self::IncidentLog => 'Incident log',
             self::TicketTracker => 'Ticket tracker',
             self::ServiceDelivery => 'Service Delivery workbook',
+            self::OmsExport => 'OMS outage export',
         };
+    }
+
+    /** @return list<string> the sources that hold network outages */
+    public static function outageSources(): array
+    {
+        return [self::IncidentLog->value, self::OmsExport->value];
     }
 
     /** @return list<string> the sources that hold site visits */

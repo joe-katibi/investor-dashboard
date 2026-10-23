@@ -161,6 +161,110 @@ class HistoryImporter
         return $counts;
     }
 
+    // ------------------------------------------------------------------ OMS outage export
+
+    /**
+     * Network outages from an OMS outage export (columns: Date Reported, Ticket, Title, Major Type, Outage Type,
+     * Vertical, Priority, OLT/FDT/Slot/Port, Affected Services, Affected Clients, …, Start Time, …, End Time,
+     * Duration, Team, Technician, SLA, RFO / Final Reason, Status). Re-saved copies of such exports may have
+     * rows pushed right where a cell held a comma; the type and the times are found where they landed.
+     * Left out: NOC-rejected / duplicate tickets (not outages) and outages not yet ended (import them again once
+     * closed). Columns added afterwards (e.g. a "corrected" SLA result) are ignored: the SLA result comes from
+     * rescore(), like every other source.
+     *
+     * @return array<string, int>
+     */
+    public function omsExport(string $file): array
+    {
+        $letters = [...range('A', 'Z'), 'AA', 'AB', 'AC', 'AD', 'AE', 'AF'];
+        $rows = $this->tabRows(str_replace('\\', '/', $file), null, $letters,
+            fn (array $v) => (bool) preg_match('/^[A-Z0-9]{2,6}-\d+$/', trim((string) ($v['B'] ?? ''))));
+
+        DB::table('outages')->where('data_source', DataSource::OmsExport->value)->delete();
+
+        $types = OutageType::query()->get()->keyBy(fn (OutageType $t) => strtolower($t->name));
+        $priorities = DB::table('priorities')->pluck('id', 'name')->mapWithKeys(fn ($id, $name) => [strtolower($name) => $id])->all();
+        $ftth = Vertical::query()->where('code', Vertical::FTTH)->value('id');
+        $resolved = OutageStatus::forCode(StatusCode::Resolved)->id;
+        $numbers = DB::table('outages')->pluck('ticket_number')->mapWithKeys(fn ($n) => [strtolower((string) $n) => true])->all();
+        $date = fn ($value) => is_string($value) && preg_match('/^\d{4}-\d\d-\d\d \d\d:\d\d(:\d\d)?$/', trim($value))
+            ? Carbon::parse(trim($value), config('app.timezone')) : null;
+
+        $counts = ['rows' => count($rows), 'imported' => 0, 'rejected' => 0, 'open' => 0, 'unmeasured' => 0, 'shifted' => 0];
+        $insert = [];
+
+        foreach ($rows as $v) {
+            $cells = array_values(array_map(fn ($l) => isset($v[$l]) ? trim((string) $v[$l]) : null, $letters));
+            $at = fn (int $i) => $cells[$i] ?? null;
+
+            // Major type is column D (index 3); a comma in the title pushes it right.
+            $major = 3;
+            while ($major < 8 && ! preg_match('/^(network|core|system) outage$/i', (string) $at($major))) {
+                $major++;
+            }
+            // Start time is column M (12); find the first time from there on.
+            $start = 12;
+            while ($start < 18 && $date($at($start)) === null) {
+                $start++;
+            }
+            $shift = $start - 12;
+            $counts['shifted'] += $shift > 0 || $major > 3 ? 1 : 0;
+
+            $status = (string) $at(23 + $shift);
+            $reason = (string) $at(22 + $shift);
+            if (stripos($status, 'reject') !== false || strcasecmp(trim($reason), 'Duplicate') === 0) {
+                $counts['rejected']++;
+
+                continue;
+            }
+
+            $begin = $date($at($start));
+            $end = $date($at(17 + $shift));
+            if ($begin === null || $end === null) {
+                $counts['open']++;
+
+                continue;
+            }
+
+            $hours = $end->gte($begin) ? round($begin->diffInMinutes($end) / 60, 2) : null;
+            $counts['unmeasured'] += $hours === null ? 1 : 0;
+            $type = $types[strtolower((string) $at($major + 1))] ?? $types['regular outage'] ?? $types->first();
+
+            $insert[] = [
+                'ticket_number' => $this->uniqueNumber((string) $at(1), $numbers),
+                'title' => Str::limit((string) ($at(2) ?: 'Outage'), 250, ''),
+                'description' => filled($reason) ? Str::limit('RFO: '.$reason, 4000, '') : null,
+                'location' => Str::limit((string) $at($major + 4), 250, '') ?: null,
+                'customers_affected' => is_numeric($at(9 + $shift)) ? max(0, (int) $at(9 + $shift)) : 0,
+                'outage_type_id' => $type->id,
+                'major_outage_type_id' => $type->major_outage_type_id,
+                'vertical_id' => $ftth,
+                'priority_id' => $priorities[strtolower((string) $at($major + 3))] ?? null,
+                'status_id' => $resolved,
+                'is_closed' => true,
+                'start_time' => $begin,
+                'detected_at' => $begin,
+                'end_time' => $end,
+                // Resolved either way; an end before the start only leaves the restoration time unmeasured.
+                'restored_at' => $end,
+                'resolved_at' => $end,
+                'sla_state' => SlaState::NotApplicable->value,
+                'elapsed_hours' => $hours,
+                'final_reason' => filled($reason) ? Str::limit($reason, 1000, '') : null,
+                'data_source' => DataSource::OmsExport->value,
+                'created_at' => $begin,
+                'updated_at' => $end,
+            ];
+        }
+
+        foreach (array_chunk($insert, self::CHUNK) as $chunk) {
+            DB::table('outages')->insert($chunk);
+        }
+        $counts['imported'] = count($insert);
+
+        return $counts;
+    }
+
     // ------------------------------------------------------------------ tickets
 
     /** @return array<string, int> */
@@ -505,7 +609,7 @@ class HistoryImporter
         $default = app(Settings::class)->int('sla.default_resolution_minutes');
         $counts = [];
 
-        Outage::query()->where('data_source', DataSource::IncidentLog->value)
+        Outage::query()->whereIn('data_source', DataSource::outageSources())
             ->chunkById(self::CHUNK, function ($outages) use ($sla, $default, &$counts): void {
                 foreach ($outages as $outage) {
                     $policy = $sla->resolvePolicy($outage);
@@ -699,7 +803,7 @@ class HistoryImporter
      * @param  callable(array<string, ?string>): bool  $keep
      * @return list<array<string, ?string>>
      */
-    private function tabRows(string $file, string $tab, array $columns, callable $keep): array
+    private function tabRows(string $file, ?string $tab, array $columns, callable $keep): array
     {
         // The shared-strings table of these workbooks alone is several hundred thousand strings.
         ini_set('memory_limit', '2G');
@@ -710,7 +814,7 @@ class HistoryImporter
 
         $x = new XMLReader;
         if (! $x->open("zip://{$file}#{$sheet}")) {
-            throw new RuntimeException("Cannot open the “{$tab}” tab of {$file}.");
+            throw new RuntimeException('Cannot open the '.($tab === null ? 'first tab' : "“{$tab}” tab").' of '.$file.'.');
         }
 
         $rows = [];
@@ -742,15 +846,19 @@ class HistoryImporter
         return $rows;
     }
 
-    /** The zip path of a tab, found by name through the workbook and its relationships. */
-    private function sheetPath(string $file, string $name): string
+    /** The zip path of a tab, found by name (null = the first tab) through the workbook and its relationships. */
+    private function sheetPath(string $file, ?string $name): string
     {
+        if (! is_file($file)) {
+            throw new RuntimeException("No file {$file}.");
+        }
+
         $workbook = new SimpleXMLElement((string) file_get_contents("zip://{$file}#xl/workbook.xml"));
         $rels = new SimpleXMLElement((string) file_get_contents("zip://{$file}#xl/_rels/workbook.xml.rels"));
         $workbook->registerXPathNamespace('m', 'http://schemas.openxmlformats.org/spreadsheetml/2006/main');
 
         foreach ($workbook->xpath('//m:sheet') as $sheet) {
-            if ((string) $sheet['name'] === $name) {
+            if ($name === null || (string) $sheet['name'] === $name) {
                 $id = (string) $sheet->attributes('http://schemas.openxmlformats.org/officeDocument/2006/relationships')['id'];
                 foreach ($rels->Relationship as $rel) {
                     if ((string) $rel['Id'] === $id) {
